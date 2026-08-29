@@ -8,7 +8,7 @@ The package version is the single release source. Next.js and Vinext inject it a
 
 ## Database migrations
 
-Apply SQL files in filename order. For v7, run `supabase/v7-account-lifecycle.sql` after `v6-account-security.sql`. Verify RLS remains enabled, anonymous grants remain revoked, and `delete_current_user()` is executable only by `authenticated`.
+Apply SQL files in filename order. Run `supabase/v7-account-lifecycle.sql` after `v6-account-security.sql`, then `supabase/v8-production-hardening.sql`. Verify RLS remains enabled, anonymous grants remain revoked, `delete_current_user()` is executable only by `authenticated`, and the `reparc-support-data-retention` cron job is active. Its daily job removes feedback older than 180 days and optional diagnostics older than 30 days; review `cron.job_run_details` after deployment and after any database upgrade.
 
 Before any destructive maintenance, record the exact Supabase project reference and read-only row counts. Never drop RepArc tables for a user reset. Delete the verified auth user and let foreign-key cascades remove account-owned rows; clear `public.kv` only during an explicitly authorized full legacy reset. Re-run counts afterward.
 
@@ -21,6 +21,8 @@ If the hosted database plan does not provide point-in-time recovery, schedule en
 ## Email and domain
 
 Production authentication mail should use a transactional provider or the dedicated `reparcapp@gmail.com` mailbox with a Google App Password—not the normal Google password. The visible From address, SMTP username and authenticated mailbox must agree. For a custom domain, configure and verify SPF, DKIM and DMARC before switching production traffic. Keep Supabase Site URL and redirect allow-list synchronized with every live hostname.
+
+Before public launch, configure Cloudflare Turnstile on the live hostname, set `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in Netlify, enable the matching Turnstile secret in Supabase Auth Bot and Abuse Protection, then test both a valid challenge and an expired challenge. Keep email OTP expiry at 3,600 seconds or less and review Auth rate limits against observed legitimate traffic.
 
 ## Acceptance matrix
 

@@ -4,7 +4,7 @@ A secure, offline-first workout log with evidence-aligned progression, account-o
 
 ## Product capabilities
 
-- Foundation and official three-, four-, or five-day SBS Hypertrophy programming
+- Foundation training and RepArc adaptations of three-, four-, or five-day SBS Hypertrophy programming, with direct attribution and no claimed endorsement
 - Editable, soft-deleted, revisioned workout history
 - Independent histories and training maxes for substitutions
 - Pause/resume calibration and explicit Phase 2 review

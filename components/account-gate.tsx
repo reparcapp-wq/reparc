@@ -7,6 +7,7 @@ import { BrandLockup, RepArcLoader } from "@/components/brand-lockup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TrainingApp } from "@/components/training-app";
+import { TurnstileChallenge } from "@/components/turnstile-challenge";
 import { deleteAccount, loadAccount, requestSignInEmail, signOutAccount, verifySignInCode, type Account } from "@/lib/account-client";
 import { reportDiagnostic } from "@/lib/diagnostics";
 import { clearAccountDeviceData } from "@/lib/training-storage";
@@ -24,6 +25,8 @@ function AuthScreen({ onAuthenticated, installAvailable, installing, onInstall }
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
   const requestCode = async () => {
     const normalized = email.trim().toLowerCase();
@@ -35,10 +38,14 @@ function AuthScreen({ onAuthenticated, installAvailable, installing, onInstall }
       setMessage("Connect to the internet to sign in. Existing device data remains safe.");
       return;
     }
+    if (turnstileSiteKey && !captchaToken) {
+      setMessage("Complete the bot protection check.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
-      await requestSignInEmail(normalized, website);
+      await requestSignInEmail(normalized, website, captchaToken);
       setEmail(normalized);
       setSent(true);
       setMessage("Enter the one-time code from your email.");
@@ -82,7 +89,8 @@ function AuthScreen({ onAuthenticated, installAvailable, installing, onInstall }
                 <label className="mt-7 block" htmlFor="account-email"><span className="eyebrow">Email address</span></label>
                 <Input id="account-email" type="email" inputMode="email" autoComplete="email" autoFocus value={email} onChange={(event) => setEmail(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void requestCode()} placeholder="you@example.com" aria-describedby="auth-message" className="mt-3 h-14 rounded-xl border-white/10 bg-white/[0.055] px-4 text-base text-white" />
                 <label className="sr-only" htmlFor="account-website" aria-hidden="true">Website</label><input id="account-website" name="website" tabIndex={-1} aria-hidden="true" autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} className="hidden" />
-                <Button type="button" onClick={() => void requestCode()} disabled={busy} className="mt-5 h-14 w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{busy ? <RefreshCw className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}{busy ? "Sending…" : "Email my code"}</Button>
+                {turnstileSiteKey && <TurnstileChallenge siteKey={turnstileSiteKey} onTokenChange={setCaptchaToken} />}
+                <Button type="button" onClick={() => void requestCode()} disabled={busy || Boolean(turnstileSiteKey && !captchaToken)} className="mt-5 h-14 w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{busy ? <RefreshCw className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}{busy ? "Sending…" : "Email my code"}</Button>
               </>
             ) : (
               <>

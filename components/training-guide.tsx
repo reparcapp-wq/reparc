@@ -5,6 +5,13 @@ import { Activity, BookOpen, ExternalLink, ShieldCheck, WifiOff } from "lucide-r
 
 const references = [
   {
+    grade: "Program source",
+    title: "Stronger by Science Program Bundle",
+    result: "The official bundle describes a 21-week hypertrophy template split into three seven-week blocks with performance-based load progression.",
+    limitation: "RepArc is an independent adaptation and is not affiliated with, reviewed by or endorsed by Stronger by Science.",
+    href: "https://www.strongerbyscience.com/program-bundle/",
+  },
+  {
     grade: "Strong",
     title: "ACSM resistance-training position stand",
     result: "137 systematic reviews and more than 30,000 participants: consistency, individualization and adequate weekly work matter more than complicated methods.",
@@ -138,8 +145,9 @@ export function TrainingGuide() {
 
         {active === "program" && <GuideSection eyebrow="02 / Program" title="Foundation, then autoregulation">
           <p><strong className="text-stone-200">Phase 1 · Foundation:</strong> build consistent technique and usable performance history. You can move to Phase 2 after reviewing the transition; there is no arbitrary calendar lock.</p>
-          <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a 21-week, three-block progression. Programmed lifts use a training max and a final performance set. Weeks 7, 14 and 21 reduce loading.</p>
+          <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using a training max and final performance set. Weeks 7, 14 and 21 reduce loading.</p>
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions.</p>
+          <p className="text-xs text-stone-500">RepArc is independent and is not affiliated with, reviewed by or endorsed by Stronger by Science. It does not redistribute the original spreadsheets; the official free bundle is linked in Evidence.</p>
         </GuideSection>}
 
         {active === "logging" && <GuideSection eyebrow="03 / Logging" title="Sets, RIR and recommendations">
@@ -166,7 +174,7 @@ export function TrainingGuide() {
         </GuideSection>}
 
         {active === "evidence" && <section className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-7">
-          <div className="flex items-start gap-3"><Activity className="mt-1 size-5 shrink-0 text-amber-300" /><div><p className="eyebrow text-amber-300">07 / Evidence</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Evidence library</h2><p className="mt-2 text-xs leading-5 text-stone-500">Last reviewed 29 August 2026. Ratings describe confidence for this app decision, not the quality of every outcome in a paper.</p></div></div>
+          <div className="flex items-start gap-3"><Activity className="mt-1 size-5 shrink-0 text-amber-300" /><div><p className="eyebrow text-amber-300">07 / Evidence</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Evidence library</h2><p className="mt-2 text-xs leading-5 text-stone-500">Last reviewed 30 August 2026. Ratings describe confidence for this app decision, not the quality of every outcome in a paper.</p></div></div>
           <details className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4"><summary className="cursor-pointer text-sm font-semibold text-stone-200">Show all {references.length} reviewed sources</summary><div className="mt-4 grid gap-3 sm:grid-cols-2">{references.map((reference) => <article key={reference.title} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><span className="rounded-full bg-amber-300/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-wider text-amber-200">{reference.grade}</span><h3 className="mt-3 font-semibold text-stone-100">{reference.title}</h3><p className="mt-2 text-xs leading-5 text-stone-400">{reference.result}</p><p className="mt-2 text-[11px] leading-5 text-stone-600"><strong className="text-stone-500">Limit:</strong> {reference.limitation}</p><a href={reference.href} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-amber-300 hover:text-amber-200">Open source <ExternalLink className="size-3.5" /><span className="sr-only"> for {reference.title}</span></a></article>)}</div></details>
         </section>}
       </div>

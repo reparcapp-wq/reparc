@@ -52,8 +52,8 @@ async function jsonRequest(path: string, body?: unknown, method = "POST") {
   return payload;
 }
 
-export async function requestSignInEmail(email: string, website = "") {
-  await jsonRequest("/api/auth/request", { email, website });
+export async function requestSignInEmail(email: string, website = "", captchaToken = "") {
+  await jsonRequest("/api/auth/request", { email, website, captchaToken });
 }
 
 export async function verifySignInCode(email: string, token: string) {

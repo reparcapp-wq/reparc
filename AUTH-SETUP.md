@@ -1,4 +1,4 @@
-# One-time Supabase account setup for v6
+# Supabase account setup
 
 Complete these steps before deploying v6.
 
@@ -35,7 +35,17 @@ Open **Authentication → Email Templates → Magic Link** and use a template th
 
 Email authentication and automatic user creation must be enabled. Supabase rate-limits repeated requests by default.
 
-## 4. Verify before deleting legacy configuration
+## 4. Enable bot protection before public launch
+
+Create a Cloudflare Turnstile widget for every production hostname. Add its site key to Netlify as `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. In Supabase open **Authentication -> Bot and Abuse Protection**, enable CAPTCHA, choose Turnstile, and enter the matching secret key. Configure both sides in the same release: enabling only Supabase will block sign-in, while adding only the site key will display a challenge Supabase does not enforce.
+
+Never place the Turnstile secret in Netlify public variables or source control.
+
+## 5. Apply retention and account lifecycle migrations
+
+Run `supabase/v7-account-lifecycle.sql`, followed by `supabase/v8-production-hardening.sql`. The latter schedules daily cleanup of feedback older than 180 days and optional diagnostics older than 30 days.
+
+## 6. Verify before deleting legacy configuration
 
 1. Deploy v6.
 2. Sign in on the device containing the current v5 data.
