@@ -51,6 +51,7 @@
   --sidebar-accent-foreground: #171717;
   --sidebar-border: #e5e5e5;
   --sidebar-ring: #a1a1a1;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -94,7 +95,7 @@
     "Liberation Mono", "Courier New", monospace;
 }
 
-:root {
+.dark {
   --background: #0b0d0c;
   --foreground: #f5f3ef;
   --card: #121512;
@@ -126,19 +127,37 @@
 }
 
 html {
-  background: #0b0d0c;
+  background: var(--background);
   scroll-behavior: smooth;
   scroll-padding-top: 6rem;
 }
 
 body {
   margin: 0;
-  background: #0b0d0c;
+  background: var(--background);
   color: var(--foreground);
   font-family: "Avenir Next", Avenir, "Segoe UI", Helvetica, Arial, sans-serif;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
+
+/* RepArc originally shipped as a dark-only interface. These mappings keep the
+   established component language while allowing the user-selected light theme
+   to remain coherent until every legacy utility is expressed as a token. */
+html.light [class*="bg-[#0b0d0c]"] { background-color: rgb(247 245 240 / 0.96) !important; }
+html.light [class*="bg-[#121512]"] { background-color: #ffffff !important; }
+html.light [class*="bg-[#171a17]"] { background-color: rgb(255 255 255 / 0.97) !important; }
+html.light [class*="bg-white/"] { background-color: rgb(23 23 23 / 0.045) !important; }
+html.light [class*="bg-black/"] { background-color: rgb(23 23 23 / 0.055) !important; }
+html.light [class*="border-white/"] { border-color: rgb(23 23 23 / 0.13) !important; }
+html.light [class~="text-stone-100"],
+html.light [class~="text-stone-200"],
+html.light [class~="text-stone-300"],
+html.light [class~="text-white"] { color: #1c211d !important; }
+html.light [class~="text-stone-400"] { color: #4f5750 !important; }
+html.light [class~="text-stone-500"] { color: #626b63 !important; }
+html.light [class~="text-stone-600"] { color: #747c75 !important; }
+html.light [class*="hover:bg-white/"]:hover { background-color: rgb(23 23 23 / 0.08) !important; }
 
 @property --progress {
   syntax: "<angle>";

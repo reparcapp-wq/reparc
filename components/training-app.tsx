@@ -5,6 +5,8 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
+  BellRing,
+  ClipboardCheck,
   Check,
   CalendarCheck,
   ChevronDown,
@@ -17,6 +19,8 @@ import {
   History,
   LockOpen,
   Mars,
+  Monitor,
+  Moon,
   Minus,
   Plus,
   Pause,
@@ -30,12 +34,17 @@ import {
   UserRound,
   Venus,
   ShieldAlert,
+  Sun,
+  TrendingUp,
   X,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { BrandLockup, RepArcLoader } from "@/components/brand-lockup";
 import { Button } from "@/components/ui/button";
 import { SettingsTools } from "@/components/settings-tools";
 import { exerciseGuidance } from "@/lib/exercise-guidance";
+import { nextSessionAdjustment, nextSetAdjustment, type LoadAdjustment } from "@/lib/autoregulation";
+import { buildDailyReport } from "@/lib/daily-report";
 import { TrainingGuide } from "@/components/training-guide";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -47,7 +56,6 @@ import {
   activeSessions,
   activeWeighIns,
   blankEntries,
-  bumpBy,
   convertWeight,
   emptyData,
   estimatedOneRepMax,
@@ -55,7 +63,6 @@ import {
   exerciseKey,
   exerciseName,
   isFilledSet,
-  isLowerBodyExercise,
   isoDate,
   numeric,
   prettyDate,
@@ -76,6 +83,7 @@ import {
   type Profile,
   type ProgramId,
   type ProgramTrack,
+  type Readiness,
   type Session,
   type SetEntry,
   type TrainingData,
@@ -102,7 +110,6 @@ import type { PwaLifecycle } from "@/hooks/use-pwa";
 type Stage = "loading" | "name" | "profile" | "app";
 type SyncState = "loading" | "saving" | "synced" | "pending" | "local";
 type View = "train" | "progress" | "settings" | "guide";
-type Readiness = "normal" | "low" | "sore" | "symptoms" | "pain";
 type RestTimer = {
   exerciseId: string;
   exerciseName: string;
@@ -111,6 +118,7 @@ type RestTimer = {
   remainingSeconds: number;
 };
 type AlertPermission = NotificationPermission | "unsupported";
+type RestAlertLevel = "quiet" | "normal" | "strong";
 
 const today = () => isoDate();
 
@@ -125,6 +133,40 @@ const emptySet = (): SetEntry => ({ w: "", r: "", rir: "" });
 
 const formatTimer = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
+function RestTimerPanel({ timer, remaining, permission, className = "", onClose, onAdd, onEnable }: {
+  timer: RestTimer;
+  remaining: number;
+  permission: AlertPermission;
+  className?: string;
+  onClose: () => void;
+  onAdd: () => void;
+  onEnable: () => void;
+}) {
+  const complete = remaining === 0;
+  return (
+    <aside className={`motion-rest overflow-hidden rounded-[1.35rem] border p-4 shadow-xl backdrop-blur-xl ${complete ? "border-amber-300 bg-amber-300 text-[#0b0d0c]" : "border-white/15 bg-[#171a17]/95 text-stone-100"} ${className}`} aria-label={`Rest timer for ${timer.exerciseName}`}>
+      <div className="flex items-center gap-3">
+        <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${complete ? "bg-black/10" : "bg-amber-300 text-[#0b0d0c]"}`}><Timer className="size-5" /></div>
+        <div className="min-w-0 flex-1">
+          <p className={`eyebrow ${complete ? "text-black/60" : "text-amber-300"}`}>{complete ? "Rest complete" : "Recover for your next set"}</p>
+          <p className="mt-1 truncate text-sm font-semibold">{timer.exerciseName}</p>
+        </div>
+        <time className="font-mono text-3xl font-semibold tracking-[-0.06em]" aria-label={`${remaining} seconds remaining`}>{formatTimer(remaining)}</time>
+        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close rest timer" className={`size-8 rounded-lg ${complete ? "text-black/60 hover:bg-black/10 hover:text-black" : "text-stone-500 hover:bg-white/10 hover:text-white"}`}><X className="size-4" /></Button>
+      </div>
+      {!complete && <Progress value={Math.min(100, ((timer.durationSeconds - remaining) / timer.durationSeconds) * 100)} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />}
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <p className={`text-[11px] ${complete ? "text-black/60" : "text-stone-500"}`}>{complete ? "Continue when your technique and breathing are ready." : permission === "granted" ? "Background alerts enabled" : "Enable alerts before switching apps"}</p>
+        <div className="flex shrink-0 gap-1">
+          {!complete && permission === "default" && <Button type="button" variant="ghost" onClick={onEnable} className="h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Enable</Button>}
+          {!complete && <Button type="button" variant="outline" onClick={onAdd} className="h-8 rounded-lg border-white/10 bg-white/[0.04] px-2 text-[11px] text-stone-300"><Plus className="size-3" />30 sec</Button>}
+          <Button type="button" onClick={onClose} className={`h-8 rounded-lg px-3 text-[11px] font-bold ${complete ? "bg-[#0b0d0c] text-amber-200 hover:bg-black" : "bg-white/10 text-stone-200 hover:bg-white/15"}`}>{complete ? "Next set" : "Skip"}</Button>
+        </div>
+      </div>
+    </aside>
+  );
+}
 
 const sessionEntriesForDay = (
   day: TrainingDay,
@@ -534,7 +576,7 @@ function ProgressView({
   onUpdate: (data: TrainingData, message?: string) => Promise<boolean>;
   onEditSession: (session: Session) => void;
 }) {
-  const [range, setRange] = useState<HistoryRange>("week");
+  const [range, setRange] = useState<HistoryRange>("day");
   const [weighDate, setWeighDate] = useState(today);
   const [weighValue, setWeighValue] = useState("");
   const [message, setMessage] = useState("");
@@ -736,6 +778,7 @@ function ProgressView({
             <div className="mt-5 space-y-3">
               {grouped.map(([key, sessions]) => {
                 const keys = [...new Set(sessions.flatMap((session) => Object.keys(session.entries)))];
+                const dailyReport = range === "day" ? buildDailyReport(data, key) : null;
                 const sets = sessions.reduce((sum, session) => sum + Object.entries(session.entries).reduce(
                   (inner, [exerciseKeyValue, entries]) => inner + entries.filter((entry) => isFilledSet(entry, exerciseFromKey(exerciseKeyValue))).length,
                   0,
@@ -746,6 +789,37 @@ function ProgressView({
                       <h3 className="font-semibold">{bucketLabel(key)}</h3>
                       <span className="font-mono text-[10px] text-stone-600">{sessions.length} session{sessions.length === 1 ? "" : "s"} · {sets} sets</span>
                     </header>
+                    {dailyReport && (
+                      <section className="border-b border-white/10 bg-white/[0.02] px-4 py-5 sm:px-5" aria-label={`Daily report for ${bucketLabel(key)}`}>
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="max-w-2xl">
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-300/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-300"><ClipboardCheck className="size-3.5" />{dailyReport.label}</span>
+                            <h4 className="mt-3 text-lg font-semibold">{dailyReport.headline}</h4>
+                            <p className="mt-1 text-xs leading-5 text-stone-500">{dailyReport.summary}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 font-mono text-[10px] uppercase text-stone-500">{dailyReport.confidence} confidence</span>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                          {[
+                            ["Completion", `${dailyReport.completionPercent}%`],
+                            ["Total reps", String(dailyReport.totalReps)],
+                            ["Avg RIR", dailyReport.averageRir === null ? "Not logged" : dailyReport.averageRir.toFixed(1)],
+                            ["RIR coverage", `${dailyReport.rirCoveragePercent}%`],
+                            ["Loaded volume", `${Math.round(dailyReport.loadedVolume).toLocaleString()} ${profile.unit}`],
+                            ["Session effort", dailyReport.averageSessionRpe === null ? "Not logged" : `${dailyReport.averageSessionRpe.toFixed(1)} / 10`],
+                            ...(dailyReport.totalDurationSeconds === null ? [] : [["Duration", `${Math.round(dailyReport.totalDurationSeconds / 60)} min`]]),
+                          ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
+                        </div>
+                        {!!dailyReport.exercises.length && <div className="mt-4 space-y-2">{dailyReport.exercises.map((exercise) => exercise.recommendation && (
+                          <div key={exercise.key} className="rounded-xl border border-white/[0.07] bg-black/15 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{exercise.name}</p><span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${exercise.recommendation.action === "increase" ? "bg-emerald-300/10 text-emerald-300" : exercise.recommendation.action === "decrease" || exercise.recommendation.action === "stop" ? "bg-red-300/10 text-red-300" : "bg-white/[0.07] text-stone-400"}`}>{exercise.recommendation.action}{exercise.recommendation.nextLoad !== null ? ` · ${exercise.recommendation.nextLoad} ${profile.unit}` : ""}</span></div>
+                            <p className="mt-1 text-[11px] leading-4 text-stone-500">{exercise.recommendation.reason}</p>
+                            <p className="mt-1 font-mono text-[9px] text-stone-600">Based on {exercise.recommendation.evidence.join(" · ")} · {exercise.recommendation.confidence} confidence</p>
+                          </div>
+                        ))}</div>}
+                        <p className="mt-3 text-[10px] leading-4 text-stone-600">This report is descriptive, not a readiness score or medical assessment. RepArc reduces confidence when planned sets or RIR are missing.</p>
+                      </section>
+                    )}
                     <div>
                       {keys.map((exerciseKeyValue) => {
                         const points = (series[exerciseKeyValue] ?? []).map((point) => point.value).slice(-12);
@@ -811,6 +885,9 @@ function SettingsView({
   onSignOut,
   onDeleteAccount,
   onSwitch,
+  restAlertLevel,
+  onRestAlertLevelChange,
+  onTestRestAlert,
 }: {
   account: Account;
   name: string;
@@ -821,14 +898,18 @@ function SettingsView({
   onSignOut: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
   onSwitch: () => void;
+  restAlertLevel: RestAlertLevel;
+  onRestAlertLevelChange: (level: RestAlertLevel) => void;
+  onTestRestAlert: () => void;
 }) {
+  const { theme, setTheme } = useTheme();
   const profile = data.profile!;
   const [bodyweight, setBodyweight] = useState(String(profile.bodyweight));
   const [message, setMessage] = useState("");
   const [showPhaseReview, setShowPhaseReview] = useState(false);
   const [reviewMaxes, setReviewMaxes] = useState<Record<string, string>>({});
   const [draftWeekdays, setDraftWeekdays] = useState(data.program.preferredWeekdays);
-  const [settingsSection, setSettingsSection] = useState<"overview" | "program" | "schedule" | "profile" | "personalization" | "data">("overview");
+  const [settingsSection, setSettingsSection] = useState<"overview" | "program" | "schedule" | "profile" | "personalization" | "experience" | "data">("overview");
   const track = profile.programTrack;
   const phaseTwoExercises = phaseTwoProgrammedExercises(track);
   const confidence = phase2DataConfidence(data, track);
@@ -986,13 +1067,14 @@ function SettingsView({
       </div>
 
       <nav className="mt-6 flex gap-2 overflow-x-auto pb-2" aria-label="Setup sections">
-        {([['overview','Overview'],['program','Program'],['schedule','Schedule'],['profile','Profile'],['personalization','Personalize'],['data','Data & account']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={settingsSection === value} onClick={() => setSettingsSection(value)} className={`min-h-10 shrink-0 rounded-full border px-3 text-xs transition-colors ${settingsSection === value ? "border-amber-300 bg-amber-300 font-bold text-[#0b0d0c]" : "border-white/10 bg-white/[0.035] text-stone-400 hover:border-white/20 hover:text-white"}`}>{label}</button>)}
+        {([['overview','Overview'],['program','Program'],['schedule','Schedule'],['profile','Profile'],['personalization','Personalize'],['experience','Experience'],['data','Data & account']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={settingsSection === value} onClick={() => setSettingsSection(value)} className={`min-h-10 shrink-0 rounded-full border px-3 text-xs transition-colors ${settingsSection === value ? "border-amber-300 bg-amber-300 font-bold text-[#0b0d0c]" : "border-white/10 bg-white/[0.035] text-stone-400 hover:border-white/20 hover:text-white"}`}>{label}</button>)}
       </nav>
 
       {settingsSection === "overview" && <div className="settings-topic mt-4 grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={() => setSettingsSection("program")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Program</p><p className="mt-2 font-semibold">{track === "women" ? "Women’s" : "Current"} · {PROGRAMS[data.program.activeId].name}</p><p className="mt-2 text-xs text-stone-500">{data.program.activeId === "phase2" ? `Week ${data.program.week} · Block ${Math.ceil(data.program.week / 7)}` : "Foundation"}</p></button>
         <button type="button" onClick={() => setSettingsSection("schedule")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Schedule</p><p className="mt-2 font-semibold">{data.program.frequency} training days</p><p className="mt-2 text-xs text-stone-500">{data.program.preferredWeekdays.map((day) => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][day]).join(" · ")}</p></button>
         <button type="button" onClick={() => setSettingsSection("profile")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Profile</p><p className="mt-2 font-semibold">{name} · {profile.bodyweight} {profile.unit}</p><p className="mt-2 text-xs text-stone-500">{LEVELS.find((option) => option.id === profile.level)?.label} · {profile.weightTrackingEnabled ? "Weigh-ins shown" : "Weigh-ins hidden"}</p></button>
+        <button type="button" onClick={() => setSettingsSection("experience")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Experience</p><p className="mt-2 font-semibold">Appearance and rest alerts</p><p className="mt-2 text-xs text-stone-500">{theme === "system" ? "System theme" : theme ? `${theme[0].toUpperCase()}${theme.slice(1)} theme` : "Theme"} · {restAlertLevel} alert</p></button>
         <button type="button" onClick={() => setSettingsSection("data")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Data & account</p><p className="mt-2 font-semibold">Cloud, backups and device</p><p className="mt-2 text-xs text-stone-500">Export, restore, updates, privacy and sign-out</p></button>
       </div>}
 
@@ -1130,6 +1212,25 @@ function SettingsView({
         </article>
         }
 
+        {settingsSection === "experience" && <>
+          <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
+            <p className="eyebrow text-amber-300">Appearance</p>
+            <h2 className="mt-2 text-xl font-semibold">Use the display that fits your environment</h2>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {([['system','System',Monitor],['light','Light',Sun],['dark','Dark',Moon]] as const).map(([value, label, Icon]) => <Button key={value} type="button" variant="outline" aria-pressed={theme === value} data-selected={theme === value} onClick={() => setTheme(value)} className="selection-button min-h-12 justify-start rounded-xl border-white/10"><Icon className="size-4" />{label}</Button>)}
+            </div>
+          </article>
+          <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
+            <p className="eyebrow text-amber-300">Rest alert</p>
+            <h2 className="mt-2 text-xl font-semibold">Choose how strongly RepArc gets your attention</h2>
+            <p className="mt-2 text-xs leading-5 text-stone-500">Alerts use sound, vibration where supported, and a system notification when the app is in the background. Device silent mode and browser permissions still take priority.</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {([['quiet','Quiet'],['normal','Normal'],['strong','Strong']] as const).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={restAlertLevel === value} data-selected={restAlertLevel === value} onClick={() => onRestAlertLevelChange(value)} className="selection-button min-h-12 justify-start rounded-xl border-white/10"><BellRing className="size-4" />{label}</Button>)}
+            </div>
+            <Button type="button" variant="ghost" onClick={onTestRestAlert} className="mt-3 h-10 rounded-xl text-xs text-amber-300 hover:bg-white/10 hover:text-amber-200"><Play className="size-3.5" />Test alert</Button>
+          </article>
+        </>}
+
         {settingsSection === "data" && <>
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
           <div className="flex items-center gap-3">
@@ -1151,7 +1252,7 @@ function SettingsView({
   );
 }
 
-type Suggestion = { value: number | null; tag: "up" | "down" | "hold" | "bodyweight" | "estimate"; reason: string };
+type Suggestion = { value: number | null; tag: "up" | "down" | "hold" | "bodyweight" | "estimate"; reason: string; confidence?: LoadAdjustment["confidence"] };
 
 export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { account: Account; onSignOut: () => Promise<void>; onDeleteAccount: () => Promise<void>; pwa: PwaLifecycle }) {
   const [stage, setStage] = useState<Stage>("loading");
@@ -1167,14 +1268,22 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [view, setView] = useState<View>("train");
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
+  const [sessionRpe, setSessionRpe] = useState<number | null>(null);
+  const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [activeDate, setActiveDate] = useState(today);
   const [restTimer, setRestTimer] = useState<RestTimer | null>(null);
+  const [restAlertLevel, setRestAlertLevel] = useState<RestAlertLevel>(() => {
+    if (typeof window === "undefined") return "normal";
+    const stored = window.localStorage.getItem("reparc-rest-alert-level");
+    return stored === "quiet" || stored === "strong" ? stored : "normal";
+  });
   const [alertPermission, setAlertPermission] = useState<AlertPermission>(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
   const pendingRestSetsRef = useRef(new Set<string>());
   const audioContextRef = useRef<AudioContext | null>(null);
   const alertedRestEndRef = useRef<number | null>(null);
+  const restoredTimerKeyRef = useRef<string | null>(null);
   const syncAttemptRef = useRef(false);
 
   const selectScheduledDay = (programId: ProgramId, frequency: TrainingFrequency, preferredWeekdays: number[], selectedProfile?: Profile | null, date = today()) => {
@@ -1186,6 +1295,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setRestTimer(null);
     setReadiness(null);
     setReadinessOpen(false);
+    setSessionRpe(null);
+    setSessionStartedAt(null);
     setActiveExerciseIndex(0);
     setDayId(match?.id ?? null);
   };
@@ -1229,7 +1340,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      const currentTime = performance.now();
+      const currentTime = Date.now();
       setRestTimer((current) => {
         if (!current || current.remainingSeconds <= 0) return current;
         const remainingSeconds = Math.max(0, Math.ceil((current.endsAt - currentTime) / 1000));
@@ -1238,6 +1349,32 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     }, 250);
     return () => window.clearInterval(interval);
   }, []);
+
+  const restTimerStorageKey = name ? `reparc-rest-timer:${slugify(account.id)}:${slugify(name)}` : null;
+
+  useEffect(() => {
+    window.localStorage.setItem("reparc-rest-alert-level", restAlertLevel);
+  }, [restAlertLevel]);
+
+  useEffect(() => {
+    if (!restTimerStorageKey || stage !== "app" || restoredTimerKeyRef.current === restTimerStorageKey) return;
+    restoredTimerKeyRef.current = restTimerStorageKey;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(restTimerStorageKey) ?? "null") as RestTimer | null;
+      if (!stored || !Number.isFinite(stored.endsAt) || Date.now() - stored.endsAt > 10 * 60_000) return;
+      const remainingSeconds = Math.max(0, Math.ceil((stored.endsAt - Date.now()) / 1000));
+      const restore = window.setTimeout(() => setRestTimer({ ...stored, remainingSeconds }), 0);
+      return () => window.clearTimeout(restore);
+    } catch {
+      window.localStorage.removeItem(restTimerStorageKey);
+    }
+  }, [restTimerStorageKey, stage]);
+
+  useEffect(() => {
+    if (!restTimerStorageKey || stage !== "app") return;
+    if (restTimer) window.localStorage.setItem(restTimerStorageKey, JSON.stringify(restTimer));
+    else window.localStorage.removeItem(restTimerStorageKey);
+  }, [restTimer, restTimerStorageKey, stage]);
 
   const restRemaining = restTimer?.remainingSeconds ?? 0;
   const restExerciseId = restTimer?.exerciseId;
@@ -1258,13 +1395,15 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (!context) return;
     if (context.state === "suspended") void context.resume();
     const start = context.currentTime;
-    [0, 0.18].forEach((offset, index) => {
+    const repeats = restAlertLevel === "strong" ? 3 : restAlertLevel === "quiet" ? 1 : 2;
+    const peak = restAlertLevel === "strong" ? 0.32 : restAlertLevel === "quiet" ? 0.08 : 0.2;
+    Array.from({ length: repeats }, (_, index) => index * 0.22).forEach((offset, index) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.type = "sine";
       oscillator.frequency.value = index === 0 ? 740 : 988;
       gain.gain.setValueAtTime(0.0001, start + offset);
-      gain.gain.exponentialRampToValueAtTime(0.2, start + offset + 0.025);
+      gain.gain.exponentialRampToValueAtTime(peak, start + offset + 0.025);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.16);
       oscillator.connect(gain);
       gain.connect(context.destination);
@@ -1273,18 +1412,33 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     });
   };
 
+  const showRestNotification = useCallback(async (exerciseNameValue: string, tag: string) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted" || !("serviceWorker" in navigator)) return;
+    const registration = await navigator.serviceWorker.ready;
+    await registration.showNotification("Rest complete", {
+      body: `${exerciseNameValue} — ready for your next set.`,
+      tag,
+      renotify: true,
+      requireInteraction: restAlertLevel === "strong",
+      data: { url: "/" },
+      vibrate: restAlertLevel === "strong" ? [250, 100, 250, 100, 250] : restAlertLevel === "quiet" ? [120] : [180, 90, 180],
+    } as NotificationOptions & { vibrate: number[] });
+  }, [restAlertLevel]);
+
+  const triggerRestAlert = useCallback((exerciseNameValue: string, tag = `rest-test-${Date.now()}`) => {
+    prepareChime();
+    playChime();
+    navigator.vibrate?.(restAlertLevel === "strong" ? [250, 100, 250, 100, 250] : restAlertLevel === "quiet" ? [120] : [180, 90, 180]);
+    if (document.visibilityState !== "visible") void showRestNotification(exerciseNameValue, tag);
+  // Audio helpers intentionally use the latest alert setting from this render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restAlertLevel, showRestNotification]);
+
   useEffect(() => {
     if (!restExerciseId || !restEndsAt || restRemaining !== 0 || alertedRestEndRef.current === restEndsAt) return;
     alertedRestEndRef.current = restEndsAt;
-    navigator.vibrate?.([180, 90, 180]);
-    playChime();
-    if (document.visibilityState !== "visible" && typeof Notification !== "undefined" && Notification.permission === "granted") {
-      new Notification("Rest complete", {
-        body: `${restExerciseName ?? "Exercise"} — ready for your next set.`,
-        tag: `rest-${restEndsAt}`,
-      });
-    }
-  }, [restEndsAt, restExerciseId, restExerciseName, restRemaining]);
+    triggerRestAlert(restExerciseName ?? "Exercise", `rest-${restEndsAt}`);
+  }, [restEndsAt, restExerciseId, restExerciseName, restRemaining, triggerRestAlert]);
 
   const attemptCloudSync = useCallback(async (announce = false) => {
     if (!name || stage !== "app" || syncAttemptRef.current) return;
@@ -1462,35 +1616,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const history = historyFor(key);
     const last = history.at(-1);
     if (last) {
-      const completed = last.entries[key].filter((entry) => isFilledSet(entry, exercise));
-      const top = completed.reduce(
-        (max, entry) => Math.max(max, convertWeight(numeric(entry.w), last.unit, profile.unit)),
-        0,
-      );
-      const reps = completed.map((entry) => numeric(entry.r));
-      const rir = completed.filter((entry) => entry.rir !== "").map((entry) => numeric(entry.rir));
-      const averageRir = rir.length ? rir.reduce((sum, value) => sum + value, 0) / rir.length : null;
-      const increment = bumpBy(isLowerBodyExercise(exercise), profile.unit);
-      const allSets = completed.length >= exercise.sets;
-      const allTop = allSets && reps.every((value) => value >= exercise.repHigh);
-      const anyLow = reps.some((value) => value < exercise.repLow);
-      const pureBodyweight = exercise.bodyweight && top === 0;
-
-      if (anyLow && averageRir !== null && averageRir <= 1) {
-        return { value: Math.max(0, top - increment), tag: "down", reason: "Below range at high effort. Back off once." };
-      }
-      if (anyLow) {
-        return pureBodyweight
-          ? { value: null, tag: "bodyweight", reason: "Stay at bodyweight and build the reps." }
-          : { value: top, tag: "hold", reason: "Keep the load and build the reps." };
-      }
-      if (allTop) return { value: top + increment, tag: "up", reason: `You hit ${exercise.repHigh} on every set.` };
-      if (averageRir !== null && averageRir >= 3) {
-        return { value: top + increment, tag: "up", reason: `Average RIR was ${averageRir.toFixed(1)} — time to add load.` };
-      }
-      return pureBodyweight
-        ? { value: null, tag: "bodyweight", reason: `Aim for ${exercise.repHigh} reps with 1–2 RIR.` }
-        : { value: top, tag: "hold", reason: `Aim for ${exercise.repHigh} reps with 1–2 RIR.` };
+      const normalizedEntries = last.entries[key].map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
+      const adjustment = nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness });
+      if (adjustment) return {
+        value: adjustment.nextLoad,
+        tag: exercise.bodyweight && adjustment.nextLoad === null ? "bodyweight" : adjustment.action === "increase" ? "up" : adjustment.action === "decrease" || adjustment.action === "stop" ? "down" : "hold",
+        reason: adjustment.reason,
+        confidence: adjustment.confidence,
+      };
     }
 
     if (exercise.bodyweight) return { value: null, tag: "bodyweight", reason: "Start with bodyweight. Add load after the top of the range." };
@@ -1519,16 +1652,18 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const startRestTimer = (exercise: Exercise) => {
     prepareChime();
     setAlertPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
-    window.requestAnimationFrame((startedAt) => {
-      setRestTimer({
-        exerciseId: exercise.id,
-        exerciseName: data.swaps[exercise.id] ?? exercise.name,
-        durationSeconds: exercise.restSeconds,
-        endsAt: startedAt + exercise.restSeconds * 1000,
-        remainingSeconds: exercise.restSeconds,
-      });
+    const startedAt = new Date().valueOf();
+    setRestTimer({
+      exerciseId: exercise.id,
+      exerciseName: data.swaps[exercise.id] ?? exercise.name,
+      durationSeconds: exercise.restSeconds,
+      endsAt: startedAt + exercise.restSeconds * 1000,
+      remainingSeconds: exercise.restSeconds,
     });
   };
+
+  const closeRestTimer = () => setRestTimer(null);
+  const addRestTime = () => setRestTimer((current) => current ? { ...current, durationSeconds: current.durationSeconds + 30, endsAt: current.endsAt + 30_000, remainingSeconds: current.remainingSeconds + 30 } : null);
 
   const finishSet = (key: string, index: number) => {
     if (!draftKey) return;
@@ -1556,6 +1691,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (field === "rir" && value !== "" && (!/^\d{0,2}(?:\.\d)?$/.test(value) || Number(value) > 10)) return;
     if (field === "w" && value !== "" && !/^\d{0,4}(?:\.\d{0,2})?$/.test(value)) return;
     if (!day || !draftKey) return;
+    if (value !== "" && !sessionStartedAt) setSessionStartedAt(new Date().toISOString());
     const exercise = exerciseFromKey(key);
     const previousEntry = log[key]?.[index] ?? emptySet();
     const nextEntry = { ...previousEntry, [field]: value };
@@ -1643,6 +1779,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       return;
     }
     const now = new Date().toISOString();
+    const startedAt = currentSession?.startedAt ?? sessionStartedAt ?? now;
+    const durationSeconds = currentSession?.durationSeconds ?? Math.min(43_200, Math.max(0, Math.round((Date.parse(now) - Date.parse(startedAt)) / 1000)));
     const trainingMaxesBefore = { ...(currentSession?.trainingMaxesBefore ?? {}) };
     const trainingMaxesAfter = { ...data.program.trainingMaxes };
     if (data.program.activeId === "phase2") {
@@ -1674,6 +1812,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       programFrequency: data.program.activeId === "phase2" ? data.program.frequency : undefined,
       trainingMaxesBefore: data.program.activeId === "phase2" ? trainingMaxesBefore : undefined,
       trainingMaxesAfter: data.program.activeId === "phase2" ? trainingMaxesAfter : undefined,
+      readiness: readiness ?? undefined,
+      sessionRpe: sessionRpe ?? undefined,
+      startedAt,
+      completedAt: now,
+      durationSeconds,
       revision: (currentSession?.revision ?? 0) + 1,
       createdAt: currentSession?.createdAt ?? now,
       updatedAt: now,
@@ -1759,6 +1902,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       setActiveDate(today());
       setDayId(null);
       setReadiness(null);
+      setSessionRpe(null);
+      setSessionStartedAt(null);
       pendingRestSetsRef.current.clear();
       setRestTimer(null);
     }
@@ -1769,7 +1914,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setData((current) => ({ ...current, program: { ...current.program, activeId: session.programId ?? current.program.activeId, week: session.programWeek ?? current.program.week, frequency } }));
     setActiveDate(session.date);
     setDayId(session.dayId);
-    setReadiness(null);
+    setReadiness(session.readiness ?? null);
+    setSessionRpe(session.sessionRpe ?? null);
+    setSessionStartedAt(session.startedAt ?? null);
     setReadinessOpen(false);
     setActiveExerciseIndex(0);
     setView("train");
@@ -1918,6 +2065,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 {currentSession && <span className="hidden rounded-full bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-300 sm:inline-flex"><Check className="mr-1.5 size-3.5" />Saved today</span>}
               </div>
 
+              {restTimer && <RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4 lg:hidden" />}
+
               <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
                 <div className="flex items-center justify-between gap-3"><p className="eyebrow text-stone-500">Exercise {activeExerciseIndex + 1} of {day.exercises.length}</p><p className="truncate text-xs font-semibold text-stone-300">{data.swaps[day.exercises[activeExerciseIndex]?.id] ?? day.exercises[activeExerciseIndex]?.name}</p></div>
                 <div className="mt-3 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${day.exercises.length}, minmax(0, 1fr))` }} role="tablist" aria-label="Choose an exercise">
@@ -1942,6 +2091,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const isStalled = stalled(key);
                   const prescription = prescriptionFor(exercise);
                   const TagIcon = suggestion?.tag === "up" ? ArrowUpRight : suggestion?.tag === "down" ? ArrowDownRight : Minus;
+                  const liveAdjustment = data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness }) : null;
+                  const nextSetIndex = sets.findIndex((entry) => !isFilledSet(entry, exercise));
 
                   return (
                     <article key={exercise.id} className="exercise-card overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#121512] motion-page" style={{ animationDelay: `${Math.min(exerciseIndex, 5) * 55}ms` }}>
@@ -2050,6 +2201,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               Last · {prettyDate(last.date)} · {last.entries[key].filter((entry) => isFilledSet(entry, exercise)).map((entry) => `${entry.w || 0}×${entry.r}${entry.rir !== "" ? ` @${entry.rir}` : ""}`).join("  /  ")}
                             </p>
                           )}
+                          {liveAdjustment && (
+                            <div className={`ml-7 mt-3 rounded-xl border p-3 ${liveAdjustment.action === "stop" ? "border-red-300/25 bg-red-300/[0.06]" : "border-amber-300/20 bg-amber-300/[0.04]"}`}>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="flex items-center gap-1.5 text-xs font-semibold"><TrendingUp className="size-3.5" />Next-set adjustment</p>
+                                <span className="font-mono text-[9px] uppercase text-stone-500">{liveAdjustment.confidence} confidence</span>
+                              </div>
+                              <p className="mt-1 text-[11px] leading-4 text-stone-400">{liveAdjustment.reason}</p>
+                              <p className="mt-1 font-mono text-[9px] text-stone-600">Based on {liveAdjustment.evidence.join(" · ")}</p>
+                              {nextSetIndex >= 0 && liveAdjustment.nextLoad !== null && liveAdjustment.action !== "stop" && <Button type="button" variant="ghost" onClick={() => setField(key, nextSetIndex, "w", String(liveAdjustment.nextLoad))} className="mt-2 h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Apply {liveAdjustment.nextLoad} {profile.unit} to set {nextSetIndex + 1}</Button>}
+                            </div>
+                          )}
                         </div>
 
                         <div className="target-panel flex flex-row items-center justify-between rounded-2xl border border-white/10 bg-black/20 p-4 md:flex-col md:items-start">
@@ -2066,6 +2228,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               </span>
                             )}
                             <p className="mt-2 text-[11px] leading-4 text-stone-500">{suggestion?.reason}</p>
+                            {suggestion?.confidence && <p className="mt-1 font-mono text-[9px] uppercase text-stone-600">{suggestion.confidence} confidence</p>}
                           </div>
                         </div>
                       </div>
@@ -2080,6 +2243,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>
 
               <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-xs leading-5 text-stone-500"><summary className="cursor-pointer font-semibold text-stone-300">{data.program.activeId === "phase2" ? "What does AMRAP mean?" : "What does RIR mean?"}</summary><p className="mt-3">{data.program.activeId === "phase2" ? "For SBS lifts, complete the normal sets, then take the final set to technical failure. That result adjusts next week’s training max. Deload weeks skip the AMRAP." : "RIR means reps in reserve. Aim for roughly 1–3 on working sets. Leave it blank if you are unsure; reps and load still count."}</p></details>
+
+              <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4" aria-label="Session effort">
+                <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow text-stone-500">Session effort · optional</p><p className="mt-1 text-xs text-stone-400">How hard was the workout overall? This improves the daily report; it never overrides set performance.</p></div>{sessionRpe !== null && <button type="button" onClick={() => setSessionRpe(null)} className="text-[11px] text-stone-500 hover:text-white">Clear</button>}</div>
+                <div className="mt-3 grid grid-cols-5 gap-1.5 sm:grid-cols-10">{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <Button key={value} type="button" variant="outline" aria-pressed={sessionRpe === value} data-selected={sessionRpe === value} onClick={() => setSessionRpe(value)} className="selection-button h-10 rounded-lg border-white/10 px-0 font-mono text-xs">{value}</Button>)}</div>
+              </section>
 
               <div className="mt-5 hidden items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#121512] p-4 lg:flex">
                 <div>
@@ -2109,80 +2277,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           onSignOut={onSignOut}
           onDeleteAccount={onDeleteAccount}
           onSwitch={switchProfile}
+          restAlertLevel={restAlertLevel}
+          onRestAlertLevelChange={setRestAlertLevel}
+          onTestRestAlert={() => triggerRestAlert("Test alert")}
         />
       )}
 
       {view === "train" && day && restTimer && (
-        <aside
-          className={`motion-rest fixed inset-x-4 bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-50 mx-auto max-w-md overflow-hidden rounded-[1.35rem] border p-4 shadow-2xl backdrop-blur-xl lg:inset-x-auto lg:bottom-5 lg:right-5 lg:w-[22rem] ${restRemaining === 0 ? "border-amber-300 bg-amber-300 text-[#0b0d0c]" : "border-white/15 bg-[#171a17]/95 text-stone-100"}`}
-          aria-label={`Rest timer for ${restTimer.exerciseName}`}
-        >
-          <div className="flex items-start gap-3">
-            <div className={`grid size-10 shrink-0 place-items-center rounded-xl ${restRemaining === 0 ? "bg-black/10" : "bg-amber-300 text-[#0b0d0c]"}`}>
-              <Timer className="size-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className={`eyebrow ${restRemaining === 0 ? "text-black/60" : "text-amber-300"}`}>{restRemaining === 0 ? "Rest complete" : "Recover for your next set"}</p>
-              <p className="mt-1 truncate text-sm font-semibold">{restTimer.exerciseName}</p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setRestTimer(null)}
-              aria-label="Close rest timer"
-              className={`size-8 rounded-lg ${restRemaining === 0 ? "text-black/60 hover:bg-black/10 hover:text-black" : "text-stone-500 hover:bg-white/10 hover:text-white"}`}
-            >
-              <X className="size-4" />
-            </Button>
-          </div>
-
-          <div className="mt-4 flex items-end justify-between gap-4">
-            <time className="font-mono text-4xl font-semibold tracking-[-0.06em]" aria-label={`${restRemaining} seconds remaining`}>
-              {formatTimer(restRemaining)}
-            </time>
-            {restRemaining === 0 ? (
-              <Button type="button" onClick={() => setRestTimer(null)} className="h-10 rounded-xl bg-[#0b0d0c] px-4 font-bold text-amber-200 hover:bg-black">
-                Next set
-              </Button>
-            ) : (
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setRestTimer((current) => current ? { ...current, durationSeconds: current.durationSeconds + 30, endsAt: current.endsAt + 30_000, remainingSeconds: current.remainingSeconds + 30 } : null)}
-                  className="h-10 rounded-xl border-white/10 bg-white/[0.04] px-3 text-xs text-stone-300 hover:bg-white/10 hover:text-white"
-                >
-                  <Plus className="size-3.5" />30 sec
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setRestTimer(null)} className="h-10 rounded-xl px-3 text-xs text-stone-400 hover:bg-white/10 hover:text-white">
-                  Skip
-                </Button>
-              </div>
-            )}
-          </div>
-
-          {restRemaining > 0 ? (
-            <>
-              <Progress
-                value={Math.min(100, ((restTimer.durationSeconds - restRemaining) / restTimer.durationSeconds) * 100)}
-                className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300"
-              />
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-[11px] text-stone-500">
-                  {alertPermission === "granted" ? "Chime and background alerts on" : "Keep alerts on when you switch apps"}
-                </p>
-                {alertPermission === "default" && (
-                  <Button type="button" variant="ghost" onClick={() => void enableRestAlerts()} className="h-7 shrink-0 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">
-                    Enable alerts
-                  </Button>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="mt-3 text-xs font-semibold" role="status">You&apos;re ready. Continue with the next set.</p>
-          )}
-        </aside>
+        <RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="fixed bottom-5 right-5 z-50 hidden w-[22rem] lg:block" />
       )}
 
       {view === "train" && day && (

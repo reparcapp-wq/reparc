@@ -9,6 +9,7 @@ export type SbsRole = "main" | "auxiliary";
 export type TrainingFrequency = 3 | 4 | 5;
 export type WeightGoal = "cut" | "maintain" | "bulk";
 export type ProgramStatus = "active" | "paused" | "completed";
+export type Readiness = "normal" | "low" | "sore" | "symptoms" | "pain";
 
 export type SetEntry = {
   w: string;
@@ -64,6 +65,11 @@ export type Session = {
   programFrequency?: TrainingFrequency;
   trainingMaxesBefore?: Record<string, number>;
   trainingMaxesAfter?: Record<string, number>;
+  readiness?: Readiness;
+  sessionRpe?: number;
+  startedAt?: string;
+  completedAt?: string;
+  durationSeconds?: number;
   revision: number;
   deletedAt?: string;
   createdAt: string;
@@ -648,6 +654,9 @@ export const isFilledSet = (entry: SetEntry, exercise?: Exercise | null) =>
 const validIso = (value: unknown, fallback: string) =>
   typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : fallback;
 
+const validReadiness = (value: unknown): Readiness | undefined =>
+  value === "normal" || value === "low" || value === "sore" || value === "symptoms" || value === "pain" ? value : undefined;
+
 const validFrequency = (value: unknown): TrainingFrequency => value === 3 || value === 4 ? value : 5;
 const defaultWeekdays = (frequency: TrainingFrequency) =>
   frequency === 3 ? [1, 3, 5] : frequency === 4 ? [1, 2, 4, 5] : [1, 2, 4, 5, 6];
@@ -760,6 +769,15 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
       : undefined,
     trainingMaxesAfter: session.trainingMaxesAfter && typeof session.trainingMaxesAfter === "object"
       ? Object.fromEntries(Object.entries(session.trainingMaxesAfter as Record<string, unknown>).flatMap(([key, value]) => Number.isFinite(Number(value)) ? [[key, Number(value)]] : []))
+      : undefined,
+    readiness: validReadiness(session.readiness),
+    sessionRpe: Number.isFinite(Number(session.sessionRpe)) && Number(session.sessionRpe) >= 1 && Number(session.sessionRpe) <= 10
+      ? Number(session.sessionRpe)
+      : undefined,
+    startedAt: typeof session.startedAt === "string" ? validIso(session.startedAt, fallbackTime) : undefined,
+    completedAt: typeof session.completedAt === "string" ? validIso(session.completedAt, fallbackTime) : undefined,
+    durationSeconds: Number.isFinite(Number(session.durationSeconds)) && Number(session.durationSeconds) >= 0 && Number(session.durationSeconds) <= 43_200
+      ? Math.trunc(Number(session.durationSeconds))
       : undefined,
     revision: Math.max(1, Math.trunc(numeric(session.revision) || 1)),
     deletedAt: typeof session.deletedAt === "string" ? validIso(session.deletedAt, fallbackTime) : undefined,
