@@ -57,20 +57,23 @@ test("database limiter is private, atomic, fixed-policy, and automatically purge
 });
 
 test("repository security automation and hardened headers are configured", async () => {
-  const [verify, codeql, dependabot, config, operations, liveTest] = await Promise.all([
+  const [verify, securityWorkflow, dependabot, config, operations, liveTest, staticScan] = await Promise.all([
     read(".github/workflows/verify.yml"),
-    read(".github/workflows/codeql.yml"),
+    read(".github/workflows/security.yml"),
     read(".github/dependabot.yml"),
     read("next.config.ts"),
     read("OPERATIONS.md"),
     read("scripts/verify-supabase-security.mjs"),
+    read("scripts/security-static-check.mjs"),
   ]);
   assert.doesNotMatch(verify, /actions\/checkout@v4/);
-  assert.match(codeql, /github\/codeql-action\/analyze@[a-f0-9]{40}/);
+  assert.match(securityWorkflow, /npm run security:static/);
+  assert.match(securityWorkflow, /npm audit --omit=dev --audit-level=high/);
   assert.match(dependabot, /package-ecosystem: npm/);
   assert.match(config, /Strict-Transport-Security/);
   assert.match(config, /Cross-Origin-Opener-Policy/);
   assert.match(config, /script-src-attr 'none'/);
   assert.match(operations, /quarterly restore result/);
   assert.match(liveTest, /another account must not see the row/);
+  assert.match(staticScan, /PRIVATE KEY/);
 });

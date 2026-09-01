@@ -17,6 +17,7 @@
     "test": "npm run build && node --test --test-concurrency=1 tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .netlify",
     "db:generate": "drizzle-kit generate",
+    "security:static": "node scripts/security-static-check.mjs",
     "security:rls": "node scripts/verify-supabase-security.mjs"
   },
   "dependencies": {

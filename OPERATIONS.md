@@ -48,4 +48,4 @@ For data exposure or ownership concerns, stop deployment, preserve logs, disable
 
 ## Repository protection
 
-CodeQL, dependency audits, pinned workflow actions, and Dependabot configuration are stored in the repository. Keep GitHub secret scanning and push protection enabled. Protect `main` with pull requests and require the Verify RepArc and CodeQL checks before merge when more than one maintainer is working on the app.
+Scheduled secret/insecure-code scans, dependency audits, pinned workflow actions, and Dependabot configuration are stored in the repository. Dependabot vulnerability alerts, malware alerts, grouped security updates, and version updates should remain enabled. GitHub CodeQL and native secret scanning require a plan that supports them for a private repository; enable those native controls if the repository becomes public or the account plan changes. Protect `main` with pull requests and require the Verify RepArc and Security regression scan checks before merge when more than one maintainer is working on the app.
