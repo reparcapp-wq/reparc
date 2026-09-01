@@ -13,6 +13,7 @@ A secure, offline-first workout log with evidence-aligned progression, account-o
 - Rolling bodyweight trends with cut, maintain, and bulk context
 - IndexedDB-first offline logging with a coalesced newest-snapshot outbox
 - Passwordless Supabase accounts with HTTP-only cookie sessions and RLS ownership
+- Same-origin mutation checks, strict JSON/body limits, and durable per-account write throttling
 - JSON restore preview with merge or authoritative replacement and an automatic rollback download
 - Installable PWA with user-approved updates, persistent rest timers, service-worker notifications where the platform permits, and configurable foreground alert strength
 - Focused exercise sequencing that requires visible load and repetition entries before forward navigation
@@ -22,7 +23,7 @@ A secure, offline-first workout log with evidence-aligned progression, account-o
 
 ## Security model
 
-Cloud ownership comes exclusively from the server-verified Supabase user and `auth.uid()` policies. Profile labels are local display values and never authorize data access. Authentication tokens are not stored in localStorage or IndexedDB. Device-local workout data remains readable to software with access to the browser profile and should not be treated as encrypted at rest.
+Cloud ownership comes exclusively from the server-verified Supabase user and `auth.uid()` policies. Profile labels are local display values and never authorize data access. Authentication tokens are not stored in localStorage or IndexedDB. Mutating APIs reject cross-site requests, oversized payloads, and excessive account activity before changing records. Device-local workout data remains readable to software with access to the browser profile and should not be treated as encrypted at rest.
 
 ## Deployment
 

@@ -8,7 +8,19 @@ The package version is the single release source. Next.js and Vinext inject it a
 
 ## Database migrations
 
-Apply SQL files in filename order. Run `supabase/v7-account-lifecycle.sql` after `v6-account-security.sql`, then `supabase/v8-production-hardening.sql`. Verify RLS remains enabled, anonymous grants remain revoked, `delete_current_user()` is executable only by `authenticated`, and the `reparc-support-data-retention` cron job is active. Its daily job removes feedback older than 180 days and optional diagnostics older than 30 days; review `cron.job_run_details` after deployment and after any database upgrade.
+Apply SQL files in filename order through `supabase/v9-api-security.sql`. Verify RLS remains enabled, anonymous grants remain revoked, `delete_current_user()` and `consume_api_rate_limit(text)` are executable only by `authenticated`, the rate-limit table has no Data API grants, and the `reparc-support-data-retention` cron job is active. Its daily job removes feedback older than 180 days, optional diagnostics older than 30 days, and inactive rate counters after 2 days; review `cron.job_run_details` after deployment and after any database upgrade.
+
+Review aggregate abuse signals without reading workout data:
+
+```sql
+select action, sum(blocked_count) as blocked_requests, max(last_blocked_at) as latest_block
+from public.api_rate_limits
+where last_blocked_at > now() - interval '7 days'
+group by action
+order by blocked_requests desc;
+```
+
+After the migration, run `npm run security:rls` from a protected administrative environment or dispatch the **Live Supabase authorization test** workflow. Store `SUPABASE_SERVICE_ROLE_KEY` only as a masked GitHub Actions secret; never expose it to Netlify, browser code, logs, or pull requests. The test creates two temporary confirmed accounts, proves cross-account reads and mutations are blocked, verifies rate-limit privacy, and deletes both accounts in cleanup.
 
 Before any destructive maintenance, record the exact Supabase project reference and read-only row counts. Never drop RepArc tables for a user reset. Delete the verified auth user and let foreign-key cascades remove account-owned rows; clear `public.kv` only during an explicitly authorized full legacy reset. Re-run counts afterward.
 
@@ -17,6 +29,8 @@ Before any destructive maintenance, record the exact Supabase project reference 
 Before migrations or bulk changes, create a Supabase backup appropriate to the active plan and verify its timestamp. At least quarterly, restore a backup into a separate non-production project and validate user authentication, training-profile JSON, session history and RLS isolation. A backup that has never been restored is unverified.
 
 If the hosted database plan does not provide point-in-time recovery, schedule encrypted logical exports to a separate provider account and document retention. Do not store database exports in the public repository or app bundle.
+
+Record a quarterly restore result with the source backup timestamp, isolated destination project, tester, result, and cleanup date. Rotate Supabase secret keys immediately after suspected exposure and at least annually as an operational rehearsal; rotate SMTP app passwords and Turnstile secrets after exposure or administrator turnover. Redeploy after rotation and invalidate active sessions when authentication keys change.
 
 ## Email and domain
 
@@ -31,3 +45,7 @@ For each release test current Safari on iPhone/iPad, Chrome on Android, Chrome o
 ## Incident response
 
 For data exposure or ownership concerns, stop deployment, preserve logs, disable the affected route if necessary, and verify RLS with two separate test accounts. Rotate leaked credentials in Supabase/Netlify/email provider, redeploy, invalidate sessions where appropriate, and document scope and recovery. Never paste service-role keys or SMTP passwords into source, issue trackers or diagnostic feedback.
+
+## Repository protection
+
+CodeQL, dependency audits, pinned workflow actions, and Dependabot configuration are stored in the repository. Keep GitHub secret scanning and push protection enabled. Protect `main` with pull requests and require the Verify RepArc and CodeQL checks before merge when more than one maintainer is working on the app.

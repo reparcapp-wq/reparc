@@ -361,7 +361,7 @@ async function uploadProfile(data: TrainingData, mode: SyncMode) {
   if (!navigator.onLine) throw new Error("Offline");
   const response = await timedFetch("/api/training", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-RepArc-Request": "1" },
     body: JSON.stringify({ data, mode }),
   });
   if (response.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));

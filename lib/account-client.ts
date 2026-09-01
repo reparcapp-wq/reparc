@@ -44,7 +44,10 @@ export async function loadAccount() {
 async function jsonRequest(path: string, body?: unknown, method = "POST") {
   const response = await fetch(path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      "X-RepArc-Request": "1",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const payload = await response.json().catch(() => ({})) as { error?: string; account?: Account };

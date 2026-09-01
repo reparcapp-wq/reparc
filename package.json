@@ -1,6 +1,6 @@
 {
   "name": "reparc",
-  "version": "9.1.0",
+  "version": "9.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -16,7 +16,8 @@
     "start": "vinext start",
     "test": "npm run build && node --test --test-concurrency=1 tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .netlify",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "security:rls": "node scripts/verify-supabase-security.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

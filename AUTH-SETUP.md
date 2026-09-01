@@ -43,7 +43,7 @@ Never place the Turnstile secret in Netlify public variables or source control.
 
 ## 5. Apply retention and account lifecycle migrations
 
-Run `supabase/v7-account-lifecycle.sql`, followed by `supabase/v8-production-hardening.sql`. The latter schedules daily cleanup of feedback older than 180 days and optional diagnostics older than 30 days.
+Run `supabase/v7-account-lifecycle.sql`, followed by `supabase/v8-production-hardening.sql`, then `supabase/v9-api-security.sql`. The final migration adds private durable rate-limit counters, database payload constraints, and cleanup of expired counters. The existing daily job removes feedback older than 180 days, optional diagnostics older than 30 days, and inactive rate-limit counters after 2 days.
 
 ## 6. Verify before deleting legacy configuration
 

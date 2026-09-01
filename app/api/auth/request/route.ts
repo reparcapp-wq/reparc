@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteSupabase } from "@/lib/supabase/server";
+import { readJsonBody, requireSameOrigin, securityErrorResponse } from "@/lib/request-security";
 
 const validEmail = (value: unknown) => typeof value === "string"
   && value.length <= 254
@@ -7,7 +8,12 @@ const validEmail = (value: unknown) => typeof value === "string"
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { email?: unknown; website?: unknown; captchaToken?: unknown };
+    requireSameOrigin(request);
+    const rawBody = await readJsonBody(request, 8_192);
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+      return NextResponse.json({ error: "The request body is invalid." }, { status: 400 });
+    }
+    const body = rawBody as { email?: unknown; website?: unknown; captchaToken?: unknown };
     if (body.website) return NextResponse.json({ sent: true });
     if (!validEmail(body.email)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     const captchaEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
@@ -27,7 +33,9 @@ export async function POST(request: NextRequest) {
       return finalize(NextResponse.json({ error: status === 429 ? "Please wait before requesting another code." : "The sign-in email could not be sent." }, { status }));
     }
     return finalize(NextResponse.json({ sent: true }));
-  } catch {
+  } catch (error) {
+    const protectedResponse = securityErrorResponse(error);
+    if (protectedResponse) return protectedResponse;
     return NextResponse.json({ error: "Authentication is temporarily unavailable." }, { status: 503 });
   }
 }

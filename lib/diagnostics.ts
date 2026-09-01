@@ -39,7 +39,7 @@ export function reportDiagnostic(accountId: string, kind: DiagnosticKind, error:
   });
   void fetch("/api/diagnostics", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-RepArc-Request": "1" },
     body,
     keepalive: true,
   }).catch(() => undefined);
@@ -48,7 +48,7 @@ export function reportDiagnostic(accountId: string, kind: DiagnosticKind, error:
 export async function submitBetaFeedback(category: string, message: string, includeContext: boolean, context: Record<string, unknown>) {
   const response = await fetch("/api/feedback", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-RepArc-Request": "1" },
     body: JSON.stringify({ category, message, includeContext, context: sanitizeAppContext(context) }),
   });
   const payload = await response.json().catch(() => ({})) as { error?: string };
