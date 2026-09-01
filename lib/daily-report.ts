@@ -19,16 +19,23 @@ export type ScheduleAdherence = {
   expectedSessions: number;
   completedSessions: number;
   adherencePercent: number | null;
+  movedSessions: number;
+  skippedSessions: number;
+  externalSessions: number;
+  plannedBreakDays: number;
 };
 
 export function buildScheduleAdherence(data: TrainingData, startDate: string, endDate: string, asOfDate = new Date().toISOString().slice(0, 10)): ScheduleAdherence {
-  if (!data.profile || startDate > endDate) return { available: false, expectedSessions: 0, completedSessions: 0, adherencePercent: null };
+  const empty = { movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 };
+  if (!data.profile || startDate > endDate) return { available: false, expectedSessions: 0, completedSessions: 0, adherencePercent: null, ...empty };
   const effectiveEnd = endDate < asOfDate ? endDate : asOfDate;
-  if (startDate > effectiveEnd) return { available: true, expectedSessions: 0, completedSessions: 0, adherencePercent: null };
+  if (startDate > effectiveEnd) return { available: true, expectedSessions: 0, completedSessions: 0, adherencePercent: null, ...empty };
   const history = [...data.planHistory].sort((left, right) => left.effectiveAt.localeCompare(right.effectiveAt));
   const setupDate = data.setupCompletedAt?.slice(0, 10);
   const trackingStart = setupDate && setupDate > startDate ? setupDate : startDate;
-  if (!history.length || trackingStart < history[0].effectiveAt.slice(0, 10)) return { available: false, expectedSessions: 0, completedSessions: 0, adherencePercent: null };
+  if (!history.length || trackingStart < history[0].effectiveAt.slice(0, 10)) return { available: false, expectedSessions: 0, completedSessions: 0, adherencePercent: null, ...empty };
+  const relevantAbsences = data.absences.filter((record) => record.endDate >= startDate && record.startDate <= effectiveEnd);
+  const plannedDates = new Set(relevantAbsences.filter((record) => record.reason === "planned" || record.resolution === "pause").flatMap((record) => record.missedDates));
   let expectedSessions = 0;
   for (let cursor = new Date(`${startDate}T12:00:00.000Z`), end = new Date(`${effectiveEnd}T12:00:00.000Z`); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     const date = cursor.toISOString().slice(0, 10);
@@ -36,16 +43,27 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
     const plan = history.filter((change) => change.effectiveAt.slice(0, 10) <= date).at(-1);
     const status = plan?.status ?? data.program.status;
     const preferredWeekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
-    if (status === "active" && preferredWeekdays.includes(cursor.getUTCDay())) expectedSessions += 1;
+    if (status === "active" && preferredWeekdays.includes(cursor.getUTCDay()) && !plannedDates.has(date)) expectedSessions += 1;
   }
   const completedSessions = new Set(activeSessions(data)
     .filter((session) => session.date >= startDate && session.date <= effectiveEnd && sessionCountsAsCompletedDay(session, data))
     .map((session) => session.logicalKey ?? session.id)).size;
+  const completedInRange = activeSessions(data).filter((session) => session.date >= startDate && session.date <= effectiveEnd && sessionCountsAsCompletedDay(session, data));
+  const movedSessions = completedInRange.filter((session) => {
+    const plan = history.filter((change) => change.effectiveAt.slice(0, 10) <= session.date).at(-1);
+    return !(plan?.preferredWeekdays ?? data.program.preferredWeekdays).includes(new Date(`${session.date}T12:00:00.000Z`).getUTCDay());
+  }).length;
+  const skippedSessions = relevantAbsences.filter((record) => record.resolution === "skip").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
+  const externalSessions = relevantAbsences.filter((record) => record.resolution === "trained-elsewhere").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
   return {
     available: true,
     expectedSessions,
     completedSessions,
     adherencePercent: expectedSessions ? Math.min(100, Math.round((completedSessions / expectedSessions) * 100)) : null,
+    movedSessions,
+    skippedSessions,
+    externalSessions,
+    plannedBreakDays: plannedDates.size,
   };
 }
 

@@ -46,4 +46,4 @@ The `npm run dev`, `npm run build`, and `npm run lint` scripts are cross-platfor
 
 ## Data compatibility
 
-Training data uses schema version 6. It adds immutable workout-plan snapshots, explicit completion/progression state, plan-history records and versioned consent while preserving v2-v5 migrations. Raw v2-v6 and versioned account-era JSON backups are accepted after strict validation. The first authenticated load on an existing device migrates its earlier profile into an account-scoped IndexedDB record and uploads it to the authenticated cloud row.
+Training data uses schema version 7. It adds immutable workout-plan snapshots, explicit completion/progression state, plan-history records, versioned consent, time-away decisions and bounded return plans while preserving v2-v6 migrations. Raw v2-v7 and versioned account-era JSON backups are accepted after strict validation. The first authenticated load on an existing device migrates its earlier profile into an account-scoped IndexedDB record and uploads it to the authenticated cloud row.

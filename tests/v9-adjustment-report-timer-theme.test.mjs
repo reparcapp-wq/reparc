@@ -97,7 +97,7 @@ test("schedule adherence counts due days without inventing reports for missing w
   const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "20" : "", r: String(exercise.repLow), rir: "2" }))]));
   data.sessions = [{ id: "monday", logicalKey: "monday", date: "2026-08-31", dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T11:00:00.000Z" }];
   const adherence = reports.buildScheduleAdherence(data, "2026-08-31", "2026-09-06", "2026-09-02");
-  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, adherencePercent: 50 });
+  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 });
 });
 
 test("a performance improvement becomes established only after it repeats", () => {

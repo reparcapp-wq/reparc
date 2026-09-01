@@ -67,6 +67,27 @@ const references = [
     limitation: "The programs in this app are not pregnancy or postpartum prescriptions.",
     href: "https://www.acog.org/clinical/clinical-guidance/committee-opinion/articles/2020/04/physical-activity-and-exercise-during-pregnancy-and-the-postpartum-period",
   },
+  {
+    grade: "Small controlled study",
+    title: "Two weeks of detraining in trained men",
+    result: "In this small study, two weeks without training did not meaningfully reduce measured strength, supporting a calm rather than punitive response to short breaks.",
+    limitation: "Only 20 resistance-trained men were studied; this does not establish an exact return prescription for everyone.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/28328712/",
+  },
+  {
+    grade: "Controlled trial",
+    title: "Training interruption and retraining",
+    result: "A three-week interruption did not erase the longer-term adaptations achieved after retraining in previously untrained men.",
+    limitation: "The participants and interruption pattern do not represent every trained user or longer absence.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/21771261/",
+  },
+  {
+    grade: "Consensus guidance",
+    title: "Safe return to training after inactivity",
+    result: "The NSCA and CSCCa recommend a conservative transition after periods of inactivity rather than immediately restoring full workload.",
+    limitation: "This guidance was written for organized athletic settings; RepArc uses simpler, user-overridable consumer guardrails.",
+    href: "https://www.nsca.com/about-us/position-statements/safe-return-to-training/",
+  },
 ];
 
 const topics = [
@@ -147,6 +168,7 @@ export function TrainingGuide() {
           <p><strong className="text-stone-200">Phase 1 · Foundation:</strong> build consistent technique and usable performance history. You can move to Phase 2 after reviewing the transition; there is no arbitrary calendar lock.</p>
           <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using a training max and final performance set. Weeks 7, 14 and 21 reduce loading.</p>
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions.</p>
+          <p><strong className="text-stone-200">Missed time:</strong> RepArc continues with the next unfinished workout instead of compressing sessions into fewer days. You can record a moved workout, a skip, training elsewhere or a planned pause. Breaks of at least two weeks trigger one to three conservative return sessions; these temporary load and volume factors are cautious product guardrails, not individualized medical prescriptions.</p>
           <p className="text-xs text-stone-500">RepArc is independent and is not affiliated with, reviewed by or endorsed by Stronger by Science. It does not redistribute the original spreadsheets; the official free bundle is linked in Evidence.</p>
         </GuideSection>}
 

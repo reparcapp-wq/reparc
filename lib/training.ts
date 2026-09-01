@@ -12,6 +12,34 @@ export type ProgramStatus = "active" | "paused" | "completed";
 export type Readiness = "normal" | "low" | "sore" | "symptoms" | "pain";
 export type SessionCompletionStatus = "completed" | "partial" | "adjusted" | "skipped";
 export type LoadingType = "external" | "bodyweight" | "assisted-bodyweight" | "unloaded";
+export type AbsenceReason = "busy" | "travel" | "illness" | "injury" | "planned" | "other";
+export type AbsenceResolution = "continue" | "trained-elsewhere" | "skip" | "pause";
+
+export type ReturnPlan = {
+  startedAt: string;
+  gapDays: number;
+  reason: AbsenceReason;
+  totalSessions: number;
+  sessionsRemaining: number;
+  loadFactor: number;
+  volumeFactor: number;
+  targetRir: number;
+};
+
+export type AbsenceRecord = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  missedDates: string[];
+  reason: AbsenceReason;
+  resolution: AbsenceResolution;
+  programId: ProgramId;
+  programWeek?: number;
+  frequency: TrainingFrequency;
+  resolvedDayIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type SetEntry = {
   w: string;
@@ -146,6 +174,7 @@ export type ProgramState = {
   phase2UnlockedAt?: string;
   weekRecords: WeekRecord[];
   trainingMaxes: Record<string, number>;
+  returnPlan?: ReturnPlan;
 };
 
 export type PlanChange = {
@@ -169,7 +198,7 @@ export type ConsentRecord = {
 };
 
 export type TrainingData = {
-  version: 6;
+  version: 7;
   updatedAt: string;
   setupVersion: number;
   setupCompletedAt?: string;
@@ -180,6 +209,7 @@ export type TrainingData = {
   swaps: Record<string, string>;
   program: ProgramState;
   planHistory: PlanChange[];
+  absences: AbsenceRecord[];
   consent?: ConsentRecord;
 };
 
@@ -686,7 +716,7 @@ export const PROGRAM = PHASE_TWO_PROGRAM;
 const ALL_EXERCISES = [...PHASE_ONE_PROGRAM, ...PHASE_TWO_EXERCISE_SOURCE, ...WOMENS_PHASE_ONE_SOURCE, ...WOMENS_PHASE_TWO_SOURCE].flatMap((day) => day.exercises);
 
 export const emptyData = (): TrainingData => ({
-  version: 6,
+  version: 7,
   updatedAt: new Date(0).toISOString(),
   setupVersion: 0,
   profile: null,
@@ -695,6 +725,7 @@ export const emptyData = (): TrainingData => ({
   weighIns: [],
   swaps: {},
   planHistory: [],
+  absences: [],
   program: {
     activeId: "phase1",
     week: 1,
@@ -851,6 +882,107 @@ export const sessionCountsAsCompletedDay = (session: Session, data?: TrainingDat
   if (session.deletedAt || session.completionStatus === "partial" || session.completionStatus === "skipped") return false;
   const planned = sessionPlannedSets(session, data);
   return planned > 0 && sessionCompletedSets(session) >= planned;
+};
+
+const dateValue = (value: string) => new Date(`${value}T12:00:00.000Z`).valueOf();
+export const daysBetweenDates = (startDate: string, endDate: string) =>
+  Math.max(0, Math.round((dateValue(endDate) - dateValue(startDate)) / 86_400_000));
+
+const datesThrough = (startDate: string, endDate: string) => {
+  const dates: string[] = [];
+  for (let cursor = new Date(`${startDate}T12:00:00.000Z`), end = new Date(`${endDate}T12:00:00.000Z`); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    dates.push(cursor.toISOString().slice(0, 10));
+  }
+  return dates;
+};
+
+const planOnDate = (data: TrainingData, date: string) => {
+  const history = data.planHistory
+    .filter((change) => change.effectiveAt.slice(0, 10) <= date)
+    .sort((left, right) => left.effectiveAt.localeCompare(right.effectiveAt));
+  return history.at(-1);
+};
+
+export type MissedTraining = {
+  missedDates: string[];
+  gapDays: number;
+  expectedSessions: number;
+  completedSessions: number;
+};
+
+export const detectMissedTraining = (data: TrainingData, asOfDate = isoDate()): MissedTraining | null => {
+  if (!data.profile || data.program.status !== "active") return null;
+  const completed = activeSessions(data)
+    .filter((session) => sessionCountsAsCompletedDay(session, data))
+    .sort((left, right) => left.date.localeCompare(right.date) || left.updatedAt.localeCompare(right.updatedAt));
+  const lastCompleted = completed.at(-1);
+  if (!lastCompleted) return null;
+  const handledEnd = data.absences.map((record) => record.endDate).sort().at(-1);
+  const scanFloor = new Date(`${asOfDate}T12:00:00.000Z`);
+  scanFloor.setUTCDate(scanFloor.getUTCDate() - 366);
+  const startDate = [lastCompleted.date, handledEnd, scanFloor.toISOString().slice(0, 10)].filter((value): value is string => Boolean(value)).sort().at(-1)!;
+  const yesterday = new Date(`${asOfDate}T12:00:00.000Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const endDate = yesterday.toISOString().slice(0, 10);
+  if (startDate >= endDate) return null;
+  const coveredDates = new Set(data.absences.flatMap((record) => record.missedDates));
+  const dueDates = datesThrough(startDate, endDate).filter((date) => {
+    if (date <= startDate || coveredDates.has(date)) return false;
+    const plan = planOnDate(data, date);
+    const weekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
+    const status = plan?.status ?? data.program.status;
+    return status === "active" && weekdays.includes(new Date(`${date}T12:00:00.000Z`).getUTCDay());
+  });
+  const completedAfter = completed.filter((session) => session.date > startDate && session.date <= endDate).length;
+  const missingCount = Math.max(0, dueDates.length - completedAfter);
+  if (!missingCount) return null;
+  return {
+    missedDates: dueDates.slice(-missingCount),
+    gapDays: daysBetweenDates(lastCompleted.date, asOfDate),
+    expectedSessions: dueDates.length,
+    completedSessions: completedAfter,
+  };
+};
+
+export const buildReturnPlan = (gapDays: number, reason: AbsenceReason, startedAt = new Date().toISOString()): ReturnPlan | undefined => {
+  if (gapDays < 14) return undefined;
+  if (gapDays < 28) return { startedAt, gapDays, reason, totalSessions: 1, sessionsRemaining: 1, loadFactor: 0.9, volumeFactor: 0.75, targetRir: 3 };
+  if (gapDays < 56) return { startedAt, gapDays, reason, totalSessions: 2, sessionsRemaining: 2, loadFactor: 0.85, volumeFactor: 0.67, targetRir: 4 };
+  return { startedAt, gapDays, reason, totalSessions: 3, sessionsRemaining: 3, loadFactor: 0.8, volumeFactor: 0.5, targetRir: 4 };
+};
+
+export const nextUnfinishedProgramDay = (data: TrainingData): TrainingDay | null => {
+  if (!data.profile) return null;
+  const days = programDays(data.program.activeId, data.program.frequency, data.profile.programTrack, data.profile.goal, data.profile.equipment);
+  if (!days.length) return null;
+  if (data.program.activeId === "phase2") {
+    const completedIds = new Set(activeSessions(data)
+      .filter((session) => session.programId === "phase2" && session.programWeek === data.program.week && (session.programFrequency ?? 5) === data.program.frequency && sessionCountsAsCompletedDay(session, data))
+      .map((session) => session.dayId));
+    const resolvedIds = new Set(data.absences
+      .filter((record) => record.programId === "phase2" && record.programWeek === data.program.week && record.resolution !== "continue")
+      .flatMap((record) => record.resolvedDayIds));
+    return days.find((day) => !completedIds.has(day.id) && !resolvedIds.has(day.id)) ?? days[0];
+  }
+  const events: Array<{ at: string; dayId: string }> = activeSessions(data)
+    .filter((session) => session.programId !== "phase2" && sessionCountsAsCompletedDay(session, data))
+    .map((session) => ({ at: session.updatedAt, dayId: session.dayId }));
+  data.absences.filter((record) => record.programId === "phase1" && record.resolution !== "continue").forEach((record) => {
+    const dayId = record.resolvedDayIds.at(-1);
+    if (dayId) events.push({ at: record.updatedAt, dayId });
+  });
+  const latest = events.sort((left, right) => left.at.localeCompare(right.at)).at(-1);
+  if (!latest) return days[0];
+  const index = days.findIndex((day) => day.id === latest.dayId);
+  return days[(index < 0 ? 0 : index + 1) % days.length];
+};
+
+export const absenceDayIds = (data: TrainingData, count: number) => {
+  if (!data.profile || count <= 0) return [];
+  const days = programDays(data.program.activeId, data.program.frequency, data.profile.programTrack, data.profile.goal, data.profile.equipment);
+  const first = nextUnfinishedProgramDay(data);
+  const start = Math.max(0, days.findIndex((day) => day.id === first?.id));
+  return Array.from({ length: count }, (_, index) => days[(start + index) % days.length].id);
 };
 
 const decimalValue = (value: string) => value.trim() !== "" && /^\d{1,4}(?:\.\d{1,2})?$/.test(value) ? Number(value) : Number.NaN;
@@ -1032,7 +1164,7 @@ export function trainingDataValidationIssues(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ["Training data must be an object."];
   const source = raw as Record<string, unknown>;
   const sourceVersion = Number(source.version);
-  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 6) issues.push("Unsupported data version.");
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 7) issues.push("Unsupported data version.");
   if (!source.program || typeof source.program !== "object" || Array.isArray(source.program)) issues.push("Program settings are missing.");
   if (!Array.isArray(source.sessions)) {
     issues.push("Session history must be a list.");
@@ -1084,6 +1216,20 @@ export function trainingDataValidationIssues(raw: unknown) {
     });
   }
   if (Array.isArray(source.planHistory) && source.planHistory.length > 2_000) issues.push("Plan history exceeds 2,000 changes.");
+  if (source.absences !== undefined && !Array.isArray(source.absences)) issues.push("Time-away history must be a list.");
+  if (Array.isArray(source.absences)) {
+    if (source.absences.length > 2_000) issues.push("Time-away history exceeds 2,000 entries.");
+    source.absences.forEach((value, index) => {
+      const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+      if (!record || !isValidDateOnly(record.startDate) || !isValidDateOnly(record.endDate) || String(record.startDate) > String(record.endDate)) {
+        issues.push(`Time-away record ${index + 1} has invalid dates.`);
+        return;
+      }
+      if (!Array.isArray(record.missedDates) || record.missedDates.length > 366 || !record.missedDates.every(isValidDateOnly)) issues.push(`Time-away record ${index + 1} has invalid missed dates.`);
+      if (record.resolution !== "continue" && record.resolution !== "trained-elsewhere" && record.resolution !== "skip" && record.resolution !== "pause") issues.push(`Time-away record ${index + 1} has an invalid resolution.`);
+      if (!Array.isArray(record.resolvedDayIds) || record.resolvedDayIds.length > 50 || !record.resolvedDayIds.every((id) => typeof id === "string")) issues.push(`Time-away record ${index + 1} has invalid workout references.`);
+    });
+  }
   if (Array.isArray(source.sessionRevisions) && source.sessionRevisions.length > 5_000) issues.push("Session revision history exceeds 5,000 entries.");
   if (source.consent && typeof source.consent === "object" && !Array.isArray(source.consent)) {
     const consent = source.consent as Record<string, unknown>;
@@ -1371,6 +1517,41 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       status: change.status === "paused" || change.status === "completed" ? change.status : "active",
     }];
   }) : [];
+  const absences: AbsenceRecord[] = Array.isArray(source.absences) ? source.absences.flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    if (!isValidDateOnly(record.startDate) || !isValidDateOnly(record.endDate) || record.startDate > record.endDate) return [];
+    const reason: AbsenceReason = record.reason === "travel" || record.reason === "illness" || record.reason === "injury" || record.reason === "planned" || record.reason === "other" ? record.reason : "busy";
+    const resolution: AbsenceResolution = record.resolution === "trained-elsewhere" || record.resolution === "skip" || record.resolution === "pause" ? record.resolution : "continue";
+    const createdAt = validIso(record.createdAt, `${record.endDate}T12:00:00.000Z`);
+    return [{
+      id: typeof record.id === "string" ? record.id : `absence-${index}-${record.startDate}`,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      missedDates: Array.isArray(record.missedDates) ? record.missedDates.filter(isValidDateOnly).slice(0, 366) : [],
+      reason,
+      resolution,
+      programId: record.programId === "phase2" ? "phase2" as const : "phase1" as const,
+      programWeek: Number(record.programWeek) >= 1 && Number(record.programWeek) <= 21 ? Math.trunc(Number(record.programWeek)) : undefined,
+      frequency: validFrequency(record.frequency),
+      resolvedDayIds: Array.isArray(record.resolvedDayIds) ? record.resolvedDayIds.filter((id): id is string => typeof id === "string").slice(0, 50) : [],
+      createdAt,
+      updatedAt: validIso(record.updatedAt, createdAt),
+    }];
+  }).slice(-2_000) : [];
+  const rawReturnPlan = rawProgram.returnPlan && typeof rawProgram.returnPlan === "object" ? rawProgram.returnPlan as Record<string, unknown> : null;
+  const returnPlan: ReturnPlan | undefined = rawReturnPlan && Number(rawReturnPlan.sessionsRemaining) > 0
+    ? {
+        startedAt: validIso(rawReturnPlan.startedAt, updatedAt),
+        gapDays: Math.max(14, Math.min(3_650, Math.trunc(numeric(rawReturnPlan.gapDays) || 14))),
+        reason: rawReturnPlan.reason === "travel" || rawReturnPlan.reason === "illness" || rawReturnPlan.reason === "injury" || rawReturnPlan.reason === "planned" || rawReturnPlan.reason === "other" ? rawReturnPlan.reason : "busy",
+        totalSessions: Math.max(1, Math.min(3, Math.trunc(numeric(rawReturnPlan.totalSessions) || 1))),
+        sessionsRemaining: Math.max(1, Math.min(3, Math.trunc(numeric(rawReturnPlan.sessionsRemaining) || 1))),
+        loadFactor: Math.max(0.5, Math.min(1, numeric(rawReturnPlan.loadFactor) || 0.9)),
+        volumeFactor: Math.max(0.5, Math.min(1, numeric(rawReturnPlan.volumeFactor) || 0.75)),
+        targetRir: Math.max(2, Math.min(5, Math.trunc(numeric(rawReturnPlan.targetRir) || 3))),
+      }
+    : undefined;
   const rawConsent = source.consent && typeof source.consent === "object" ? source.consent as Record<string, unknown> : null;
   const consent: ConsentRecord | undefined = rawConsent && typeof rawConsent.termsVersion === "string"
     ? {
@@ -1380,7 +1561,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       }
     : undefined;
   return {
-    version: 6,
+    version: 7,
     updatedAt,
     setupVersion: profile ? Math.max(2, Math.trunc(numeric(source.setupVersion) || 2)) : 0,
     setupCompletedAt: profile ? validIso(source.setupCompletedAt, updatedAt) : undefined,
@@ -1390,6 +1571,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     weighIns,
     swaps,
     planHistory,
+    absences,
     consent,
     program: {
       activeId,
@@ -1403,6 +1585,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       phase2UnlockedAt,
       weekRecords,
       trainingMaxes,
+      returnPlan,
     },
   };
 }
@@ -1426,8 +1609,13 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
   [...left.sessionRevisions, ...right.sessionRevisions].forEach((revision) => revisions.set(revision.id, revision));
   const planChanges = new Map<string, PlanChange>();
   [...left.planHistory, ...right.planHistory].forEach((change) => planChanges.set(change.id, change));
+  const absences = new Map<string, AbsenceRecord>();
+  [...left.absences, ...right.absences].forEach((record) => {
+    const existing = absences.get(record.id);
+    if (!existing || record.updatedAt >= existing.updatedAt) absences.set(record.id, record);
+  });
   return {
-    version: 6,
+    version: 7,
     updatedAt: new Date(Math.max(Date.parse(left.updatedAt), Date.parse(right.updatedAt))).toISOString(),
     setupVersion: newer.setupVersion,
     setupCompletedAt: newer.setupCompletedAt,
@@ -1435,6 +1623,7 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     swaps: newer.swaps,
     program: newer.program,
     planHistory: [...planChanges.values()].sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt)).slice(-2_000),
+    absences: [...absences.values()].sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(-2_000),
     consent: newer.consent,
     sessions: [...sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     sessionRevisions: [...revisions.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-5_000),

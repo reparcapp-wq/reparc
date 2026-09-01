@@ -27,7 +27,7 @@ test("migrates the original profile and stamps legacy session units", () => {
     swaps: {},
   }, "2026-08-27T12:00:00.000Z");
 
-  assert.equal(migrated.version, 6);
+  assert.equal(migrated.version, 7);
   assert.equal(migrated.setupVersion, 2);
   assert.equal(migrated.setupCompletedAt, "2026-08-27T12:00:00.000Z");
   assert.equal(migrated.program.activeId, "phase1");
@@ -252,4 +252,44 @@ test("calibration and deleted sessions cannot advance a Phase 2 training max", (
   assert.ok(progressed.program.trainingMaxes[key] > 100);
   const deleted = training.recalculatePhase2Progression({ ...progressed, sessions: [{ ...progressed.sessions[0], deletedAt: "2026-09-03T00:00:00.000Z" }] });
   assert.equal(deleted.program.trainingMaxes[key], 100);
+});
+
+test("missed training detection credits moved workouts without inventing performance", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 75, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.program.frequency = 3;
+  data.program.preferredWeekdays = [1, 3, 5];
+  data.setupCompletedAt = "2026-08-01T10:00:00.000Z";
+  data.planHistory = [{ id: "setup", effectiveAt: data.setupCompletedAt, kind: "setup", programId: "phase1", week: 1, frequency: 3, preferredWeekdays: [1, 3, 5], track: "current", goal: "balanced", equipment: "full", status: "active" }];
+  const day = training.programDays("phase1", 3, "current")[0];
+  const snapshot = training.buildSessionPlanSnapshot(data, day, "phase1", 1, 3);
+  const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "10" : "", r: String(exercise.repLow), rir: "2" }))]));
+  const session = (id, date) => ({ id, date, dayId: day.id, unit: "kg", entries, programId: "phase1", programFrequency: 3, planSnapshot: snapshot, completionStatus: "completed", affectsProgression: true, revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z` });
+  data.sessions = [session("baseline", "2026-08-21"), session("moved", "2026-08-25")];
+  const missed = training.detectMissedTraining(data, "2026-08-29");
+  assert.equal(missed.expectedSessions, 2);
+  assert.equal(missed.completedSessions, 0);
+  assert.deepEqual(missed.missedDates, ["2026-08-26", "2026-08-28"]);
+});
+
+test("return plans scale conservatively with time away and end after bounded sessions", () => {
+  assert.equal(training.buildReturnPlan(13, "busy"), undefined);
+  assert.deepEqual(training.buildReturnPlan(14, "busy", "now"), { startedAt: "now", gapDays: 14, reason: "busy", totalSessions: 1, sessionsRemaining: 1, loadFactor: 0.9, volumeFactor: 0.75, targetRir: 3 });
+  assert.equal(training.buildReturnPlan(35, "travel").totalSessions, 2);
+  assert.equal(training.buildReturnPlan(70, "illness").totalSessions, 3);
+});
+
+test("next workout follows the program sequence and merged absence decisions survive sync", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 75, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.program.frequency = 3;
+  data.program.preferredWeekdays = [1, 3, 5];
+  const days = training.programDays("phase1", 3, "current");
+  data.absences = [{ id: "away", startDate: "2026-08-24", endDate: "2026-08-24", missedDates: ["2026-08-24"], reason: "busy", resolution: "skip", programId: "phase1", frequency: 3, resolvedDayIds: [days[0].id], createdAt: "2026-08-25T10:00:00.000Z", updatedAt: "2026-08-25T10:00:00.000Z" }];
+  assert.equal(training.nextUnfinishedProgramDay(data).id, days[1].id);
+  const remote = structuredClone(data);
+  remote.updatedAt = "2026-08-26T10:00:00.000Z";
+  remote.absences[0].updatedAt = "2026-08-26T10:00:00.000Z";
+  remote.absences[0].reason = "travel";
+  assert.equal(training.mergeTrainingData(data, remote).absences[0].reason, "travel");
 });
