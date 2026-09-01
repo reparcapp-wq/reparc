@@ -169,6 +169,10 @@ test("setup uses compact drill-down navigation without a sideways category strip
   assert.match(app, /App preferences/);
   assert.match(app, /Back to Setup/);
   assert.match(app, /profileSection/);
+  assert.match(app, /aria-expanded=\{profileSection === value\}/);
+  assert.match(app, /profileSection === "identity" &&\s*<article style=\{\{ order: 1 \}\}/);
+  assert.match(app, /profileSection === "measurements" && <div style=\{\{ order: 3 \}\}/);
+  assert.match(app, /profileSection === "experience" &&\s*<article style=\{\{ order: 5 \}\}/);
   assert.doesNotMatch(app, /aria-label="Setup sections"/);
   assert.match(tools, /toolSection/);
   assert.match(tools, /Data and account tools/);

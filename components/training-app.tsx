@@ -1219,16 +1219,15 @@ function SettingsView({
           </article>
         }
 
-        {settingsCategory === "profile" && <div className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#121512] md:col-span-2">
+        {settingsCategory === "profile" && <div className="grid overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#121512] md:col-span-2">
           {([
             ["identity", "Identity & training track", `${profile.gender === "woman" ? "Woman" : "Man"} · ${profile.programTrack === "women" ? "Women’s" : "Current"} track`],
             ["measurements", "Measurements & goal", `${profile.bodyweight} ${profile.unit} · ${profile.weightGoal}`],
             ["experience", "Training experience", LEVELS.find((option) => option.id === profile.level)?.label ?? "Set experience"],
-          ] as const).map(([value, label, summary], index) => <button key={value} type="button" aria-pressed={profileSection === value} onClick={() => setProfileSection((current) => current === value ? null : value)} className={`flex min-h-[4rem] w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-white/[0.04] ${index ? "border-t border-white/[0.07]" : ""}`}><span className="min-w-0"><strong className="block text-sm text-stone-200">{label}</strong><span className="mt-0.5 block truncate text-[11px] capitalize text-stone-500">{summary}</span></span><ChevronDown className={`size-4 shrink-0 text-stone-600 transition-transform ${profileSection === value ? "rotate-180" : ""}`} /></button>)}
-        </div>}
+          ] as const).map(([value, label, summary], index) => <button key={value} type="button" aria-expanded={profileSection === value} onClick={() => setProfileSection((current) => current === value ? null : value)} style={{ order: index * 2 }} className={`flex min-h-[4rem] w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-white/[0.04] ${index ? "border-t border-white/[0.07]" : ""}`}><span className="min-w-0"><strong className="block text-sm text-stone-200">{label}</strong><span className="mt-0.5 block truncate text-[11px] capitalize text-stone-500">{summary}</span></span><ChevronDown className={`size-4 shrink-0 text-stone-600 transition-transform ${profileSection === value ? "rotate-180" : ""}`} /></button>)}
 
         {settingsCategory === "profile" && profileSection === "identity" &&
-        <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6">
+        <article style={{ order: 1 }} className="border-t border-white/10 bg-black/10 p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-xl bg-amber-300 text-[#0b0d0c]"><UserRound className="size-5" /></div>
             <div><p className="eyebrow text-stone-600">Training profile</p><h2 className="mt-1 font-semibold">{name}</h2></div>
@@ -1245,7 +1244,7 @@ function SettingsView({
           <Button variant="outline" onClick={onSwitch} className="mt-5 h-11 w-full rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white">Change training label</Button>
         </article>}
 
-        {settingsCategory === "profile" && profileSection === "measurements" && <>
+        {settingsCategory === "profile" && profileSection === "measurements" && <div style={{ order: 3 }} className="grid gap-3 border-t border-white/10 bg-black/10 p-4 sm:p-5 md:grid-cols-2">
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6">
           <p className="eyebrow text-stone-600">Units</p>
           <RadioGroup
@@ -1269,10 +1268,10 @@ function SettingsView({
           <RadioGroup value={profile.weightGoal} onValueChange={(value) => void updateProfile({ weightGoal: value as WeightGoal }, "Weight goal updated")} className="mt-2 grid grid-cols-3 gap-2" aria-label="Weight goal">{(["cut","maintain","bulk"] as WeightGoal[]).map((goal) => <ChoiceRadio key={goal} id={`goal-${goal}`} value={goal} label={goal[0].toUpperCase() + goal.slice(1)} />)}</RadioGroup>
           <p className="mt-4 text-xs leading-5 text-stone-500">Trend feedback uses rolling averages. The app does not prescribe calories or diagnose health conditions.</p>
         </article>
-        </>}
+        </div>}
 
         {settingsCategory === "profile" && profileSection === "experience" &&
-        <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6">
+        <article style={{ order: 5 }} className="border-t border-white/10 bg-black/10 p-5 sm:p-6">
           <p className="eyebrow text-stone-600">Time spent lifting</p>
           <RadioGroup
             value={profile.level}
@@ -1286,6 +1285,7 @@ function SettingsView({
           </RadioGroup>
           <p className="mt-4 text-xs leading-5 text-stone-500">Only affects estimates for exercises you have never logged.</p>
         </article>}
+        </div>}
 
         {settingsCategory === "training" && trainingSection === "personalization" &&
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
