@@ -127,6 +127,11 @@ test("progress uses progressive disclosure and the light theme covers custom con
   assert.match(source, /Analysis and next-session guidance/);
   assert.match(source, /Show older/);
   assert.match(source, /Under 1 min/);
+  assert.match(source, /In progress/);
+  assert.match(source, /Final report/);
+  assert.match(source, /No workouts logged this \{range\}/);
+  assert.match(source, /Exercises &amp; progression/);
+  assert.match(source, /reportGroups/);
   assert.match(css, /html\.light \.set-input/);
   assert.match(css, /html\.light \.selection-button\[data-selected="true"\]/);
   assert.match(css, /html\.light \.target-panel/);

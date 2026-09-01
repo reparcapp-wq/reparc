@@ -691,7 +691,18 @@ function ProgressView({
     });
     return [...groups.entries()];
   }, [range, sortedSessions]);
-  const visibleGrouped = grouped.slice(0, visibleBuckets[range]);
+  const currentBucketKey = range === "day"
+    ? today()
+    : range === "week"
+      ? weekKey(today())
+      : range === "month"
+        ? today().slice(0, 7)
+        : today().slice(0, 4);
+  const reportGroups = useMemo(() => {
+    if (range === "day" || grouped.some(([key]) => key === currentBucketKey)) return grouped;
+    return [[currentBucketKey, [] as Session[]], ...grouped] as Array<[string, Session[]]>;
+  }, [currentBucketKey, grouped, range]);
+  const visibleGrouped = reportGroups.slice(0, visibleBuckets[range]);
 
   const bucketLabel = (key: string) => {
     if (range === "day") return prettyDate(key, { weekday: "short", day: "numeric", month: "long" });
@@ -784,15 +795,30 @@ function ProgressView({
               {visibleGrouped.map(([key, sessions]) => {
                 const keys = [...new Set(sessions.flatMap((session) => Object.keys(session.entries)))];
                 const dailyReport = range === "day" ? buildDailyReport(data, key) : null;
+                const periodReports = range === "day"
+                  ? []
+                  : [...new Set(sessions.map((session) => session.date))].map((date) => buildDailyReport(data, date));
+                const completedSets = periodReports.reduce((sum, report) => sum + report.completedSets, 0);
+                const plannedSets = periodReports.reduce((sum, report) => sum + report.plannedSets, 0);
+                const completionPercent = plannedSets ? Math.min(100, Math.round((completedSets / plannedSets) * 100)) : sessions.length ? 100 : 0;
+                const measuredDurations = sessions.flatMap((session) => typeof session.durationSeconds === "number" ? [session.durationSeconds] : []);
+                const totalDurationSeconds = measuredDurations.reduce((sum, duration) => sum + duration, 0);
+                const effortRatings = sessions.flatMap((session) => typeof session.sessionRpe === "number" ? [session.sessionRpe] : []);
+                const averageEffort = effortRatings.length ? effortRatings.reduce((sum, effort) => sum + effort, 0) / effortRatings.length : null;
+                const loadedVolume = periodReports.reduce((sum, report) => sum + report.loadedVolume, 0);
+                const isCurrentPeriod = key === currentBucketKey;
                 const sets = sessions.reduce((sum, session) => sum + Object.entries(session.entries).reduce(
                   (inner, [exerciseKeyValue, entries]) => inner + entries.filter((entry) => isFilledSet(entry, exerciseFromKey(exerciseKeyValue))).length,
                   0,
                 ), 0);
                 return (
                   <article key={key} className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#121512]">
-                    <header className="flex items-baseline justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
-                      <h3 className="font-semibold">{bucketLabel(key)}</h3>
-                      <span className="font-mono text-[10px] text-stone-600">{sessions.length} session{sessions.length === 1 ? "" : "s"} · {sets} sets</span>
+                    <header className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <h3 className="truncate font-semibold">{bucketLabel(key)}</h3>
+                        {range !== "day" && <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${isCurrentPeriod ? "bg-amber-300/10 text-amber-300" : "bg-emerald-300/10 text-emerald-300"}`}>{isCurrentPeriod ? "In progress" : "Final report"}</span>}
+                      </div>
+                      {!!sessions.length && <span className="shrink-0 font-mono text-[10px] text-stone-600">{sessions.length} session{sessions.length === 1 ? "" : "s"} · {sets} sets</span>}
                     </header>
                     {dailyReport && (
                       <section className="border-b border-white/10 bg-white/[0.02] px-4 py-5 sm:px-5" aria-label={`Daily report for ${bucketLabel(key)}`}>
@@ -825,7 +851,28 @@ function ProgressView({
                         </details>
                       </section>
                     )}
-                    {!dailyReport && <div>
+                    {!dailyReport && !sessions.length && (
+                      <div className="px-4 py-6 text-center sm:px-5">
+                        <p className="text-sm font-medium text-stone-300">No workouts logged this {range}.</p>
+                        <p className="mt-1 text-xs text-stone-600">Your report will appear here after the first saved session.</p>
+                      </div>
+                    )}
+                    {!dailyReport && !!sessions.length && <section className="px-4 py-4 sm:px-5" aria-label={`${bucketLabel(key)} report summary`}>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {[
+                          ["Completion", `${completionPercent}%`],
+                          ["Duration", measuredDurations.length ? totalDurationSeconds < 60 ? "Under 1 min" : `${Math.round(totalDurationSeconds / 60)} min` : "Not measured"],
+                          ["Avg effort", averageEffort === null ? "Not logged" : `${averageEffort.toFixed(1)} / 10`],
+                          ["Loaded volume", `${Math.round(loadedVolume).toLocaleString()} ${profile.unit}`],
+                        ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
+                      </div>
+                    </section>}
+                    {!dailyReport && !!sessions.length && <details className="border-t border-white/10">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-xs font-semibold text-stone-300 sm:px-5">
+                        <span>Exercises &amp; progression</span>
+                        <span className="flex items-center gap-2 font-mono text-[9px] font-normal uppercase tracking-wider text-stone-600">{keys.length} movement{keys.length === 1 ? "" : "s"}<ChevronDown className="size-4" /></span>
+                      </summary>
+                      <div className="border-t border-white/[0.07]">
                       {keys.map((exerciseKeyValue) => {
                         const points = (series[exerciseKeyValue] ?? []).map((point) => point.value).slice(-12);
                         const first = points[0] ?? 0;
@@ -844,8 +891,8 @@ function ProgressView({
                           </div>
                         );
                       })}
-                    </div>}
-                    <footer className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
+                      </div>
+                      <footer className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
                       {sessions.map((session) => (
                         <div key={session.id} className="flex items-center gap-1 rounded-xl bg-white/[0.035] p-1">
                           <span className="px-2 font-mono text-[10px] text-stone-500">{prettyDate(session.date, { month: "short", day: "numeric" })} · {session.dayId}</span>
@@ -853,11 +900,21 @@ function ProgressView({
                           <Button type="button" variant="ghost" size="icon" onClick={() => void deleteSession(session)} aria-label={`Remove session from ${session.date}`} className="size-8 rounded-lg text-stone-500 hover:bg-red-300/10 hover:text-red-300"><Trash2 className="size-3.5" /></Button>
                         </div>
                       ))}
-                    </footer>
+                      </footer>
+                    </details>}
+                    {dailyReport && <footer className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
+                      {sessions.map((session) => (
+                        <div key={session.id} className="flex items-center gap-1 rounded-xl bg-white/[0.035] p-1">
+                          <span className="px-2 font-mono text-[10px] text-stone-500">{prettyDate(session.date, { month: "short", day: "numeric" })} · {session.dayId}</span>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => onEditSession(session)} aria-label={`Edit session from ${session.date}`} className="size-8 rounded-lg text-stone-400 hover:bg-white/10 hover:text-white"><Pencil className="size-3.5" /></Button>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => void deleteSession(session)} aria-label={`Remove session from ${session.date}`} className="size-8 rounded-lg text-stone-500 hover:bg-red-300/10 hover:text-red-300"><Trash2 className="size-3.5" /></Button>
+                        </div>
+                      ))}
+                    </footer>}
                   </article>
                 );
               })}
-              {visibleGrouped.length < grouped.length && <Button type="button" variant="outline" onClick={() => setVisibleBuckets((current) => ({ ...current, [range]: current[range] + 5 }))} className="h-11 w-full rounded-xl border-white/10 bg-white/[0.025] text-xs text-stone-400 hover:bg-white/[0.06] hover:text-white">Show older {range === "day" ? "days" : `${range}s`}</Button>}
+              {visibleGrouped.length < reportGroups.length && <Button type="button" variant="outline" onClick={() => setVisibleBuckets((current) => ({ ...current, [range]: current[range] + 5 }))} className="h-11 w-full rounded-xl border-white/10 bg-white/[0.025] text-xs text-stone-400 hover:bg-white/[0.06] hover:text-white">Show older {range === "day" ? "days" : `${range}s`}</Button>}
             </div>
           )}
 
