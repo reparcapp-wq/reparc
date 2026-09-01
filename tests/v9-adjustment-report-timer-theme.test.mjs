@@ -143,6 +143,10 @@ test("foreground rest completion runs a ten-second alert pattern", async () => {
   assert.match(source, /length: 13/);
   assert.match(source, /setAppBadge/);
   assert.match(source, /silent: false/);
+  assert.match(source, /restAlertLevel === "maximum"/);
+  assert.match(source, /peak = maximum \? 0\.92/);
+  assert.match(source, /createDynamicsCompressor/);
+  assert.match(source, /oscillator\.type = maximum \? "square"/);
 });
 
 test("workout alarm mode keeps visible sessions awake and recovers overdue timers", async () => {
@@ -156,4 +160,16 @@ test("workout alarm mode keeps visible sessions awake and recovers overdue timer
   assert.match(source, /Exact offline alarm/);
   assert.match(source, /Native app only/);
   assert.match(source, /Run alert test/);
+});
+
+test("setup uses compact drill-down navigation without a sideways category strip", async () => {
+  const app = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  const tools = await readFile(new URL("../components/settings-tools.tsx", import.meta.url), "utf8");
+  assert.match(app, /Training plan/);
+  assert.match(app, /App preferences/);
+  assert.match(app, /Back to Setup/);
+  assert.match(app, /profileSection/);
+  assert.doesNotMatch(app, /aria-label="Setup sections"/);
+  assert.match(tools, /toolSection/);
+  assert.match(tools, /Data and account tools/);
 });

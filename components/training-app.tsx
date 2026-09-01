@@ -118,7 +118,7 @@ type RestTimer = {
   remainingSeconds: number;
 };
 type AlertPermission = NotificationPermission | "unsupported";
-type RestAlertLevel = "quiet" | "normal" | "strong";
+type RestAlertLevel = "quiet" | "normal" | "maximum";
 type WakeLockState = "active" | "available" | "unavailable";
 type WakeLockSentinelLike = {
   released: boolean;
@@ -992,7 +992,9 @@ function SettingsView({
   const [showPhaseReview, setShowPhaseReview] = useState(false);
   const [reviewMaxes, setReviewMaxes] = useState<Record<string, string>>({});
   const [draftWeekdays, setDraftWeekdays] = useState(data.program.preferredWeekdays);
-  const [settingsSection, setSettingsSection] = useState<"overview" | "program" | "schedule" | "profile" | "personalization" | "experience" | "data">("overview");
+  const [settingsCategory, setSettingsCategory] = useState<"overview" | "training" | "profile" | "experience" | "data">("overview");
+  const [trainingSection, setTrainingSection] = useState<"program" | "schedule" | "personalization">("program");
+  const [profileSection, setProfileSection] = useState<"identity" | "measurements" | "experience" | null>(null);
   const track = profile.programTrack;
   const phaseTwoExercises = phaseTwoProgrammedExercises(track);
   const confidence = phase2DataConfidence(data, track);
@@ -1149,20 +1151,21 @@ function SettingsView({
         </div>
       </div>
 
-      <nav className="mt-6 flex gap-2 overflow-x-auto pb-2" aria-label="Setup sections">
-        {([['overview','Overview'],['program','Program'],['schedule','Schedule'],['profile','Profile'],['personalization','Personalize'],['experience','Experience'],['data','Data & account']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={settingsSection === value} onClick={() => setSettingsSection(value)} className={`min-h-10 shrink-0 rounded-full border px-3 text-xs transition-colors ${settingsSection === value ? "border-amber-300 bg-amber-300 font-bold text-[#0b0d0c]" : "border-white/10 bg-white/[0.035] text-stone-400 hover:border-white/20 hover:text-white"}`}>{label}</button>)}
-      </nav>
+      {settingsCategory !== "overview" && <div className="mt-5 flex items-center justify-between gap-3"><Button type="button" variant="ghost" onClick={() => setSettingsCategory("overview")} className="h-9 rounded-lg px-2 text-xs text-stone-400 hover:bg-white/10 hover:text-white"><ChevronDown className="size-3.5 rotate-90" />Back to Setup</Button><span className="font-mono text-[10px] uppercase tracking-wider text-stone-600">{settingsCategory === "training" ? "Training plan" : settingsCategory === "profile" ? "Profile" : settingsCategory === "experience" ? "App preferences" : "Data & account"}</span></div>}
 
-      {settingsSection === "overview" && <div className="settings-topic mt-4 grid gap-3 sm:grid-cols-2">
-        <button type="button" onClick={() => setSettingsSection("program")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Program</p><p className="mt-2 font-semibold">{track === "women" ? "Women’s" : "Current"} · {PROGRAMS[data.program.activeId].name}</p><p className="mt-2 text-xs text-stone-500">{data.program.activeId === "phase2" ? `Week ${data.program.week} · Block ${Math.ceil(data.program.week / 7)}` : "Foundation"}</p></button>
-        <button type="button" onClick={() => setSettingsSection("schedule")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Schedule</p><p className="mt-2 font-semibold">{data.program.frequency} training days</p><p className="mt-2 text-xs text-stone-500">{data.program.preferredWeekdays.map((day) => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][day]).join(" · ")}</p></button>
-        <button type="button" onClick={() => setSettingsSection("profile")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Profile</p><p className="mt-2 font-semibold">{name} · {profile.bodyweight} {profile.unit}</p><p className="mt-2 text-xs text-stone-500">{LEVELS.find((option) => option.id === profile.level)?.label} · {profile.weightTrackingEnabled ? "Weigh-ins shown" : "Weigh-ins hidden"}</p></button>
-        <button type="button" onClick={() => setSettingsSection("experience")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Experience</p><p className="mt-2 font-semibold">Appearance and rest alerts</p><p className="mt-2 text-xs text-stone-500">{theme === "system" ? "System theme" : theme ? `${theme[0].toUpperCase()}${theme.slice(1)} theme` : "Theme"} · {restAlertLevel} alert</p></button>
-        <button type="button" onClick={() => setSettingsSection("data")} className="rounded-[1.35rem] border border-white/10 bg-[#121512] p-5 text-left hover:border-amber-300/30"><p className="eyebrow text-stone-600">Data & account</p><p className="mt-2 font-semibold">Cloud, backups and device</p><p className="mt-2 text-xs text-stone-500">Export, restore, updates, privacy and sign-out</p></button>
+      {settingsCategory === "overview" && <div className="settings-topic mt-5 overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#121512]">
+        {([
+          ["training", "Training plan", `${track === "women" ? "Women’s" : "Current"} · ${PROGRAMS[data.program.activeId].name} · ${data.program.frequency} days`, Dumbbell],
+          ["profile", "Profile", `${name} · ${profile.bodyweight} ${profile.unit} · ${LEVELS.find((option) => option.id === profile.level)?.label}`, UserRound],
+          ["experience", "App preferences", `${theme === "system" ? "System theme" : theme ? `${theme[0].toUpperCase()}${theme.slice(1)} theme` : "Theme"} · ${restAlertLevel} alert`, Monitor],
+          ["data", "Data & account", "Updates, backups, feedback and privacy", ShieldAlert],
+        ] as const).map(([value, label, summary, Icon], index) => <button key={value} type="button" onClick={() => setSettingsCategory(value)} className={`flex min-h-[4.4rem] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04] ${index ? "border-t border-white/[0.07]" : ""}`}><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-stone-300"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><strong className="block text-sm text-stone-200">{label}</strong><span className="mt-0.5 block truncate text-[11px] text-stone-500">{summary}</span></span><ChevronDown className="size-4 -rotate-90 text-stone-600" /></button>)}
       </div>}
 
-      <div key={settingsSection} className="settings-topic mt-4 grid gap-4 md:grid-cols-2">
-        {settingsSection === "program" && <>
+      {settingsCategory === "training" && <div className="mt-4 grid grid-cols-3 gap-2" role="tablist" aria-label="Training setup sections">{([['program','Program'],['schedule','Schedule'],['personalization','Personalize']] as const).map(([value, label]) => <Button key={value} type="button" role="tab" aria-selected={trainingSection === value} variant="outline" data-selected={trainingSection === value} onClick={() => setTrainingSection(value)} className="selection-button h-10 rounded-xl border-white/10 px-1 text-[11px]">{label}</Button>)}</div>}
+
+      <div key={`${settingsCategory}-${trainingSection}-${profileSection ?? "menu"}`} className="settings-topic mt-4 grid gap-4 md:grid-cols-2">
+        {settingsCategory === "training" && trainingSection === "program" && <>
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -1204,7 +1207,7 @@ function SettingsView({
         </article>
         </>}
 
-        {settingsSection === "schedule" &&
+        {settingsCategory === "training" && trainingSection === "schedule" &&
           <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
             <p className="eyebrow text-stone-600">Flexible weekly schedule</p>
             <h2 className="mt-2 text-xl font-semibold">Keep the program; choose the cadence</h2>
@@ -1216,7 +1219,15 @@ function SettingsView({
           </article>
         }
 
-        {settingsSection === "profile" && <>
+        {settingsCategory === "profile" && <div className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#121512] md:col-span-2">
+          {([
+            ["identity", "Identity & training track", `${profile.gender === "woman" ? "Woman" : "Man"} · ${profile.programTrack === "women" ? "Women’s" : "Current"} track`],
+            ["measurements", "Measurements & goal", `${profile.bodyweight} ${profile.unit} · ${profile.weightGoal}`],
+            ["experience", "Training experience", LEVELS.find((option) => option.id === profile.level)?.label ?? "Set experience"],
+          ] as const).map(([value, label, summary], index) => <button key={value} type="button" aria-pressed={profileSection === value} onClick={() => setProfileSection((current) => current === value ? null : value)} className={`flex min-h-[4rem] w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-white/[0.04] ${index ? "border-t border-white/[0.07]" : ""}`}><span className="min-w-0"><strong className="block text-sm text-stone-200">{label}</strong><span className="mt-0.5 block truncate text-[11px] capitalize text-stone-500">{summary}</span></span><ChevronDown className={`size-4 shrink-0 text-stone-600 transition-transform ${profileSection === value ? "rotate-180" : ""}`} /></button>)}
+        </div>}
+
+        {settingsCategory === "profile" && profileSection === "identity" &&
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-xl bg-amber-300 text-[#0b0d0c]"><UserRound className="size-5" /></div>
@@ -1232,8 +1243,9 @@ function SettingsView({
           <RadioGroup value={profile.programTrack} onValueChange={(value) => void changeTrainingTrack(value as ProgramTrack)} className="mt-2 grid grid-cols-2 gap-2" aria-label="Program track"><ChoiceRadio id="track-current" value="current" label="Current" /><ChoiceRadio id="track-women" value="women" label="Women’s" /></RadioGroup>
           <p className="mt-2 text-[11px] leading-5 text-stone-600">Switching tracks restarts at Foundation and clears training-max estimates, but preserves completed sessions and backups.</p>
           <Button variant="outline" onClick={onSwitch} className="mt-5 h-11 w-full rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white">Change training label</Button>
-        </article>
+        </article>}
 
+        {settingsCategory === "profile" && profileSection === "measurements" && <>
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6">
           <p className="eyebrow text-stone-600">Units</p>
           <RadioGroup
@@ -1257,7 +1269,9 @@ function SettingsView({
           <RadioGroup value={profile.weightGoal} onValueChange={(value) => void updateProfile({ weightGoal: value as WeightGoal }, "Weight goal updated")} className="mt-2 grid grid-cols-3 gap-2" aria-label="Weight goal">{(["cut","maintain","bulk"] as WeightGoal[]).map((goal) => <ChoiceRadio key={goal} id={`goal-${goal}`} value={goal} label={goal[0].toUpperCase() + goal.slice(1)} />)}</RadioGroup>
           <p className="mt-4 text-xs leading-5 text-stone-500">Trend feedback uses rolling averages. The app does not prescribe calories or diagnose health conditions.</p>
         </article>
+        </>}
 
+        {settingsCategory === "profile" && profileSection === "experience" &&
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6">
           <p className="eyebrow text-stone-600">Time spent lifting</p>
           <RadioGroup
@@ -1271,10 +1285,9 @@ function SettingsView({
             ))}
           </RadioGroup>
           <p className="mt-4 text-xs leading-5 text-stone-500">Only affects estimates for exercises you have never logged.</p>
-        </article>
-        </>}
+        </article>}
 
-        {settingsSection === "personalization" &&
+        {settingsCategory === "training" && trainingSection === "personalization" &&
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
           <p className="eyebrow text-stone-600">Program personalization</p>
           <div className="mt-4 grid gap-6 md:grid-cols-2">
@@ -1295,7 +1308,7 @@ function SettingsView({
         </article>
         }
 
-        {settingsSection === "experience" && <>
+        {settingsCategory === "experience" && <>
           <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
             <p className="eyebrow text-amber-300">Appearance</p>
             <h2 className="mt-2 text-xl font-semibold">Use the display that fits your environment</h2>
@@ -1308,8 +1321,9 @@ function SettingsView({
             <h2 className="mt-2 text-xl font-semibold">Choose how strongly RepArc gets your attention</h2>
             <p className="mt-2 text-xs leading-5 text-stone-500">During an active workout RepArc keeps the screen awake where supported. Foreground completion uses a ten-second sound and vibration. Background web alerts remain best effort and may be delayed or silenced by the device.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              {([['quiet','Quiet'],['normal','Normal'],['strong','Strong']] as const).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={restAlertLevel === value} data-selected={restAlertLevel === value} onClick={() => onRestAlertLevelChange(value)} className="selection-button min-h-12 justify-start rounded-xl border-white/10"><BellRing className="size-4" />{label}</Button>)}
+              {([['quiet','Quiet'],['normal','Normal'],['maximum','Maximum']] as const).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={restAlertLevel === value} data-selected={restAlertLevel === value} onClick={() => onRestAlertLevelChange(value)} className="selection-button min-h-12 justify-start rounded-xl border-white/10"><BellRing className="size-4" />{label}</Button>)}
             </div>
+            {restAlertLevel === "maximum" && <p className="mt-3 text-[10px] leading-4 text-amber-200">Maximum uses a sharper, limited alarm pattern. Check your device volume and lower it before testing with headphones.</p>}
             <details className="mt-4 rounded-xl border border-white/10 bg-black/15 p-3">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-stone-300"><span className="flex items-center gap-2"><BellRing className="size-3.5 text-amber-300" />Alarm readiness</span><ChevronDown className="size-4 text-stone-500" /></summary>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1329,7 +1343,7 @@ function SettingsView({
           </article>
         </>}
 
-        {settingsSection === "data" && <>
+        {settingsCategory === "data" && <>
         <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-xl bg-white/[0.07] text-stone-300"><Download className="size-5" /></div>
@@ -1373,7 +1387,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [restAlertLevel, setRestAlertLevel] = useState<RestAlertLevel>(() => {
     if (typeof window === "undefined") return "normal";
     const stored = window.localStorage.getItem("reparc-rest-alert-level");
-    return stored === "quiet" || stored === "strong" ? stored : "normal";
+    if (stored === "quiet" || stored === "normal" || stored === "maximum") return stored;
+    return "maximum";
   });
   const [alertPermission, setAlertPermission] = useState<AlertPermission>(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
@@ -1517,20 +1532,41 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (!context) return;
     if (context.state === "suspended") void context.resume();
     const start = context.currentTime;
-    const peak = restAlertLevel === "strong" ? 0.32 : restAlertLevel === "quiet" ? 0.08 : 0.2;
-    const repeats = Math.max(1, Math.ceil(durationSeconds / 0.45));
-    Array.from({ length: repeats }, (_, index) => index * 0.45).forEach((offset, index) => {
+    const maximum = restAlertLevel === "maximum";
+    const peak = maximum ? 0.92 : restAlertLevel === "quiet" ? 0.1 : 0.32;
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-18, start);
+    compressor.knee.setValueAtTime(14, start);
+    compressor.ratio.setValueAtTime(12, start);
+    compressor.attack.setValueAtTime(0.003, start);
+    compressor.release.setValueAtTime(0.18, start);
+    compressor.connect(context.destination);
+    const repeats = Math.max(1, Math.ceil(durationSeconds / 0.42));
+    Array.from({ length: repeats }, (_, index) => index * 0.42).forEach((offset, index) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.value = index === 0 ? 740 : 988;
+      oscillator.type = maximum ? "square" : restAlertLevel === "quiet" ? "sine" : "triangle";
+      oscillator.frequency.value = [880, 1175, 988][index % 3];
       gain.gain.setValueAtTime(0.0001, start + offset);
       gain.gain.exponentialRampToValueAtTime(peak, start + offset + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.28);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.3);
       oscillator.connect(gain);
-      gain.connect(context.destination);
+      gain.connect(compressor);
       oscillator.start(start + offset);
-      oscillator.stop(start + offset + 0.29);
+      oscillator.stop(start + offset + 0.31);
+      if (maximum) {
+        const reinforcement = context.createOscillator();
+        const reinforcementGain = context.createGain();
+        reinforcement.type = "triangle";
+        reinforcement.frequency.value = oscillator.frequency.value / 2;
+        reinforcementGain.gain.setValueAtTime(0.0001, start + offset);
+        reinforcementGain.gain.exponentialRampToValueAtTime(0.38, start + offset + 0.025);
+        reinforcementGain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.3);
+        reinforcement.connect(reinforcementGain);
+        reinforcementGain.connect(compressor);
+        reinforcement.start(start + offset);
+        reinforcement.stop(start + offset + 0.31);
+      }
     });
   };
 
@@ -1541,10 +1577,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       body: `${exerciseNameValue} — ready for your next set.`,
       tag,
       renotify: true,
-      requireInteraction: restAlertLevel === "strong",
+      requireInteraction: restAlertLevel === "maximum",
       silent: false,
       data: { url: "/" },
-      vibrate: restAlertLevel === "strong" ? [250, 100, 250, 100, 250] : restAlertLevel === "quiet" ? [120] : [180, 90, 180],
+      vibrate: restAlertLevel === "maximum" ? [400, 100, 400, 100, 400] : restAlertLevel === "quiet" ? [120] : [180, 90, 180],
     } as NotificationOptions & { vibrate: number[] });
   }, [restAlertLevel]);
 

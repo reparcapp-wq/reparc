@@ -137,7 +137,8 @@ test("keeps required onboarding, focused training, and the evidence guide access
   assert.match(app, /setupVersion: 2/);
   assert.match(app, /Exercise \{activeExerciseIndex \+ 1\} of/);
   assert.match(app, /exerciseIndex !== activeExerciseIndex/);
-  assert.match(app, /settingsSection === "overview"/);
+  assert.match(app, /settingsCategory === "overview"/);
+  assert.doesNotMatch(app, /aria-label="Setup sections"[\s\S]*overflow-x-auto/);
   assert.match(guide, /role="tablist"/);
   assert.match(guide, /active === "program"/);
   assert.match(guide, /Evidence library/);
