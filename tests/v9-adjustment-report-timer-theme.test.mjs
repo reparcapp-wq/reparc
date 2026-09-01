@@ -71,7 +71,8 @@ test("daily report measures adherence and reduces confidence when effort data is
   assert.equal(report.averageSessionRpe, 7);
   assert.equal(report.totalDurationSeconds, 3600);
   assert.equal(report.confidence, "low");
-  assert.ok(report.performanceImprovements >= 1);
+  assert.equal(report.performanceImprovements, 0);
+  assert.ok(report.possiblePerformanceImprovements >= 1);
   assert.equal(report.exercises[0].recommendation.confidence, "low");
 });
 
@@ -82,6 +83,34 @@ test("daily report treats a day without a session as recovery rather than failur
   assert.equal(report.status, "recovery");
   assert.equal(report.completionPercent, 0);
   assert.match(report.summary, /does not grade rest/i);
+});
+
+test("schedule adherence counts due days without inventing reports for missing workouts", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.setupCompletedAt = "2026-08-31T08:00:00.000Z";
+  data.program.frequency = 3;
+  data.program.preferredWeekdays = [1, 3, 5];
+  data.planHistory = [{ id: "setup", effectiveAt: data.setupCompletedAt, kind: "setup", programId: "phase1", week: 1, frequency: 3, preferredWeekdays: [1, 3, 5], track: "current", goal: "balanced", equipment: "full", status: "active" }];
+  const day = training.programDays("phase1", 3, "current")[0];
+  const snapshot = training.buildSessionPlanSnapshot(data, day, "phase1", 1, 3);
+  const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "20" : "", r: String(exercise.repLow), rir: "2" }))]));
+  data.sessions = [{ id: "monday", logicalKey: "monday", date: "2026-08-31", dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T11:00:00.000Z" }];
+  const adherence = reports.buildScheduleAdherence(data, "2026-08-31", "2026-09-06", "2026-09-02");
+  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, adherencePercent: 50 });
+});
+
+test("a performance improvement becomes established only after it repeats", () => {
+  const base = training.emptyData();
+  base.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  const day = training.programDays("phase1", 5, "current")[0];
+  const exercise = day.exercises[0];
+  const key = training.exerciseKey(exercise, {});
+  const makeSession = (id, date, load) => ({ id, date, dayId: day.id, unit: "kg", entries: { [key]: Array.from({ length: exercise.sets }, () => filled(load, Math.min(10, exercise.repHigh), 2)) }, programId: "phase1", revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z` });
+  base.sessions = [makeSession("baseline", "2026-08-20", 70), makeSession("first-signal", "2026-08-27", 75), makeSession("repeat", "2026-09-02", 75)];
+  const report = reports.buildDailyReport(base, "2026-09-02");
+  assert.equal(report.performanceImprovements, 1);
+  assert.match(report.headline, /repeated a positive performance trend/i);
 });
 
 test("new session context fields survive validation while invalid values are discarded", () => {

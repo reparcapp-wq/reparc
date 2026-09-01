@@ -30,7 +30,7 @@ const createTestAccount = async (email) => {
 try {
   const accountA = await createTestAccount(emails[0]);
   const accountB = await createTestAccount(emails[1]);
-  const profile = { version: 5, updatedAt: new Date().toISOString(), profile: { name: "Security test" }, sessions: [] };
+  const profile = { version: 6, updatedAt: new Date().toISOString(), profile: { displayName: "Security test" }, sessions: [] };
 
   const ownWrite = await accountA.client.from("training_profiles").upsert({
     user_id: accountA.user.id,
@@ -42,6 +42,19 @@ try {
   const ownRead = await accountA.client.from("training_profiles").select("user_id").eq("user_id", accountA.user.id);
   assert.equal(ownRead.error, null);
   assert.equal(ownRead.data?.length, 1, "the owner must see its own row");
+
+  const revisionRead = await accountA.client.from("training_profiles").select("revision").eq("user_id", accountA.user.id).single();
+  assert.equal(revisionRead.error, null, "the revision migration must be applied");
+  const expectedRevision = Number(revisionRead.data?.revision);
+  const changedProfile = { ...profile, updatedAt: new Date().toISOString(), sessions: [{ id: "atomic-write" }] };
+  const atomicWrite = await accountA.client.rpc("write_training_profile", { expected_revision: expectedRevision, incoming_value: changedProfile });
+  assert.equal(atomicWrite.error, null, "the owner must be able to atomically write its profile");
+  assert.equal(atomicWrite.data?.[0]?.conflict, false);
+  assert.equal(Number(atomicWrite.data?.[0]?.revision), expectedRevision + 1);
+  const staleWrite = await accountA.client.rpc("write_training_profile", { expected_revision: expectedRevision, incoming_value: profile });
+  assert.equal(staleWrite.error, null);
+  assert.equal(staleWrite.data?.[0]?.conflict, true, "a stale device write must be rejected");
+  assert.equal(Number(staleWrite.data?.[0]?.revision), expectedRevision + 1);
 
   const foreignRead = await accountB.client.from("training_profiles").select("user_id").eq("user_id", accountA.user.id);
   assert.equal(foreignRead.error, null);
@@ -74,7 +87,7 @@ try {
   const anonymousLimit = await anonymous.rpc("consume_api_rate_limit", { request_action: "feedback_write" });
   assert.ok(anonymousLimit.error, "anonymous callers must not execute the limiter");
 
-  console.log("Supabase ownership, grants, and durable rate-limit checks passed.");
+  console.log("Supabase ownership, atomic revisions, grants, and durable rate-limit checks passed.");
 } finally {
   await Promise.all(createdIds.map((id) => admin.auth.admin.deleteUser(id)));
 }

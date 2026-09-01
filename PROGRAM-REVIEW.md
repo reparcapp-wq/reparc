@@ -9,3 +9,5 @@ The reviewer must also confirm that RepArc clearly identifies its adaptation of 
 | Reviewer | Qualification | Review date | Version | Approved / changes required | Signature or written approval reference |
 | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |
+
+Status: **external review not yet recorded**. Automated checks cannot fill or replace this sign-off. Do not describe the program as independently coach-approved until a qualified reviewer completes the row above.

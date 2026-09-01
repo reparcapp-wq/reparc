@@ -63,6 +63,16 @@ test("a newer local edit stays pending and is merged after an older upload compl
   assert.deepEqual(committed.data.sessions.map((item) => item.id), ["uploaded", "new-local"]);
 });
 
+test("server revisions survive local edits and advance only after a confirmed cloud write", () => {
+  const data = training.emptyData();
+  const clean = { key: "franz", data, revision: 4, serverRevision: 12, dirty: false, updatedAt: "2026-09-02T10:00:00.000Z" };
+  const pending = offline.nextPendingOfflineRecord("franz", clean, { ...data, updatedAt: "2026-09-02T10:01:00.000Z" }, "merge", "2026-09-02T10:01:00.000Z");
+  assert.equal(pending.serverRevision, 12);
+  const committed = offline.resolveOfflineSyncCommit("franz", pending, pending.revision, pending.data, "2026-09-02T10:02:00.000Z", 13);
+  assert.equal(committed.serverRevision, 13);
+  assert.equal(committed.dirty, false);
+});
+
 test("the service worker caches the app shell but never intercepts the training API", async () => {
   const source = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
   assert.match(source, /request\.mode === "navigate"/);

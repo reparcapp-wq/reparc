@@ -134,7 +134,8 @@ test("keeps required onboarding, focused training, and the evidence guide access
   assert.match(app, /I confirm that I am 18 or older/);
   assert.match(app, /Choose exactly \$\{frequency\} preferred training days/);
   assert.match(app, /my-progress-onboarding-v2/);
-  assert.match(app, /setupVersion: 2/);
+  assert.match(app, /setupVersion: 3/);
+  assert.match(app, /stage === "consent"/);
   assert.match(app, /Exercise \{activeExerciseIndex \+ 1\} of/);
   assert.match(app, /exerciseIndex !== activeExerciseIndex/);
   assert.match(app, /settingsCategory === "overview"/);

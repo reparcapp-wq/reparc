@@ -3,7 +3,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RepArc",
+  metadataBase: new URL("https://reparc.netlify.app"),
+  title: { default: "RepArc", template: "%s · RepArc" },
   description: "Log workouts, follow progressive overload targets, and see your strength build over time.",
   applicationName: "RepArc",
   appleWebApp: {
@@ -15,6 +16,20 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
+  },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "RepArc",
+    title: "RepArc",
+    description: "Evidence-aligned training, focused logging, and offline-first progress tracking.",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "RepArc — Train. Record. Progress." }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "RepArc",
+    description: "Evidence-aligned training, focused logging, and offline-first progress tracking.",
+    images: ["/opengraph-image"],
   },
 };
 

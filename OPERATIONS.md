@@ -8,7 +8,9 @@ The package version is the single release source. Next.js and Vinext inject it a
 
 ## Database migrations
 
-Apply SQL files in filename order through `supabase/v9-api-security.sql`. Verify RLS remains enabled, anonymous grants remain revoked, `delete_current_user()` and `consume_api_rate_limit(text)` are executable only by `authenticated`, the rate-limit table has no Data API grants, and the `reparc-support-data-retention` cron job is active. Its daily job removes feedback older than 180 days, optional diagnostics older than 30 days, and inactive rate counters after 2 days; review `cron.job_run_details` after deployment and after any database upgrade.
+Apply SQL files in filename order through `supabase/v10-training-conflict-protection.sql`. Verify RLS remains enabled, anonymous grants remain revoked, `delete_current_user()`, `consume_api_rate_limit(text)`, and `write_training_profile(bigint,jsonb)` are executable only by `authenticated`, the rate-limit table has no Data API grants, and the `reparc-support-data-retention` cron job is active. Its daily job removes feedback older than 180 days, optional diagnostics older than 30 days, and inactive rate counters after 2 days; review `cron.job_run_details` after deployment and after any database upgrade.
+
+The v10 function atomically compares the browser's last known server revision before replacing the account profile. A stale device receives the newest row, merges locally, and retries instead of silently overwriting a concurrent edit. Confirm the `revision` column is present before treating this protection as active; the API retains a compatibility fallback only to keep older databases usable during migration.
 
 Review aggregate abuse signals without reading workout data:
 

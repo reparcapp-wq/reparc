@@ -10,6 +10,8 @@ export type TrainingFrequency = 3 | 4 | 5;
 export type WeightGoal = "cut" | "maintain" | "bulk";
 export type ProgramStatus = "active" | "paused" | "completed";
 export type Readiness = "normal" | "low" | "sore" | "symptoms" | "pain";
+export type SessionCompletionStatus = "completed" | "partial" | "adjusted" | "skipped";
+export type LoadingType = "external" | "bodyweight" | "assisted-bodyweight" | "unloaded";
 
 export type SetEntry = {
   w: string;
@@ -31,6 +33,27 @@ export type Exercise = {
   sbsRole?: SbsRole;
   historyIds?: string[];
   alternatives: string[];
+  loadingType?: LoadingType;
+  equipment?: Equipment[];
+  defaultVariant?: string;
+};
+
+export type ExerciseSnapshot = Pick<Exercise,
+  "id" | "name" | "sets" | "repLow" | "repHigh" | "restSeconds" | "ratio" | "perSide" | "bodyweight" | "note" | "sbsRole" | "historyIds" | "loadingType" | "equipment"
+> & { key: string };
+
+export type SessionPlanSnapshot = {
+  programId: ProgramId;
+  programWeek?: number;
+  frequency: TrainingFrequency;
+  preferredWeekdays: number[];
+  track: ProgramTrack;
+  goal: TrainingGoal;
+  equipment: Equipment;
+  dayId: string;
+  dayName: string;
+  focus: string;
+  exercises: ExerciseSnapshot[];
 };
 
 export type TrainingDay = {
@@ -43,6 +66,7 @@ export type TrainingDay = {
 };
 
 export type Profile = {
+  displayName?: string;
   bodyweight: number;
   unit: Unit;
   level: Level;
@@ -70,6 +94,11 @@ export type Session = {
   startedAt?: string;
   completedAt?: string;
   durationSeconds?: number;
+  completionStatus?: SessionCompletionStatus;
+  affectsProgression?: boolean;
+  bodyweightAtSession?: number;
+  planSnapshot?: SessionPlanSnapshot;
+  logicalKey?: string;
   revision: number;
   deletedAt?: string;
   createdAt: string;
@@ -119,8 +148,28 @@ export type ProgramState = {
   trainingMaxes: Record<string, number>;
 };
 
+export type PlanChange = {
+  id: string;
+  effectiveAt: string;
+  kind: "setup" | "schedule" | "program" | "profile" | "pause" | "resume";
+  programId: ProgramId;
+  week: number;
+  frequency: TrainingFrequency;
+  preferredWeekdays: number[];
+  track: ProgramTrack;
+  goal: TrainingGoal;
+  equipment: Equipment;
+  status: ProgramStatus;
+};
+
+export type ConsentRecord = {
+  termsVersion: string;
+  adultConfirmedAt: string;
+  safetyAcceptedAt: string;
+};
+
 export type TrainingData = {
-  version: 5;
+  version: 6;
   updatedAt: string;
   setupVersion: number;
   setupCompletedAt?: string;
@@ -130,7 +179,11 @@ export type TrainingData = {
   weighIns: WeighIn[];
   swaps: Record<string, string>;
   program: ProgramState;
+  planHistory: PlanChange[];
+  consent?: ConsentRecord;
 };
+
+export const CURRENT_TERMS_VERSION = "2026-09-02";
 
 export const LEVELS: Array<{ id: Level; label: string; factor: number }> = [
   { id: "new", label: "Under 6 months", factor: 0.6 },
@@ -525,25 +578,94 @@ export const PROGRAMS: Record<ProgramId, { name: string; description: string; da
   phase2: { name: "SBS Hypertrophy", description: "21 weeks · three autoregulated blocks", days: PHASE_TWO_PROGRAM },
 };
 
-const homeKeywords = /band|bodyweight|push-up|dumbbell|goblet|split squat|step-up|glute bridge|floor press|single-leg|reverse crunch|dead bug|wall sit|slider/i;
-const limitedKeywords = /dumbbell|barbell|band|bodyweight|goblet|split squat|step-up|push-up|glute bridge|floor press/i;
+const homeKeywords = /band|bodyweight|push-up|pull-up|chin-up|dumbbell|goblet|split squat|step-up|glute bridge|floor press|single-leg|reverse crunch|dead bug|wall sit|slider|nordic|pike/i;
+const limitedKeywords = /dumbbell|barbell|ez-bar|band|bodyweight|goblet|split squat|step-up|push-up|pull-up|chin-up|glute bridge|floor press|lunge|nordic|pike/i;
 const upperKeywords = /press|row|pulldown|pull-up|delt|lateral|curl|triceps|fly|pec/i;
 const lowerKeywords = /squat|deadlift|leg|hip|glute|lunge|step-up|calf|abduction|kickback/i;
 export const isLowerBodyExercise = (exercise: Pick<Exercise, "name">) => lowerKeywords.test(exercise.name);
+
+const bodyweightKeywords = /pull-up|chin-up|push-up|\bdips?\b|hanging|captain'?s chair|reverse crunch|dead bug|wall sit|nordic|pike push-up|bodyweight|side-lying leg raise/i;
+const assistedKeywords = /assisted/i;
+const unloadedKeywords = /band pull-apart|band row|band pulldown|band pushdown|band curl|dead bug|wall sit|slider leg curl/i;
+const perSideKeywords = /single-arm|one-arm|single-leg|split squat|lunge|step-up|kickback|abduction|dumbbell (press|curl|fly|row|rdl)|dumbbell lateral|dumbbell overhead|incline dumbbell|flat dumbbell|seated dumbbell|standing dumbbell/i;
+
+const homeAlternativeFor = (name: string) => {
+  if (/squat|leg press/i.test(name)) return "Goblet squat";
+  if (/block pull|deadlift/i.test(name)) return "Dumbbell RDL";
+  if (/row/i.test(name)) return "One-arm dumbbell row";
+  if (/lateral raise/i.test(name)) return "Dumbbell lateral raise";
+  if (/reverse pec|rear delt/i.test(name)) return "Dumbbell reverse fly";
+  if (/calf/i.test(name)) return "Single-leg calf raise";
+  if (/triceps|pushdown/i.test(name)) return "Band pushdown";
+  if (/curl/i.test(name)) return "Dumbbell curl";
+  if (/overhead press/i.test(name)) return "Dumbbell overhead press";
+  return undefined;
+};
+
+export const equipmentForExerciseName = (name: string): Equipment[] => {
+  if (homeKeywords.test(name) || bodyweightKeywords.test(name) || unloadedKeywords.test(name)) return ["home", "limited", "full"];
+  if (limitedKeywords.test(name)) return ["limited", "full"];
+  return ["full"];
+};
+
+export const resolveExerciseVariant = (exercise: Exercise, variantName = exercise.name): Exercise => {
+  const loadingType: LoadingType = unloadedKeywords.test(variantName)
+    ? "unloaded"
+    : assistedKeywords.test(variantName) && bodyweightKeywords.test(variantName)
+      ? "assisted-bodyweight"
+      : bodyweightKeywords.test(variantName)
+        ? "bodyweight"
+        : "external";
+  return {
+    ...exercise,
+    name: variantName,
+    ratio: variantName === exercise.name ? exercise.ratio : undefined,
+    bodyweight: loadingType === "bodyweight" || loadingType === "assisted-bodyweight",
+    loadingType,
+    perSide: perSideKeywords.test(variantName),
+    equipment: equipmentForExerciseName(variantName),
+  };
+};
+
+export const effectiveExerciseLoad = (exercise: Exercise, externalLoad: number, bodyweight: number) => {
+  const loadingType = exercise.loadingType ?? (exercise.bodyweight ? "bodyweight" : "external");
+  if (loadingType === "assisted-bodyweight") return Math.max(0, bodyweight - externalLoad);
+  if (loadingType === "bodyweight") return bodyweight + externalLoad;
+  if (loadingType === "unloaded") return 0;
+  return externalLoad;
+};
+
+export const exerciseNeedsLoad = (exercise?: Exercise | null) => {
+  const loadingType = exercise?.loadingType ?? (exercise?.bodyweight ? "bodyweight" : "external");
+  return loadingType === "external" || loadingType === "assisted-bodyweight";
+};
 
 const personalizeDays = (days: TrainingDay[], goal: TrainingGoal, equipment: Equipment) => days.map((day) => {
   let emphasized = false;
   return {
     ...day,
     exercises: day.exercises.map((exercise) => {
-      const alternatives = [...exercise.alternatives].sort((left, right) => {
+      const homeFallback = homeAlternativeFor(exercise.name);
+      const expandedAlternatives = homeFallback && !exercise.alternatives.some((alternative) => equipmentForExerciseName(alternative).includes("home"))
+        ? [...exercise.alternatives, homeFallback]
+        : [...exercise.alternatives];
+      const alternatives = expandedAlternatives.sort((left, right) => {
         const matcher = equipment === "home" ? homeKeywords : equipment === "limited" ? limitedKeywords : null;
         return matcher ? Number(matcher.test(right)) - Number(matcher.test(left)) : 0;
       });
+      const baseEquipment = exercise.equipment ?? equipmentForExerciseName(exercise.name);
+      const compatibleDefault = equipment === "full" || baseEquipment.includes(equipment)
+        ? undefined
+        : alternatives.find((alternative) => equipmentForExerciseName(alternative).includes(equipment));
       const goalMatcher = goal === "upper" ? upperKeywords : goal === "lower" ? lowerKeywords : null;
       const addSet = Boolean(goalMatcher && !emphasized && !exercise.sbsRole && goalMatcher.test(exercise.name));
       if (addSet) emphasized = true;
-      return { ...exercise, sets: addSet ? Math.min(5, exercise.sets + 1) : exercise.sets, alternatives };
+      return {
+        ...resolveExerciseVariant(exercise),
+        sets: addSet ? Math.min(5, exercise.sets + 1) : exercise.sets,
+        alternatives,
+        defaultVariant: compatibleDefault,
+      };
     }),
   };
 });
@@ -564,7 +686,7 @@ export const PROGRAM = PHASE_TWO_PROGRAM;
 const ALL_EXERCISES = [...PHASE_ONE_PROGRAM, ...PHASE_TWO_EXERCISE_SOURCE, ...WOMENS_PHASE_ONE_SOURCE, ...WOMENS_PHASE_TWO_SOURCE].flatMap((day) => day.exercises);
 
 export const emptyData = (): TrainingData => ({
-  version: 5,
+  version: 6,
   updatedAt: new Date(0).toISOString(),
   setupVersion: 0,
   profile: null,
@@ -572,6 +694,7 @@ export const emptyData = (): TrainingData => ({
   sessionRevisions: [],
   weighIns: [],
   swaps: {},
+  planHistory: [],
   program: {
     activeId: "phase1",
     week: 1,
@@ -627,7 +750,9 @@ export const estimatedOneRepMax = (weight: number, reps: number) =>
   weight > 0 && reps > 0 ? weight * (1 + reps / 30) : 0;
 
 export const exerciseKey = (exercise: Exercise, swaps: Record<string, string>) =>
-  swaps[exercise.id] ? `${exercise.id}:${swaps[exercise.id]}` : exercise.id;
+  swaps[exercise.id] || exercise.defaultVariant
+    ? `${exercise.id}:${swaps[exercise.id] ?? exercise.defaultVariant}`
+    : exercise.id;
 
 export const exerciseName = (key: string) => {
   const [, ...swapName] = key.split(":");
@@ -637,7 +762,10 @@ export const exerciseName = (key: string) => {
 
 export const exerciseFromKey = (key: string) => {
   const id = key.split(":")[0];
-  return ALL_EXERCISES.find((exercise) => exercise.id === id) ?? null;
+  const base = ALL_EXERCISES.find((exercise) => exercise.id === id);
+  if (!base) return null;
+  const [, ...variantParts] = key.split(":");
+  return resolveExerciseVariant(base, variantParts.length ? variantParts.join(":") : base.name);
 };
 
 export const blankEntries = (day: TrainingDay, swaps: Record<string, string>) =>
@@ -648,11 +776,187 @@ export const blankEntries = (day: TrainingDay, swaps: Record<string, string>) =>
     ]),
   );
 
-export const isFilledSet = (entry: SetEntry, exercise?: Exercise | null) =>
-  entry.r !== "" && (entry.w !== "" || Boolean(exercise?.bodyweight));
+export const sessionLogicalKey = (date: string, programId: ProgramId, week: number | undefined, frequency: TrainingFrequency, dayId: string) =>
+  `${date}:${programId}:${programId === "phase2" ? week ?? 1 : 0}:${frequency}:${dayId}`;
+
+export const buildSessionPlanSnapshot = (data: TrainingData, day: TrainingDay, programId = data.program.activeId, week = data.program.week, frequency = data.program.frequency): SessionPlanSnapshot => {
+  const profile = data.profile!;
+  return {
+    programId,
+    programWeek: programId === "phase2" ? week : undefined,
+    frequency,
+    preferredWeekdays: [...data.program.preferredWeekdays],
+    track: profile.programTrack,
+    goal: profile.goal,
+    equipment: profile.equipment,
+    dayId: day.id,
+    dayName: day.name,
+    focus: day.focus,
+    exercises: day.exercises.map((exercise) => {
+      const key = exerciseKey(exercise, data.swaps);
+      const resolved = exerciseFromKey(key) ?? resolveExerciseVariant(exercise, data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name);
+      return {
+        id: resolved.id,
+        key,
+        name: resolved.name,
+        sets: resolved.sets,
+        repLow: resolved.repLow,
+        repHigh: resolved.repHigh,
+        restSeconds: resolved.restSeconds,
+        ratio: resolved.ratio,
+        perSide: resolved.perSide,
+        bodyweight: resolved.bodyweight,
+        note: resolved.note,
+        sbsRole: resolved.sbsRole,
+        historyIds: resolved.historyIds ? [...resolved.historyIds] : undefined,
+        loadingType: resolved.loadingType,
+        equipment: resolved.equipment ? [...resolved.equipment] : undefined,
+      };
+    }),
+  };
+};
+
+export const trainingDayFromSnapshot = (snapshot: SessionPlanSnapshot): TrainingDay => ({
+  id: snapshot.dayId,
+  name: snapshot.dayName,
+  focus: snapshot.focus,
+  weekday: snapshot.preferredWeekdays[0] ?? 1,
+  lower: snapshot.exercises.some((exercise) => isLowerBodyExercise(exercise)),
+  exercises: snapshot.exercises.map((exercise) => ({
+    ...exercise,
+    alternatives: [],
+    defaultVariant: exercise.key.includes(":") ? exercise.key.split(":").slice(1).join(":") : undefined,
+  })),
+});
+
+export const sessionPlannedSets = (session: Session, data?: TrainingData) => {
+  if (session.planSnapshot) return session.planSnapshot.exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
+  if (!data?.profile) return 0;
+  return programDays(
+    session.programId ?? data.program.activeId,
+    session.programFrequency ?? data.program.frequency,
+    data.profile.programTrack,
+    data.profile.goal,
+    data.profile.equipment,
+  ).find((day) => day.id === session.dayId)?.exercises.reduce((sum, exercise) => sum + exercise.sets, 0) ?? 0;
+};
+
+export const sessionCompletedSets = (session: Session) => Object.entries(session.entries).reduce((sum, [key, entries]) => {
+  const snapshot = session.planSnapshot?.exercises.find((exercise) => exercise.key === key);
+  const exercise = snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
+  return sum + entries.filter((entry) => isFilledSet(entry, exercise)).length;
+}, 0);
+
+export const sessionCountsAsCompletedDay = (session: Session, data?: TrainingData) => {
+  if (session.deletedAt || session.completionStatus === "partial" || session.completionStatus === "skipped") return false;
+  const planned = sessionPlannedSets(session, data);
+  return planned > 0 && sessionCompletedSets(session) >= planned;
+};
+
+const decimalValue = (value: string) => value.trim() !== "" && /^\d{1,4}(?:\.\d{1,2})?$/.test(value) ? Number(value) : Number.NaN;
+const repValue = (value: string) => /^\d{1,3}$/.test(value) ? Number(value) : Number.NaN;
+
+export const validSetEntry = (entry: SetEntry, exercise?: Exercise | null) => {
+  const reps = repValue(entry.r);
+  if (!Number.isInteger(reps) || reps < 1 || reps > 100) return false;
+  if (entry.rir !== "") {
+    const rir = decimalValue(entry.rir);
+    if (!Number.isFinite(rir) || rir < 0 || rir > 10) return false;
+  }
+  const loadingType = exercise?.loadingType ?? (exercise?.bodyweight ? "bodyweight" : "external");
+  if (loadingType === "bodyweight" || loadingType === "unloaded") {
+    if (entry.w === "") return true;
+    const optionalLoad = decimalValue(entry.w);
+    return Number.isFinite(optionalLoad) && optionalLoad >= 0 && optionalLoad <= 2_000;
+  }
+  const load = decimalValue(entry.w);
+  return Number.isFinite(load) && load > 0 && load <= 2_000;
+};
+
+export const isFilledSet = validSetEntry;
 
 const validIso = (value: unknown, fallback: string) =>
   typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : fallback;
+
+export const isValidDateOnly = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+};
+
+const normalizeSetEntry = (value: unknown, exercise?: Exercise | null): SetEntry => {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const candidate = {
+    w: source.w === undefined || source.w === null ? "" : String(source.w).trim(),
+    r: source.r === undefined || source.r === null ? "" : String(source.r).trim(),
+    rir: source.rir === undefined || source.rir === null ? "" : String(source.rir).trim(),
+  };
+  if (candidate.w !== "" && !Number.isFinite(decimalValue(candidate.w))) candidate.w = "";
+  if (candidate.r !== "" && (!Number.isInteger(repValue(candidate.r)) || repValue(candidate.r) < 1 || repValue(candidate.r) > 100)) candidate.r = "";
+  if (candidate.rir !== "") {
+    const rir = decimalValue(candidate.rir);
+    if (!Number.isFinite(rir) || rir < 0 || rir > 10) candidate.rir = "";
+  }
+  if (candidate.w !== "") {
+    const load = decimalValue(candidate.w);
+    const canBeZero = !exerciseNeedsLoad(exercise);
+    if (!Number.isFinite(load) || load > 2_000 || load < 0 || (!canBeZero && load === 0)) candidate.w = "";
+  }
+  return candidate;
+};
+
+const normalizePlanSnapshot = (value: unknown): SessionPlanSnapshot | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const source = value as Record<string, unknown>;
+  if (source.programId !== "phase1" && source.programId !== "phase2") return undefined;
+  if (typeof source.dayId !== "string" || typeof source.dayName !== "string" || !Array.isArray(source.exercises)) return undefined;
+  const frequency = validFrequency(source.frequency);
+  const exercises = source.exercises.flatMap((item): ExerciseSnapshot[] => {
+    if (!item || typeof item !== "object") return [];
+    const exercise = item as Record<string, unknown>;
+    if (typeof exercise.id !== "string" || typeof exercise.key !== "string" || typeof exercise.name !== "string") return [];
+    const sets = Math.trunc(numeric(exercise.sets));
+    const repLow = Math.trunc(numeric(exercise.repLow));
+    const repHigh = Math.trunc(numeric(exercise.repHigh));
+    const restSeconds = exercise.restSeconds === 120 || exercise.restSeconds === 180 ? exercise.restSeconds : 90;
+    if (sets < 1 || sets > 10 || repLow < 1 || repHigh < repLow || repHigh > 100) return [];
+    const loadingType: LoadingType = exercise.loadingType === "bodyweight" || exercise.loadingType === "assisted-bodyweight" || exercise.loadingType === "unloaded" ? exercise.loadingType : "external";
+    return [{
+      id: exercise.id,
+      key: exercise.key,
+      name: exercise.name,
+      sets,
+      repLow,
+      repHigh,
+      restSeconds,
+      ratio: Number(exercise.ratio) > 0 ? Number(exercise.ratio) : undefined,
+      perSide: exercise.perSide === true,
+      bodyweight: loadingType === "bodyweight" || loadingType === "assisted-bodyweight",
+      note: typeof exercise.note === "string" ? exercise.note : undefined,
+      sbsRole: exercise.sbsRole === "main" || exercise.sbsRole === "auxiliary" ? exercise.sbsRole : undefined,
+      historyIds: Array.isArray(exercise.historyIds) ? exercise.historyIds.filter((id): id is string => typeof id === "string") : undefined,
+      loadingType,
+      equipment: Array.isArray(exercise.equipment) ? exercise.equipment.filter((item): item is Equipment => item === "home" || item === "limited" || item === "full") : undefined,
+    }];
+  });
+  if (!exercises.length) return undefined;
+  const snapshotWeekdays = Array.isArray(source.preferredWeekdays)
+    ? [...new Set(source.preferredWeekdays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+    : [];
+  return {
+    programId: source.programId,
+    programWeek: typeof source.programWeek === "number" && source.programWeek >= 1 && source.programWeek <= 21 ? Math.trunc(source.programWeek) : undefined,
+    frequency,
+    preferredWeekdays: snapshotWeekdays.length === frequency ? snapshotWeekdays : defaultWeekdays(frequency),
+    track: source.track === "women" ? "women" : "current",
+    goal: source.goal === "upper" || source.goal === "lower" || source.goal === "strength" ? source.goal : "balanced",
+    equipment: source.equipment === "home" || source.equipment === "limited" ? source.equipment : "full",
+    dayId: source.dayId,
+    dayName: source.dayName,
+    focus: typeof source.focus === "string" ? source.focus : "Recorded workout",
+    exercises,
+  };
+};
 
 const validReadiness = (value: unknown): Readiness | undefined =>
   value === "normal" || value === "low" || value === "sore" || value === "symptoms" || value === "pain" ? value : undefined;
@@ -664,6 +968,156 @@ const defaultWeekdays = (frequency: TrainingFrequency) =>
 export const isActiveSession = (session: Session) => !session.deletedAt;
 export const activeSessions = (data: Pick<TrainingData, "sessions">) => data.sessions.filter(isActiveSession);
 export const activeWeighIns = (data: Pick<TrainingData, "weighIns">) => data.weighIns.filter((entry) => !entry.deletedAt);
+
+const exerciseForSessionKey = (session: Session, key: string) => {
+  const snapshot = session.planSnapshot?.exercises.find((exercise) => exercise.key === key);
+  return snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
+};
+
+export function recalculatePhase2Progression(data: TrainingData): TrainingData {
+  const rolling: Record<string, number> = {};
+  const managedKeys = new Set<string>();
+  const revisedById = new Map<string, Session>();
+  const phaseTwoSessions = data.sessions
+    .filter((session) => session.programId === "phase2")
+    .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt) || (left.programWeek ?? 1) - (right.programWeek ?? 1));
+  phaseTwoSessions.forEach((session) => {
+    Object.keys(session.trainingMaxesBefore ?? {}).forEach((key) => {
+      managedKeys.add(key);
+      if (rolling[key] === undefined) rolling[key] = session.trainingMaxesBefore![key];
+    });
+    Object.keys(session.trainingMaxesAfter ?? {}).forEach((key) => managedKeys.add(key));
+  });
+  phaseTwoSessions
+    .filter((session) => !session.deletedAt)
+    .forEach((session) => {
+      const before = { ...(session.trainingMaxesBefore ?? {}) };
+      const after = { ...(session.trainingMaxesAfter ?? {}) };
+      Object.entries(session.entries).forEach(([key, sets]) => {
+        const exercise = exerciseForSessionKey(session, key);
+        if (!exercise?.sbsRole) return;
+        managedKeys.add(key);
+        const base = rolling[key]
+          ?? before[key]
+          ?? before[exercise.id]
+          ?? data.program.trainingMaxes[key]
+          ?? data.program.trainingMaxes[exercise.id];
+        if (!base || !Number.isFinite(base) || base <= 0) return;
+        before[key] = base;
+        const finalSet = sets[exercise.sets - 1];
+        const prescription = sbsPrescription(exercise.sbsRole, session.programWeek ?? 1);
+        const progressionEligible = session.affectsProgression !== false
+          && session.completionStatus !== "partial"
+          && session.completionStatus !== "skipped";
+        after[key] = !progressionEligible || !finalSet || !isFilledSet(finalSet, exercise) || prescription.deload
+          ? base
+          : base * (1 + sbsTrainingMaxChange(numeric(finalSet.r), prescription.repOutTarget));
+        rolling[key] = after[key];
+      });
+      revisedById.set(session.id, { ...session, trainingMaxesBefore: before, trainingMaxesAfter: after });
+    });
+  return {
+    ...data,
+    sessions: data.sessions.map((session) => revisedById.get(session.id) ?? session),
+    program: data.program.activeId === "phase2"
+      ? { ...data.program, trainingMaxes: { ...Object.fromEntries(Object.entries(data.program.trainingMaxes).filter(([key]) => !managedKeys.has(key))), ...rolling } }
+      : data.program,
+  };
+}
+
+export const trainingDataBytes = (data: TrainingData) => new TextEncoder().encode(JSON.stringify(data)).byteLength;
+
+export function trainingDataValidationIssues(raw: unknown) {
+  const issues: string[] = [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ["Training data must be an object."];
+  const source = raw as Record<string, unknown>;
+  const sourceVersion = Number(source.version);
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 6) issues.push("Unsupported data version.");
+  if (!source.program || typeof source.program !== "object" || Array.isArray(source.program)) issues.push("Program settings are missing.");
+  if (!Array.isArray(source.sessions)) {
+    issues.push("Session history must be a list.");
+  } else {
+    if (source.sessions.length > 5_000) issues.push("Session history exceeds 5,000 entries.");
+    source.sessions.forEach((value, sessionIndex) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        issues.push(`Session ${sessionIndex + 1} is invalid.`);
+        return;
+      }
+      const session = value as Record<string, unknown>;
+      if (!isValidDateOnly(session.date)) issues.push(`Session ${sessionIndex + 1} has an invalid date.`);
+      if (typeof session.dayId !== "string" || !session.dayId.trim()) issues.push(`Session ${sessionIndex + 1} has no workout day.`);
+      if (session.unit !== "kg" && session.unit !== "lb" && !(sourceVersion < 6 && session.unit === undefined)) issues.push(`Session ${sessionIndex + 1} has an invalid unit.`);
+      if (!session.entries || typeof session.entries !== "object" || Array.isArray(session.entries)) {
+        issues.push(`Session ${sessionIndex + 1} has invalid set data.`);
+        return;
+      }
+      Object.entries(session.entries as Record<string, unknown>).forEach(([key, sets]) => {
+        if (!Array.isArray(sets) || sets.length > 10) {
+          issues.push(`Session ${sessionIndex + 1}, ${key}, has an invalid set list.`);
+          return;
+        }
+        sets.forEach((set, setIndex) => {
+          if (!set || typeof set !== "object" || Array.isArray(set)) {
+            issues.push(`Session ${sessionIndex + 1}, ${key}, set ${setIndex + 1} is invalid.`);
+            return;
+          }
+          const entry = set as Record<string, unknown>;
+          const weight = entry.w === undefined || entry.w === null ? "" : String(entry.w).trim();
+          const reps = entry.r === undefined || entry.r === null ? "" : String(entry.r).trim();
+          const rir = entry.rir === undefined || entry.rir === null ? "" : String(entry.rir).trim();
+          if (weight !== "" && (!Number.isFinite(decimalValue(weight)) || decimalValue(weight) < 0 || decimalValue(weight) > 2_000)) issues.push(`Session ${sessionIndex + 1}, ${key}, set ${setIndex + 1} has an invalid load.`);
+          if (reps !== "" && (!Number.isInteger(repValue(reps)) || repValue(reps) < 1 || repValue(reps) > 100)) issues.push(`Session ${sessionIndex + 1}, ${key}, set ${setIndex + 1} has invalid reps.`);
+          if (rir !== "" && (!Number.isFinite(decimalValue(rir)) || decimalValue(rir) < 0 || decimalValue(rir) > 10)) issues.push(`Session ${sessionIndex + 1}, ${key}, set ${setIndex + 1} has invalid RIR.`);
+        });
+      });
+    });
+  }
+  if (source.weighIns !== undefined && !Array.isArray(source.weighIns)) {
+    issues.push("Weigh-in history must be a list.");
+  } else if (Array.isArray(source.weighIns)) {
+    if (source.weighIns.length > 10_000) issues.push("Weigh-in history exceeds 10,000 entries.");
+    source.weighIns.forEach((value, index) => {
+      const entry = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+      const unit = entry?.unit === "lb" ? "lb" : "kg";
+      const weight = Number(entry?.weight);
+      if (!entry || !isValidDateOnly(entry.date) || !Number.isFinite(weight) || weight < 25 || weight > (unit === "kg" ? 300 : 660)) issues.push(`Weigh-in ${index + 1} is invalid.`);
+    });
+  }
+  if (Array.isArray(source.planHistory) && source.planHistory.length > 2_000) issues.push("Plan history exceeds 2,000 changes.");
+  if (Array.isArray(source.sessionRevisions) && source.sessionRevisions.length > 5_000) issues.push("Session revision history exceeds 5,000 entries.");
+  if (source.consent && typeof source.consent === "object" && !Array.isArray(source.consent)) {
+    const consent = source.consent as Record<string, unknown>;
+    if (typeof consent.termsVersion !== "string" || !consent.termsVersion.trim()) issues.push("Consent version is invalid.");
+    if (typeof consent.adultConfirmedAt !== "string" || Number.isNaN(Date.parse(consent.adultConfirmedAt))) issues.push("Adult confirmation date is invalid.");
+    if (typeof consent.safetyAcceptedAt !== "string" || Number.isNaN(Date.parse(consent.safetyAcceptedAt))) issues.push("Safety confirmation date is invalid.");
+  }
+  if (!issues.length && Array.isArray(source.sessions)) {
+    const rawSessions = source.sessions as unknown[];
+    const normalized = normalizeTrainingData(source);
+    normalized.sessions.forEach((session, index) => {
+      if ((rawSessions[index] as Record<string, unknown>)?.completionStatus === "completed" && !sessionCountsAsCompletedDay(session, normalized)) issues.push(`Session ${index + 1} is marked complete but required sets are missing.`);
+    });
+  }
+  return [...new Set(issues)].slice(0, 20);
+}
+
+export const recordPlanChange = (data: TrainingData, kind: PlanChange["kind"], effectiveAt = new Date().toISOString()): TrainingData => {
+  if (!data.profile) return data;
+  const change: PlanChange = {
+    id: globalThis.crypto?.randomUUID?.() ?? `plan-${kind}-${effectiveAt}`,
+    effectiveAt,
+    kind,
+    programId: data.program.activeId,
+    week: data.program.week,
+    frequency: data.program.frequency,
+    preferredWeekdays: [...data.program.preferredWeekdays],
+    track: data.profile.programTrack,
+    goal: data.profile.goal,
+    equipment: data.profile.equipment,
+    status: data.program.status,
+  };
+  return { ...data, planHistory: [...data.planHistory, change].slice(-2_000) };
+};
 
 export const PHASE_TWO_PROGRAMMED_EXERCISES = [...new Map(
   PHASE_TWO_EXERCISE_SOURCE.flatMap((day) => day.exercises).filter((exercise) => exercise.sbsRole).map((exercise) => [exercise.id, exercise]),
@@ -733,7 +1187,7 @@ export const weightTrend = (data: TrainingData, unit: Unit) => {
 const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Session | null => {
   if (!item || typeof item !== "object") return null;
   const session = item as Record<string, unknown>;
-  if (typeof session.date !== "string" || typeof session.dayId !== "string") return null;
+  if (!isValidDateOnly(session.date) || typeof session.dayId !== "string") return null;
   const fallbackTime = `${session.date}T12:00:00.000Z`;
   const entriesSource = session.entries && typeof session.entries === "object"
     ? (session.entries as Record<string, unknown>)
@@ -741,14 +1195,8 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
   const entries = Object.fromEntries(
     Object.entries(entriesSource).flatMap(([key, sets]) => {
       if (!Array.isArray(sets)) return [];
-      return [[key, sets.map((set) => {
-        const entry = set && typeof set === "object" ? (set as Record<string, unknown>) : {};
-        return {
-          w: entry.w === undefined || entry.w === null ? "" : String(entry.w),
-          r: entry.r === undefined || entry.r === null ? "" : String(entry.r),
-          rir: entry.rir === undefined || entry.rir === null ? "" : String(entry.rir),
-        };
-      })]];
+      const exercise = exerciseFromKey(key);
+      return [[key, sets.map((set) => normalizeSetEntry(set, exercise))]];
     }),
   );
   return {
@@ -779,6 +1227,11 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     durationSeconds: Number.isFinite(Number(session.durationSeconds)) && Number(session.durationSeconds) >= 0 && Number(session.durationSeconds) <= 43_200
       ? Math.trunc(Number(session.durationSeconds))
       : undefined,
+    completionStatus: session.completionStatus === "completed" || session.completionStatus === "adjusted" || session.completionStatus === "skipped" || session.completionStatus === "partial" ? session.completionStatus : undefined,
+    affectsProgression: session.affectsProgression !== false,
+    bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= ((session.unit === "lb" ? "lb" : fallbackUnit) === "kg" ? 300 : 660) ? Number(session.bodyweightAtSession) : undefined,
+    planSnapshot: normalizePlanSnapshot(session.planSnapshot),
+    logicalKey: typeof session.logicalKey === "string" ? session.logicalKey : undefined,
     revision: Math.max(1, Math.trunc(numeric(session.revision) || 1)),
     deletedAt: typeof session.deletedAt === "string" ? validIso(session.deletedAt, fallbackTime) : undefined,
     createdAt: validIso(session.createdAt, fallbackTime),
@@ -790,6 +1243,9 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
   if (!raw || typeof raw !== "object") return emptyData();
   const source = raw as Record<string, unknown>;
   const rawProfile = source.profile as Record<string, unknown> | null;
+  const profileUnit: Unit = rawProfile?.unit === "lb" ? "lb" : "kg";
+  const normalizedBodyweight = numeric(rawProfile?.bodyweight ?? rawProfile?.bw);
+  const validBodyweight = normalizedBodyweight >= 25 && normalizedBodyweight <= (profileUnit === "kg" ? 300 : 660);
   const normalizedLevel: Level = rawProfile?.level === "new"
     ? "new"
     : rawProfile?.level === "beginner"
@@ -799,22 +1255,23 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
         : rawProfile?.level === "returning"
           ? "returning"
           : "intermediate";
-  const profile: Profile | null = rawProfile
+  const profile: Profile | null = rawProfile && validBodyweight
     ? {
-        bodyweight: numeric(rawProfile.bodyweight ?? rawProfile.bw),
-        unit: rawProfile.unit === "lb" ? "lb" : "kg",
+        displayName: typeof rawProfile.displayName === "string" && rawProfile.displayName.trim() ? rawProfile.displayName.trim().slice(0, 40) : undefined,
+        bodyweight: normalizedBodyweight,
+        unit: profileUnit,
         level: normalizedLevel,
         gender: rawProfile.gender === "woman" ? "woman" : "man",
         programTrack: rawProfile.programTrack === "women" || rawProfile.programTrack === "current"
           ? rawProfile.programTrack
           : trainingTrack(rawProfile.gender === "woman" ? "woman" : "man"),
-        goal: rawProfile.goal === "strength" || rawProfile.goal === "upper" || rawProfile.goal === "lower" ? rawProfile.goal : "balanced",
+        goal: rawProfile.goal === "upper" || rawProfile.goal === "lower" ? rawProfile.goal : "balanced",
         equipment: rawProfile.equipment === "limited" || rawProfile.equipment === "home" ? rawProfile.equipment : "full",
         weightGoal: rawProfile.weightGoal === "cut" || rawProfile.weightGoal === "bulk" ? rawProfile.weightGoal : "maintain",
         weightTrackingEnabled: rawProfile.weightTrackingEnabled !== false,
       }
     : null;
-  const fallbackUnit: Unit = profile?.unit ?? "kg";
+  const fallbackUnit: Unit = profile?.unit ?? profileUnit;
   const rawSessions = Array.isArray(source.sessions) ? source.sessions : [];
   const sessions = rawSessions.flatMap((item, index) => normalizeSession(item, index, fallbackUnit) ?? []);
   const updatedAt = validIso(source.updatedAt, remoteUpdatedAt ?? new Date(0).toISOString());
@@ -839,13 +1296,14 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     if (!item || typeof item !== "object") return [];
     const entry = item as Record<string, unknown>;
     const weight = numeric(entry.weight);
-    if (typeof entry.date !== "string" || weight <= 0) return [];
+    const entryUnit: Unit = entry.unit === "lb" ? "lb" : fallbackUnit;
+    if (!isValidDateOnly(entry.date) || weight < 25 || weight > (entryUnit === "kg" ? 300 : 660)) return [];
     const fallbackTime = `${entry.date}T08:00:00.000Z`;
     return [{
       id: typeof entry.id === "string" ? entry.id : `weight-${entry.date}-${index}`,
       date: entry.date,
       weight,
-      unit: entry.unit === "lb" ? "lb" : fallbackUnit,
+      unit: entryUnit,
       createdAt: validIso(entry.createdAt, fallbackTime),
       updatedAt: validIso(entry.updatedAt, fallbackTime),
       deletedAt: typeof entry.deletedAt === "string" ? validIso(entry.deletedAt, fallbackTime) : undefined,
@@ -890,16 +1348,49 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
   const phase2UnlockedAt = typeof rawProgram.phase2UnlockedAt === "string"
     ? validIso(rawProgram.phase2UnlockedAt, updatedAt)
     : activeId === "phase2" ? updatedAt : undefined;
+  const planHistory: PlanChange[] = Array.isArray(source.planHistory) ? source.planHistory.flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const change = item as Record<string, unknown>;
+    const effectiveAt = validIso(change.effectiveAt, updatedAt);
+    const changeFrequency = validFrequency(change.frequency);
+    const changeKind = change.kind === "schedule" || change.kind === "program" || change.kind === "profile" || change.kind === "pause" || change.kind === "resume" ? change.kind : "setup";
+    const candidateWeekdays = Array.isArray(change.preferredWeekdays)
+      ? [...new Set(change.preferredWeekdays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+      : [];
+    return [{
+      id: typeof change.id === "string" ? change.id : `plan-${index}-${effectiveAt}`,
+      effectiveAt,
+      kind: changeKind,
+      programId: change.programId === "phase2" ? "phase2" : "phase1",
+      week: Math.max(1, Math.min(21, Math.trunc(numeric(change.week) || 1))),
+      frequency: changeFrequency,
+      preferredWeekdays: candidateWeekdays.length === changeFrequency ? candidateWeekdays : defaultWeekdays(changeFrequency),
+      track: change.track === "women" ? "women" : "current",
+      goal: change.goal === "upper" || change.goal === "lower" || change.goal === "strength" ? change.goal : "balanced",
+      equipment: change.equipment === "home" || change.equipment === "limited" ? change.equipment : "full",
+      status: change.status === "paused" || change.status === "completed" ? change.status : "active",
+    }];
+  }) : [];
+  const rawConsent = source.consent && typeof source.consent === "object" ? source.consent as Record<string, unknown> : null;
+  const consent: ConsentRecord | undefined = rawConsent && typeof rawConsent.termsVersion === "string"
+    ? {
+        termsVersion: rawConsent.termsVersion,
+        adultConfirmedAt: validIso(rawConsent.adultConfirmedAt, updatedAt),
+        safetyAcceptedAt: validIso(rawConsent.safetyAcceptedAt, updatedAt),
+      }
+    : undefined;
   return {
-    version: 5,
+    version: 6,
     updatedAt,
     setupVersion: profile ? Math.max(2, Math.trunc(numeric(source.setupVersion) || 2)) : 0,
     setupCompletedAt: profile ? validIso(source.setupCompletedAt, updatedAt) : undefined,
     profile,
     sessions,
-    sessionRevisions,
+    sessionRevisions: sessionRevisions.slice(-5_000),
     weighIns,
     swaps,
+    planHistory,
+    consent,
     program: {
       activeId,
       week,
@@ -920,9 +1411,10 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
   const newer = Date.parse(left.updatedAt) >= Date.parse(right.updatedAt) ? left : right;
   const sessions = new Map<string, Session>();
   [...left.sessions, ...right.sessions].forEach((session) => {
-    const existing = sessions.get(session.id);
+    const mergeKey = session.logicalKey ?? session.id;
+    const existing = sessions.get(mergeKey);
     if (!existing || Date.parse(session.updatedAt) >= Date.parse(existing.updatedAt)) {
-      sessions.set(session.id, session);
+      sessions.set(mergeKey, session);
     }
   });
   const weighIns = new Map<string, WeighIn>();
@@ -932,16 +1424,20 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
   });
   const revisions = new Map<string, SessionRevision>();
   [...left.sessionRevisions, ...right.sessionRevisions].forEach((revision) => revisions.set(revision.id, revision));
+  const planChanges = new Map<string, PlanChange>();
+  [...left.planHistory, ...right.planHistory].forEach((change) => planChanges.set(change.id, change));
   return {
-    version: 5,
+    version: 6,
     updatedAt: new Date(Math.max(Date.parse(left.updatedAt), Date.parse(right.updatedAt))).toISOString(),
     setupVersion: newer.setupVersion,
     setupCompletedAt: newer.setupCompletedAt,
     profile: newer.profile,
     swaps: newer.swaps,
     program: newer.program,
+    planHistory: [...planChanges.values()].sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt)).slice(-2_000),
+    consent: newer.consent,
     sessions: [...sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    sessionRevisions: [...revisions.values()].sort((a, b) => a.at.localeCompare(b.at)),
+    sessionRevisions: [...revisions.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-5_000),
     weighIns: [...weighIns.values()].sort((a, b) => a.date.localeCompare(b.date)),
   };
 }

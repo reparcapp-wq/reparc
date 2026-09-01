@@ -1,4 +1,4 @@
-import { mergeTrainingData, normalizeTrainingData, type TrainingData } from "@/lib/training";
+import { mergeTrainingData, normalizeTrainingData, trainingDataValidationIssues, type TrainingData } from "@/lib/training";
 
 export type RestoreMode = "merge" | "replace";
 export type BackupPreview = {
@@ -23,7 +23,7 @@ export function createTrainingBackup(data: TrainingData, exportedAt = new Date()
 }
 
 export function parseTrainingBackup(text: string): BackupPreview {
-  if (text.length > 1_200_000) throw new Error("This backup is larger than the app can safely restore.");
+  if (new TextEncoder().encode(text).byteLength > 1_200_000) throw new Error("This backup is larger than the app can safely restore.");
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -36,10 +36,12 @@ export function parseTrainingBackup(text: string): BackupPreview {
   if (envelope && record.formatVersion !== 1) throw new Error("This backup format is newer than this app supports.");
   const raw = (envelope ? record.data : record) as Record<string, unknown>;
   const sourceVersion = Number(raw?.version);
-  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 5) throw new Error("This backup version is not supported.");
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 6) throw new Error("This backup version is not supported.");
   if (!Array.isArray(raw.sessions) || !raw.program || typeof raw.program !== "object") throw new Error("The backup is missing required training data.");
   if (raw.sessions.length > 5_000) throw new Error("This backup contains too many sessions to restore safely.");
   if (raw.weighIns !== undefined && !Array.isArray(raw.weighIns)) throw new Error("The backup contains an invalid weigh-in history.");
+  const issues = trainingDataValidationIssues(raw);
+  if (issues.length) throw new Error(`This backup contains invalid data: ${issues[0]}`);
   const data = normalizeTrainingData(raw);
   const dates = data.sessions.map((session) => session.date).filter(Boolean).sort();
   return {

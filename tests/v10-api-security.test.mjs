@@ -77,3 +77,19 @@ test("repository security automation and hardened headers are configured", async
   assert.match(liveTest, /another account must not see the row/);
   assert.match(staticScan, /PRIVATE KEY/);
 });
+
+test("training sync uses atomic server revisions to reject stale device writes", async () => {
+  const [route, storage, sql] = await Promise.all([
+    read("app/api/training/route.ts"),
+    read("lib/training-storage.ts"),
+    read("supabase/v10-training-conflict-protection.sql"),
+  ]);
+  assert.match(route, /baseRevision/);
+  assert.match(route, /status:\s*409/);
+  assert.match(route, /write_training_profile/);
+  assert.match(storage, /serverRevision/);
+  assert.match(storage, /remote\.conflict/);
+  assert.match(sql, /for update/i);
+  assert.match(sql, /expected_revision[\s\S]*current_row\.revision/i);
+  assert.match(sql, /grant execute on function public\.write_training_profile\(bigint, jsonb\) to authenticated/i);
+});

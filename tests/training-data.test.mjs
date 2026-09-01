@@ -27,7 +27,7 @@ test("migrates the original profile and stamps legacy session units", () => {
     swaps: {},
   }, "2026-08-27T12:00:00.000Z");
 
-  assert.equal(migrated.version, 5);
+  assert.equal(migrated.version, 6);
   assert.equal(migrated.setupVersion, 2);
   assert.equal(migrated.setupCompletedAt, "2026-08-27T12:00:00.000Z");
   assert.equal(migrated.program.activeId, "phase1");
@@ -191,4 +191,65 @@ test("bodyweight trends use seven-day averages and ignore deleted entries", () =
   assert.equal(trend.recentCount, 2);
   assert.equal(trend.latestAverage, 77.9);
   assert.equal(trend.previousAverage, 79.5);
+});
+
+test("strict validation rejects corrupt dates and numeric set values without rejecting partial drafts", () => {
+  const valid = training.emptyData();
+  valid.sessions = [{ id: "partial", date: "2026-09-02", dayId: "UA", unit: "kg", entries: { ua1: [{ w: "", r: "", rir: "" }] }, revision: 1, createdAt: "2026-09-02T10:00:00.000Z", updatedAt: "2026-09-02T10:00:00.000Z" }];
+  assert.deepEqual(training.trainingDataValidationIssues(valid), []);
+  const invalid = structuredClone(valid);
+  invalid.sessions[0].date = "2026-02-30";
+  invalid.sessions[0].entries.ua1[0] = { w: "-1", r: "101", rir: "11" };
+  const issues = training.trainingDataValidationIssues(invalid).join(" ");
+  assert.match(issues, /invalid date/i);
+  assert.match(issues, /invalid load/i);
+  assert.match(issues, /invalid reps/i);
+  assert.match(issues, /invalid RIR/i);
+});
+
+test("logical workout identity prevents duplicate offline creations", () => {
+  const base = training.emptyData();
+  const logicalKey = training.sessionLogicalKey("2026-09-02", "phase1", undefined, 5, "UA");
+  const session = (id, updatedAt) => ({ id, logicalKey, date: "2026-09-02", dayId: "UA", unit: "kg", entries: {}, revision: 1, createdAt: updatedAt, updatedAt });
+  const merged = training.mergeTrainingData(
+    { ...base, sessions: [session("device-a", "2026-09-02T10:00:00.000Z")] },
+    { ...base, sessions: [session("device-b", "2026-09-02T10:05:00.000Z")] },
+  );
+  assert.equal(merged.sessions.length, 1);
+  assert.equal(merged.sessions[0].id, "device-b");
+});
+
+test("saved plan snapshots preserve compatible variants and completion semantics", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 75, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "home", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.program.frequency = 3;
+  data.program.preferredWeekdays = [1, 3, 5];
+  const day = training.programDays("phase1", 3, "current", "balanced", "home")[0];
+  const snapshot = training.buildSessionPlanSnapshot(data, day, "phase1", 1, 3);
+  assert.equal(snapshot.exercises.length, day.exercises.length);
+  assert.equal(snapshot.exercises.every((exercise) => exercise.equipment?.includes("home")), true);
+  const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "10" : "", r: String(exercise.repLow), rir: "2" }))]));
+  const session = { id: "complete", logicalKey: "logical", date: "2026-09-02", dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-09-02T10:00:00.000Z", updatedAt: "2026-09-02T11:00:00.000Z" };
+  assert.equal(training.sessionCompletedSets(session), training.sessionPlannedSets(session, data));
+  assert.equal(training.sessionCountsAsCompletedDay(session, data), true);
+  assert.equal(training.sessionCountsAsCompletedDay({ ...session, completionStatus: "partial" }, data), false);
+});
+
+test("calibration and deleted sessions cannot advance a Phase 2 training max", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.program.activeId = "phase2";
+  const day = training.programDays("phase2", 5, "current")[0];
+  const exercise = day.exercises.find((item) => item.sbsRole);
+  const key = training.exerciseKey(exercise, {});
+  data.program.trainingMaxes = { [key]: 100 };
+  const snapshot = training.buildSessionPlanSnapshot(data, { ...day, exercises: [exercise] }, "phase2", 1, 5);
+  const target = training.sbsPrescription(exercise.sbsRole, 1).repOutTarget;
+  const session = { id: "phase2-session", logicalKey: "phase2-logical", date: "2026-09-02", dayId: day.id, unit: "kg", entries: { [key]: Array.from({ length: exercise.sets }, (_, index) => ({ w: "70", r: String(index === exercise.sets - 1 ? target + 5 : exercise.repLow), rir: "2" })) }, programId: "phase2", programWeek: 1, programFrequency: 5, trainingMaxesBefore: { [key]: 100 }, trainingMaxesAfter: { [key]: 100 }, planSnapshot: snapshot, completionStatus: "completed", affectsProgression: false, revision: 1, createdAt: "2026-09-02T10:00:00.000Z", updatedAt: "2026-09-02T11:00:00.000Z" };
+  data.sessions = [session];
+  assert.equal(training.recalculatePhase2Progression(data).program.trainingMaxes[key], 100);
+  const progressed = training.recalculatePhase2Progression({ ...data, sessions: [{ ...session, affectsProgression: true }] });
+  assert.ok(progressed.program.trainingMaxes[key] > 100);
+  const deleted = training.recalculatePhase2Progression({ ...progressed, sessions: [{ ...progressed.sessions[0], deletedAt: "2026-09-03T00:00:00.000Z" }] });
+  assert.equal(deleted.program.trainingMaxes[key], 100);
 });

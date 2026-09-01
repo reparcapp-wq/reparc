@@ -11,6 +11,7 @@ export type OfflineProfileRecord = {
   key: string;
   data: TrainingData;
   revision: number;
+  serverRevision?: number;
   dirty: boolean;
   syncMode?: "merge" | "replace";
   pendingSince?: string;
@@ -29,6 +30,7 @@ export function nextPendingOfflineRecord(
     key,
     data,
     revision: (current?.revision ?? 0) + 1,
+    serverRevision: current?.serverRevision,
     dirty: true,
     syncMode: current?.dirty && current.syncMode === "replace" ? "replace" : mode,
     pendingSince: current?.dirty ? current.pendingSince ?? now : now,
@@ -43,6 +45,7 @@ export function resolveOfflineSyncCommit(
   uploadedRevision: number,
   remoteData: TrainingData,
   now = new Date().toISOString(),
+  remoteRevision?: number,
 ): OfflineProfileRecord {
   const latestData = current ? mergeTrainingData(current.data, remoteData) : remoteData;
   const hasNewerLocalWrite = Boolean(current && current.revision !== uploadedRevision);
@@ -50,6 +53,7 @@ export function resolveOfflineSyncCommit(
     key,
     data: latestData,
     revision: current?.revision ?? uploadedRevision,
+    serverRevision: remoteRevision ?? current?.serverRevision,
     dirty: hasNewerLocalWrite,
     syncMode: hasNewerLocalWrite ? current?.syncMode ?? "merge" : undefined,
     pendingSince: hasNewerLocalWrite ? current?.pendingSince ?? now : undefined,
@@ -131,7 +135,7 @@ export function writePendingOfflineProfile(key: string, data: TrainingData, mode
   });
 }
 
-export function seedOfflineProfile(key: string, data: TrainingData, options: { dirty: boolean; lastSyncedAt?: string }) {
+export function seedOfflineProfile(key: string, data: TrainingData, options: { dirty: boolean; lastSyncedAt?: string; serverRevision?: number }) {
   return queueWrite(async () => {
     const database = await openDatabase();
     const transaction = database.transaction(PROFILE_STORE, "readwrite");
@@ -146,6 +150,7 @@ export function seedOfflineProfile(key: string, data: TrainingData, options: { d
       key,
       data,
       revision: 1,
+      serverRevision: options.serverRevision,
       dirty: options.dirty,
       syncMode: options.dirty ? "merge" : undefined,
       pendingSince: options.dirty ? now : undefined,
@@ -161,7 +166,7 @@ export function seedOfflineProfile(key: string, data: TrainingData, options: { d
 export function storeMergedOfflineProfile(
   key: string,
   data: TrainingData,
-  options: { dirty: boolean; lastSyncedAt?: string },
+  options: { dirty: boolean; lastSyncedAt?: string; serverRevision?: number },
 ) {
   return queueWrite(async () => {
     const database = await openDatabase();
@@ -173,6 +178,7 @@ export function storeMergedOfflineProfile(
       key,
       data,
       revision: (current?.revision ?? 0) + 1,
+      serverRevision: options.serverRevision ?? current?.serverRevision,
       dirty: options.dirty,
       syncMode: options.dirty ? current?.syncMode ?? "merge" : undefined,
       pendingSince: options.dirty ? current?.pendingSince ?? now : undefined,
@@ -185,14 +191,14 @@ export function storeMergedOfflineProfile(
   });
 }
 
-export function commitOfflineSync(key: string, uploadedRevision: number, remoteData: TrainingData) {
+export function commitOfflineSync(key: string, uploadedRevision: number, remoteData: TrainingData, remoteRevision?: number) {
   return queueWrite(async () => {
     const database = await openDatabase();
     const transaction = database.transaction(PROFILE_STORE, "readwrite");
     const store = transaction.objectStore(PROFILE_STORE);
     const current = await requestResult(store.get(key)) as OfflineProfileRecord | undefined;
     const now = new Date().toISOString();
-    const record = resolveOfflineSyncCommit(key, current, uploadedRevision, remoteData, now);
+    const record = resolveOfflineSyncCommit(key, current, uploadedRevision, remoteData, now, remoteRevision);
     store.put(record);
     await transactionDone(transaction);
     return record;

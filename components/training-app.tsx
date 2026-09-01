@@ -44,7 +44,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsTools } from "@/components/settings-tools";
 import { exerciseGuidance } from "@/lib/exercise-guidance";
 import { nextSessionAdjustment, nextSetAdjustment, type LoadAdjustment } from "@/lib/autoregulation";
-import { buildDailyReport } from "@/lib/daily-report";
+import { buildDailyReport, buildScheduleAdherence } from "@/lib/daily-report";
 import { TrainingGuide } from "@/components/training-guide";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -56,9 +56,13 @@ import {
   activeSessions,
   activeWeighIns,
   blankEntries,
+  buildSessionPlanSnapshot,
   convertWeight,
+  CURRENT_TERMS_VERSION,
+  effectiveExerciseLoad,
   emptyData,
   estimatedOneRepMax,
+  exerciseNeedsLoad,
   exerciseFromKey,
   exerciseKey,
   exerciseName,
@@ -67,13 +71,19 @@ import {
   numeric,
   prettyDate,
   programDays,
+  recalculatePhase2Progression,
+  recordPlanChange,
+  resolveExerciseVariant,
   roundLoad,
   sbsPrescription,
-  sbsTrainingMaxChange,
+  sessionCountsAsCompletedDay,
+  sessionLogicalKey,
   phase2DataConfidence,
   phaseTwoProgrammedExercises,
   suggestedTrainingMax,
   trainingTrack,
+  trainingDataBytes,
+  trainingDayFromSnapshot,
   weightTrend,
   slugify,
   type Exercise,
@@ -82,7 +92,6 @@ import {
   type Level,
   type Profile,
   type ProgramId,
-  type ProgramTrack,
   type Readiness,
   type Session,
   type SetEntry,
@@ -94,7 +103,6 @@ import {
   type WeightGoal,
 } from "@/lib/training";
 import {
-  forgetName,
   loadDrafts,
   loadTrainingData,
   rememberName,
@@ -107,7 +115,7 @@ import { downloadTrainingBackup, type RestoreMode } from "@/lib/backup";
 import type { Account } from "@/lib/account-client";
 import type { PwaLifecycle } from "@/hooks/use-pwa";
 
-type Stage = "loading" | "name" | "profile" | "app";
+type Stage = "loading" | "name" | "profile" | "consent" | "app";
 type SyncState = "loading" | "saving" | "synced" | "pending" | "local";
 type View = "train" | "progress" | "settings" | "guide";
 type RestTimer = {
@@ -202,6 +210,11 @@ const sessionEntriesForDay = (
     });
   });
   return blank;
+};
+
+const storedExercise = (session: Session, key: string) => {
+  const snapshot = session.planSnapshot?.exercises.find((exercise) => exercise.key === key);
+  return snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
 };
 
 function SyncBadge({ state, lastSyncedAt, onSync }: { state: SyncState; lastSyncedAt?: string; onSync?: () => void }) {
@@ -366,7 +379,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
           if (draft.gender === "man" || draft.gender === "woman") setGender(draft.gender);
           if (draft.frequency === 3 || draft.frequency === 4 || draft.frequency === 5) setFrequency(draft.frequency);
           if (Array.isArray(draft.preferredWeekdays)) setPreferredWeekdays(draft.preferredWeekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6));
-          if (draft.goal === "balanced" || draft.goal === "strength" || draft.goal === "upper" || draft.goal === "lower") setGoal(draft.goal);
+          if (draft.goal === "upper" || draft.goal === "lower") setGoal(draft.goal); else if (draft.goal === "balanced" || draft.goal === "strength") setGoal("balanced");
           if (draft.equipment === "full" || draft.equipment === "limited" || draft.equipment === "home") setEquipment(draft.equipment);
           if (typeof draft.bodyweight === "string") setBodyweight(draft.bodyweight);
           if (typeof draft.weightTrackingEnabled === "boolean") setWeightTrackingEnabled(draft.weightTrackingEnabled);
@@ -406,7 +419,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
   };
 
   const stepError = () => {
-    if (step === 1 && !gender) return "Select a gender symbol to assign your program.";
+    if (step === 1 && !gender) return "Select Man or Woman to assign your program.";
     if (step === 1 && !adultConfirmed) return "Confirm that you are 18 or older to use this adult program.";
     const value = Number(bodyweight);
     const maximum = unit === "kg" ? 300 : 660;
@@ -455,7 +468,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
     }
     setBusy(true);
     setError("");
-    const saved = await onSave({ bodyweight: value, unit, level, gender, programTrack: trainingTrack(gender), goal, equipment, weightGoal, weightTrackingEnabled }, frequency, preferredWeekdays);
+    const saved = await onSave({ displayName: name, bodyweight: value, unit, level, gender, programTrack: trainingTrack(gender), goal: goal === "strength" ? "balanced" : goal, equipment, weightGoal, weightTrackingEnabled }, frequency, preferredWeekdays);
     if (saved) {
       try { window.localStorage.removeItem(draftKey); } catch { /* The completed profile is authoritative. */ }
     } else {
@@ -517,7 +530,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
               <p className="eyebrow text-amber-300">Personalization</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Choose what is practical.</h1>
               <div className="mt-7 grid gap-6 sm:grid-cols-2">
                 <fieldset><legend className="eyebrow">Equipment <RequiredMark /></legend><RadioGroup value={equipment ?? ""} onValueChange={(value) => setEquipment(value as Equipment)} className="mt-3 grid gap-2" aria-label="Available equipment" aria-required="true">{([['full','Full gym'],['limited','Limited gym'],['home','Home']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`equipment-${value}`} value={value} label={label} />)}</RadioGroup></fieldset>
-                <fieldset><legend className="eyebrow">Training emphasis</legend><RadioGroup value={goal} onValueChange={(value) => setGoal(value as TrainingGoal)} className="mt-3 grid gap-2" aria-label="Training emphasis">{([['balanced','Balanced'],['strength','General strength'],['upper','Upper body'],['lower','Lower body / glutes']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`goal-${value}`} value={value} label={label} />)}</RadioGroup></fieldset>
+                <fieldset><legend className="eyebrow">Training emphasis</legend><RadioGroup value={goal} onValueChange={(value) => setGoal(value as TrainingGoal)} className="mt-3 grid gap-2" aria-label="Training emphasis">{([['balanced','Balanced'],['upper','Upper body'],['lower','Lower body / glutes']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`goal-${value}`} value={value} label={label} />)}</RadioGroup><p className="mt-2 text-[11px] leading-4 text-stone-500">Emphasis adds a small amount of accessory work; it does not replace the main progression.</p></fieldset>
               </div>
               <fieldset className="mt-7"><legend className="eyebrow">Bodyweight trends in Progress <RequiredMark /></legend><div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-required="true">{([[true,"Track weigh-ins"],[false,"Hide weigh-ins"]] as const).map(([value, label]) => <Button key={label} type="button" role="radio" variant="outline" aria-checked={weightTrackingEnabled === value} data-selected={weightTrackingEnabled === value} onClick={() => setWeightTrackingEnabled(value)} className="selection-button onboarding-choice min-h-14 rounded-xl font-semibold">{label}</Button>)}</div></fieldset>
               {weightTrackingEnabled && <fieldset className="motion-pop mt-5"><legend className="eyebrow">Current goal</legend><RadioGroup value={weightGoal} onValueChange={(value) => setWeightGoal(value as WeightGoal)} className="mt-3 grid grid-cols-3 gap-2" aria-label="Weight goal">{(["cut","maintain","bulk"] as WeightGoal[]).map((value) => <ChoiceRadio key={value} id={`setup-weight-${value}`} value={value} label={value[0].toUpperCase() + value.slice(1)} />)}</RadioGroup></fieldset>}
@@ -527,7 +540,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
             {step === 5 && gender && level && frequency && equipment && weightTrackingEnabled !== null && <>
               <p className="eyebrow text-amber-300">Ready to begin</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Review your program.</h1>
               <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                {[['Program', selectedProgram],['Schedule', `${frequency} days · ${preferredWeekdays.map((day) => weekdayLabels[day]).join(" / ")}`],['Starting point', `${bodyweight} ${unit} · ${LEVELS.find((option) => option.id === level)?.label}`],['Equipment', equipment === 'full' ? 'Full gym' : equipment === 'limited' ? 'Limited gym' : 'Home'],['Emphasis', goal === 'strength' ? 'General strength' : goal === 'upper' ? 'Upper body' : goal === 'lower' ? 'Lower body / glutes' : 'Balanced'],['Progress tracking', weightTrackingEnabled ? `Weigh-ins · ${weightGoal}` : 'Weigh-ins hidden']].map(([label, value]) => <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="eyebrow text-stone-600">{label}</p><p className="mt-2 text-sm font-semibold text-stone-200">{value}</p></div>)}
+                {[['Program', selectedProgram],['Schedule', `${frequency} days · ${preferredWeekdays.map((day) => weekdayLabels[day]).join(" / ")}`],['Starting point', `${bodyweight} ${unit} · ${LEVELS.find((option) => option.id === level)?.label}`],['Equipment', equipment === 'full' ? 'Full gym' : equipment === 'limited' ? 'Limited gym' : 'Home'],['Emphasis', goal === 'upper' ? 'Upper body' : goal === 'lower' ? 'Lower body / glutes' : 'Balanced'],['Progress tracking', weightTrackingEnabled ? `Weigh-ins · ${weightGoal}` : 'Weigh-ins hidden']].map(([label, value]) => <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="eyebrow text-stone-600">{label}</p><p className="mt-2 text-sm font-semibold text-stone-200">{value}</p></div>)}
               </div>
               <p className="mt-5 text-xs leading-5 text-stone-500">Only after you build the program will Train open. These choices remain editable later without deleting workout history.</p>
             </>}
@@ -541,6 +554,39 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
           <p className="mt-4 text-center text-[11px] text-stone-600">Progress is saved on this device after every step.</p>
         </section>
       </div>
+    </main>
+  );
+}
+
+function ConsentUpdate({ onAccept }: { onAccept: () => Promise<boolean> }) {
+  const [adultConfirmed, setAdultConfirmed] = useState(false);
+  const [safetyAccepted, setSafetyAccepted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const accept = async () => {
+    if (!adultConfirmed || !safetyAccepted) {
+      setError("Confirm both required statements to continue.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const saved = await onAccept();
+    if (!saved) setError("Your confirmation could not be saved. Keep this page open and try again.");
+    setBusy(false);
+  };
+  return (
+    <main id="main-content" className="onboarding-shell grid min-h-dvh place-items-center bg-[#0b0d0c] px-5 py-8 text-stone-100">
+      <section className="motion-panel w-full max-w-xl rounded-[2rem] border border-white/10 bg-white/[0.045] p-6 sm:p-8">
+        <BrandLockup />
+        <p className="eyebrow mt-10 text-amber-300">Terms &amp; safety update</p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">Review before continuing.</h1>
+        <p className="mt-3 text-sm leading-6 text-stone-400">Your training history is unchanged. RepArc records this confirmation because its program and safety terms were updated.</p>
+        <label className="mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-5 text-stone-300"><input type="checkbox" checked={adultConfirmed} onChange={(event) => setAdultConfirmed(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-amber-300" /><span>I confirm that I am 18 or older <RequiredMark />.</span></label>
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-5 text-stone-300"><input type="checkbox" checked={safetyAccepted} onChange={(event) => setSafetyAccepted(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-amber-300" /><span>I understand RepArc provides general fitness guidance—not medical care, rehabilitation, or pregnancy/postpartum advice <RequiredMark />.</span></label>
+        <p className="mt-4 text-xs leading-5 text-stone-500">Read the <a href="/terms" target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-4">Terms &amp; safety notice</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-4">Privacy notice</a>.</p>
+        {error && <p className="mt-4 text-sm text-red-300" role="alert">{error}</p>}
+        <Button type="button" onClick={() => void accept()} disabled={busy} className="mt-6 h-13 w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{busy ? "Saving…" : "Accept and continue"}<ArrowUpRight className="size-4" /></Button>
+      </section>
     </main>
   );
 }
@@ -579,6 +625,25 @@ const weekKey = (dateString: string) => {
 
 type HistoryRange = "day" | "week" | "month" | "year";
 
+const dateOnly = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+const bucketBounds = (range: HistoryRange, key: string) => {
+  if (range === "day") return { start: key, end: key };
+  if (range === "month") {
+    const [year, month] = key.split("-").map(Number);
+    return { start: `${key}-01`, end: dateOnly(new Date(year, month, 0, 12)) };
+  }
+  if (range === "year") return { start: `${key}-01-01`, end: `${key}-12-31` };
+  const [yearText, weekText] = key.split("-W");
+  const year = Number(yearText);
+  const week = Number(weekText);
+  const januaryFourth = new Date(year, 0, 4, 12);
+  const monday = new Date(januaryFourth);
+  monday.setDate(januaryFourth.getDate() - ((januaryFourth.getDay() + 6) % 7) + (week - 1) * 7);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: dateOnly(monday), end: dateOnly(sunday) };
+};
+
 function ProgressView({
   data,
   onUpdate,
@@ -604,8 +669,8 @@ function ProgressView({
     [sessions],
   );
   const totalSets = sessions.reduce(
-    (sum, session) => sum + Object.values(session.entries).reduce(
-      (entrySum, entries) => entrySum + entries.filter((entry) => isFilledSet(entry)).length,
+    (sum, session) => sum + Object.entries(session.entries).reduce(
+      (entrySum, [key, entries]) => entrySum + entries.filter((entry) => isFilledSet(entry, storedExercise(session, key))).length,
       0,
     ),
     0,
@@ -620,12 +685,15 @@ function ProgressView({
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .forEach((session) => {
         Object.entries(session.entries).forEach(([key, entries]) => {
-          const exercise = exerciseFromKey(key);
+          const exercise = storedExercise(session, key);
           const best = entries.reduce((maximum, entry) => {
             if (!isFilledSet(entry, exercise)) return maximum;
+            const reps = numeric(entry.r);
+            if (reps < 4 || reps > 10 || exercise?.loadingType === "unloaded") return maximum;
             const external = convertWeight(numeric(entry.w), session.unit, profile.unit);
-            const load = exercise?.bodyweight ? profile.bodyweight + external : external;
-            return Math.max(maximum, estimatedOneRepMax(load, numeric(entry.r)));
+            const bodyweight = session.bodyweightAtSession === undefined ? profile.bodyweight : convertWeight(session.bodyweightAtSession, session.unit, profile.unit);
+            const load = exercise ? effectiveExerciseLoad(exercise, external, bodyweight) : external;
+            return Math.max(maximum, estimatedOneRepMax(load, reps));
           }, 0);
           if (!best) return;
           if (!byExercise[key]) byExercise[key] = [];
@@ -671,22 +739,24 @@ function ProgressView({
   const deleteSession = async (session: Session) => {
     if (!window.confirm(`Remove the ${prettyDate(session.date)} session? It stays recoverable in the audit history.`)) return;
     const now = new Date().toISOString();
-    await onUpdate({
+    const changed: TrainingData = {
       ...data,
       sessions: data.sessions.map((item) => item.id === session.id ? { ...item, deletedAt: now, updatedAt: now, revision: item.revision + 1 } : item),
       sessionRevisions: [...data.sessionRevisions, { id: globalThis.crypto?.randomUUID?.() ?? `revision-${now}`, sessionId: session.id, action: "deleted", at: now, note: "Removed from Progress", previous: session }],
       updatedAt: now,
-    }, "Session removed");
+    };
+    await onUpdate(recalculatePhase2Progression(changed), "Session removed and progression recalculated");
   };
 
   const restoreSession = async (session: Session) => {
     const now = new Date().toISOString();
-    await onUpdate({
+    const changed: TrainingData = {
       ...data,
       sessions: data.sessions.map((item) => item.id === session.id ? { ...item, deletedAt: undefined, updatedAt: now, revision: item.revision + 1 } : item),
       sessionRevisions: [...data.sessionRevisions, { id: globalThis.crypto?.randomUUID?.() ?? `revision-${now}`, sessionId: session.id, action: "restored", at: now, note: "Restored from Progress", previous: session }],
       updatedAt: now,
-    }, "Session restored");
+    };
+    await onUpdate(recalculatePhase2Progression(changed), "Session restored and progression recalculated");
   };
 
   const grouped = useMemo(() => {
@@ -819,8 +889,10 @@ function ProgressView({
                 const averageEffort = effortRatings.length ? effortRatings.reduce((sum, effort) => sum + effort, 0) / effortRatings.length : null;
                 const loadedVolume = periodReports.reduce((sum, report) => sum + report.loadedVolume, 0);
                 const isCurrentPeriod = key === currentBucketKey;
+                const bounds = bucketBounds(range, key);
+                const scheduleAdherence = range === "day" ? null : buildScheduleAdherence(data, bounds.start, bounds.end, today());
                 const sets = sessions.reduce((sum, session) => sum + Object.entries(session.entries).reduce(
-                  (inner, [exerciseKeyValue, entries]) => inner + entries.filter((entry) => isFilledSet(entry, exerciseFromKey(exerciseKeyValue))).length,
+                  (inner, [exerciseKeyValue, entries]) => inner + entries.filter((entry) => isFilledSet(entry, storedExercise(session, exerciseKeyValue))).length,
                   0,
                 ), 0);
                 return (
@@ -872,14 +944,15 @@ function ProgressView({
                     {!dailyReport && !!sessions.length && <section className="px-4 py-4 sm:px-5" aria-label={`${bucketLabel(key)} report summary`}>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {[
-                          ["Completion", `${completionPercent}%`],
+                          ["Workout completion", `${completionPercent}%`],
+                          ["Schedule adherence", !scheduleAdherence?.available ? "Not available" : scheduleAdherence.adherencePercent === null ? "No sessions due" : `${scheduleAdherence.completedSessions}/${scheduleAdherence.expectedSessions} · ${scheduleAdherence.adherencePercent}%`],
                           ["Duration", measuredDurations.length ? totalDurationSeconds < 60 ? "Under 1 min" : `${Math.round(totalDurationSeconds / 60)} min` : "Not measured"],
                           ["Avg effort", averageEffort === null ? "Not logged" : `${averageEffort.toFixed(1)} / 10`],
-                          ["Loaded volume", `${Math.round(loadedVolume).toLocaleString()} ${profile.unit}`],
                         ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
                       </div>
+                      <p className="mt-3 text-[10px] text-stone-600">External-load volume: {Math.round(loadedVolume).toLocaleString()} {profile.unit}. Bodyweight is intentionally excluded because this is not mechanical work.</p>
                     </section>}
-                    {!dailyReport && !!sessions.length && <details className="border-t border-white/10">
+                    {!dailyReport && !!sessions.length && !isCurrentPeriod && <details className="border-t border-white/10">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-xs font-semibold text-stone-300 sm:px-5">
                         <span>Exercises &amp; progression</span>
                         <span className="flex items-center gap-2 font-mono text-[9px] font-normal uppercase tracking-wider text-stone-600">{keys.length} movement{keys.length === 1 ? "" : "s"}<ChevronDown className="size-4" /></span>
@@ -938,7 +1011,11 @@ function ProgressView({
   );
 }
 
-const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+const csvCell = (value: string | number) => {
+  const raw = String(value);
+  const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('"', '""')}"`;
+};
 
 function downloadText(filename: string, value: string, type: string) {
   const blob = new Blob([value], { type });
@@ -959,7 +1036,7 @@ function SettingsView({
   onRestore,
   onSignOut,
   onDeleteAccount,
-  onSwitch,
+  onRename,
   restAlertLevel,
   alertPermission,
   wakeLockState,
@@ -976,7 +1053,7 @@ function SettingsView({
   onRestore: (data: TrainingData, mode: RestoreMode) => Promise<boolean>;
   onSignOut: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
-  onSwitch: () => void;
+  onRename: (name: string) => Promise<boolean>;
   restAlertLevel: RestAlertLevel;
   alertPermission: AlertPermission;
   wakeLockState: WakeLockState;
@@ -988,6 +1065,7 @@ function SettingsView({
   const { theme, setTheme } = useTheme();
   const profile = data.profile!;
   const [bodyweight, setBodyweight] = useState(String(profile.bodyweight));
+  const [nameDraft, setNameDraft] = useState(name);
   const [message, setMessage] = useState("");
   const [showPhaseReview, setShowPhaseReview] = useState(false);
   const [reviewMaxes, setReviewMaxes] = useState<Record<string, string>>({});
@@ -998,10 +1076,22 @@ function SettingsView({
   const track = profile.programTrack;
   const phaseTwoExercises = phaseTwoProgrammedExercises(track);
   const confidence = phase2DataConfidence(data, track);
+  const storageBytes = trainingDataBytes(data);
+  const storagePercent = Math.min(100, Math.round((storageBytes / 900_000) * 100));
+
+  const saveDisplayName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || !slugify(trimmed) || trimmed.length > 40) {
+      setMessage("Enter a training name containing a letter or number, up to 40 characters.");
+      return;
+    }
+    const saved = await onRename(trimmed);
+    setMessage(saved ? "Training name updated on this account" : "The training name could not be saved.");
+  };
 
   const updateProfile = async (changes: Partial<typeof profile>, success: string) => {
     const now = new Date().toISOString();
-    const next = { ...data, profile: { ...profile, ...changes }, updatedAt: now };
+    const next = recordPlanChange({ ...data, profile: { ...profile, ...changes }, updatedAt: now }, "profile", now);
     const saved = await onUpdate(next, success);
     setMessage(saved ? success : "The change could not be saved.");
   };
@@ -1017,12 +1107,12 @@ function SettingsView({
       ]),
     );
     const now = new Date().toISOString();
-    const next = {
+    const next = recordPlanChange({
       ...data,
       profile: { ...profile, unit, bodyweight: convertedBodyweight },
       program: { ...data.program, trainingMaxes: convertedTrainingMaxes },
       updatedAt: now,
-    };
+    }, "profile", now);
     const saved = await onUpdate(next, `Display unit changed to ${unit}`);
     setMessage(saved ? `Display unit changed to ${unit}` : "The change could not be saved.");
   };
@@ -1038,7 +1128,7 @@ function SettingsView({
       return;
     }
     const now = new Date().toISOString();
-    const next = { ...data, program: { ...data.program, activeId, week: 1 }, updatedAt: now };
+    const next = recordPlanChange({ ...data, program: { ...data.program, activeId, week: 1 }, updatedAt: now }, "program", now);
     const saved = await onUpdate(next, `${PROGRAMS[activeId].name} selected`);
     setMessage(saved ? `${PROGRAMS[activeId].name} selected` : "The program change could not be saved.");
   };
@@ -1050,11 +1140,11 @@ function SettingsView({
       if (value > 0) trainingMaxes[exercise.id] = value;
     });
     const now = new Date().toISOString();
-    const next = {
+    const next = recordPlanChange({
       ...data,
       program: { ...data.program, activeId: "phase2" as const, week: data.program.phase2UnlockedAt ? data.program.week : 1, trainingMaxes, phase1CompletedAt: data.program.phase1CompletedAt ?? now, phase2UnlockedAt: data.program.phase2UnlockedAt ?? now },
       updatedAt: now,
-    };
+    }, "program", now);
     const saved = await onUpdate(next, "Phase 2 unlocked — review complete");
     setMessage(saved ? "Phase 2 unlocked. Starting loads can still be edited later." : "The phase change could not be saved.");
     if (saved) setShowPhaseReview(false);
@@ -1064,7 +1154,7 @@ function SettingsView({
     const defaults: Record<TrainingFrequency, number[]> = { 3: [1, 3, 5], 4: [1, 2, 4, 5], 5: [1, 2, 4, 5, 6] };
     setDraftWeekdays(defaults[frequency]);
     const now = new Date().toISOString();
-    await onUpdate({ ...data, program: { ...data.program, frequency, preferredWeekdays: defaults[frequency] }, updatedAt: now }, `${frequency}-day schedule selected`);
+    await onUpdate(recordPlanChange({ ...data, program: { ...data.program, frequency, preferredWeekdays: defaults[frequency] }, updatedAt: now }, "schedule", now), `${frequency}-day schedule selected`);
   };
 
   const togglePreferredDay = (weekday: number) => {
@@ -1077,24 +1167,24 @@ function SettingsView({
       return;
     }
     const now = new Date().toISOString();
-    await onUpdate({ ...data, program: { ...data.program, preferredWeekdays: draftWeekdays }, updatedAt: now }, "Training days updated");
+    await onUpdate(recordPlanChange({ ...data, program: { ...data.program, preferredWeekdays: draftWeekdays }, updatedAt: now }, "schedule", now), "Training days updated");
   };
 
   const togglePause = async () => {
     const now = new Date().toISOString();
     const paused = data.program.status === "paused";
-    await onUpdate({
+    await onUpdate(recordPlanChange({
       ...data,
       program: { ...data.program, status: paused ? "active" : "paused", pausedAt: paused ? undefined : now, calibrationRequired: paused ? true : data.program.calibrationRequired },
       updatedAt: now,
-    }, paused ? "Program resumed — first session is a calibration session" : "Program paused");
+    }, paused ? "resume" : "pause", now), paused ? "Program resumed — first session is a calibration session" : "Program paused");
   };
 
   const changeWeek = async (week: number) => {
     const nextWeek = Math.max(1, Math.min(21, Math.trunc(week)));
     if (nextWeek === data.program.week) return;
     const now = new Date().toISOString();
-    const next = { ...data, program: { ...data.program, week: nextWeek }, updatedAt: now };
+    const next = recordPlanChange({ ...data, program: { ...data.program, week: nextWeek }, updatedAt: now }, "program", now);
     const saved = await onUpdate(next, `Phase 2 moved to week ${nextWeek}`);
     setMessage(saved ? `Phase 2 moved to week ${nextWeek}` : "The week change could not be saved.");
   };
@@ -1111,15 +1201,11 @@ function SettingsView({
 
   const changeGender = async (gender: Gender) => {
     if (gender === profile.gender) return;
-    await updateProfile({ gender }, "Profile updated");
-  };
-
-  const changeTrainingTrack = async (programTrack: ProgramTrack) => {
-    if (programTrack === profile.programTrack) return;
+    const programTrack = trainingTrack(gender);
     const now = new Date().toISOString();
-    const next = { ...data, profile: { ...profile, programTrack }, program: { ...data.program, activeId: "phase1" as const, week: 1, status: "active" as const, calibrationRequired: true, phase1CompletedAt: undefined, phase2UnlockedAt: undefined, trainingMaxes: {} }, updatedAt: now };
-    const saved = await onUpdate(next, `${programTrack === "women" ? "Women’s" : "Current"} track selected`);
-    setMessage(saved ? "Track changed. Workout history remains available; the selected track starts at Foundation." : "The program change could not be saved.");
+    const next = recordPlanChange({ ...data, profile: { ...profile, gender, programTrack }, program: { ...data.program, activeId: "phase1" as const, week: 1, status: "active" as const, calibrationRequired: true, phase1CompletedAt: undefined, phase2UnlockedAt: undefined, trainingMaxes: {} }, updatedAt: now }, "profile", now);
+    const saved = await onUpdate(next, "Gender and automatic training track updated");
+    setMessage(saved ? "Gender updated. The matching Foundation track is now active; history remains available." : "The profile change could not be saved.");
   };
 
   const exportCsv = () => {
@@ -1127,8 +1213,9 @@ function SettingsView({
     activeSessions(data).forEach((session) => {
       Object.entries(session.entries).forEach(([key, entries]) => {
         entries.forEach((entry, index) => {
-          if (!isFilledSet(entry, exerciseFromKey(key))) return;
-          rows.push([session.date, session.programId ?? "legacy", session.programWeek ?? "", session.dayId, exerciseName(key), index + 1, entry.w || 0, session.unit, entry.r, entry.rir]);
+          const exercise = storedExercise(session, key);
+          if (!isFilledSet(entry, exercise)) return;
+          rows.push([session.date, session.programId ?? "legacy", session.programWeek ?? "", session.dayId, exercise?.name ?? exerciseName(key), index + 1, entry.w || 0, session.unit, entry.r, entry.rir]);
         });
       });
     });
@@ -1237,11 +1324,8 @@ function SettingsView({
           <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Gender">
             {([['man', 'Man', Mars], ['woman', 'Woman', Venus]] as const).map(([value, label, Icon]) => <Button key={value} type="button" role="radio" aria-checked={profile.gender === value} variant="outline" data-selected={profile.gender === value} onClick={() => void changeGender(value)} className="selection-button h-14 rounded-xl border-white/10 text-sm font-semibold"><Icon className="size-5" aria-hidden="true" />{label}</Button>)}
           </div>
-          <p className="mt-2 text-[11px] leading-5 text-stone-600">Gender chooses the initial track during setup. It does not limit which program you may use.</p>
-          <p className="mt-5 text-xs font-semibold text-stone-300">Program track</p>
-          <RadioGroup value={profile.programTrack} onValueChange={(value) => void changeTrainingTrack(value as ProgramTrack)} className="mt-2 grid grid-cols-2 gap-2" aria-label="Program track"><ChoiceRadio id="track-current" value="current" label="Current" /><ChoiceRadio id="track-women" value="women" label="Women’s" /></RadioGroup>
-          <p className="mt-2 text-[11px] leading-5 text-stone-600">Switching tracks restarts at Foundation and clears training-max estimates, but preserves completed sessions and backups.</p>
-          <Button variant="outline" onClick={onSwitch} className="mt-5 h-11 w-full rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white">Change training label</Button>
+          <p className="mt-2 text-[11px] leading-5 text-stone-600">The training track follows this selection automatically: Man uses Current; Woman uses Women’s. Changing it restarts at Foundation while preserving completed history.</p>
+          <div className="mt-5 flex gap-2"><Input value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} maxLength={40} aria-label="Training name" className="h-11 rounded-xl border-white/10 bg-white/[0.035] text-white" /><Button type="button" onClick={() => void saveDisplayName()} className="h-11 rounded-xl bg-amber-300 px-5 font-bold text-[#0b0d0c] hover:bg-amber-200">Save</Button></div>
         </article>}
 
         {settingsCategory === "profile" && profileSection === "measurements" && <div style={{ order: 3 }} className="grid gap-3 border-t border-white/10 bg-black/10 p-4 sm:p-5 md:grid-cols-2">
@@ -1294,7 +1378,7 @@ function SettingsView({
             <fieldset>
               <legend className="text-xs font-semibold text-stone-300">Training emphasis</legend>
               <RadioGroup value={profile.goal} onValueChange={(value) => void updateProfile({ goal: value as TrainingGoal }, "Training emphasis updated")} className="mt-2 grid gap-2 sm:grid-cols-2" aria-label="Training emphasis">
-                {([['balanced','Balanced'],['strength','General strength'],['upper','Upper body'],['lower','Lower body / glutes']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`settings-emphasis-${value}`} value={value} label={label} />)}
+                {([['balanced','Balanced'],['upper','Upper body'],['lower','Lower body / glutes']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`settings-emphasis-${value}`} value={value} label={label} />)}
               </RadioGroup>
             </fieldset>
             <fieldset>
@@ -1350,6 +1434,16 @@ function SettingsView({
             <div><p className="eyebrow text-stone-600">Portable backups</p><h2 className="mt-1 font-semibold">Own your training data</h2></div>
           </div>
           <p className="mt-4 max-w-2xl text-xs leading-5 text-stone-500">CSV opens cleanly in Excel or Google Sheets. JSON preserves the complete app structure for a full restore or future migration.</p>
+          <div className="mt-4 rounded-xl border border-white/[0.07] bg-black/15 p-3" aria-label={`Cloud data capacity ${storagePercent}% used`}>
+            <div className="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-wider text-stone-500">
+              <span>Cloud data capacity</span>
+              <span className={storagePercent >= 75 ? "text-amber-300" : "text-stone-400"}>{storagePercent}%</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
+              <div className={`h-full rounded-full ${storagePercent >= 75 ? "bg-amber-300" : "bg-emerald-300"}`} style={{ width: `${storagePercent}%` }} />
+            </div>
+            <p className="mt-2 text-[10px] leading-4 text-stone-600">{Math.max(1, Math.round(storageBytes / 1024))} KB of the safe 879 KB sync allowance. Export a full backup if this approaches 75%.</p>
+          </div>
           <div className="mt-5 grid gap-2 sm:grid-cols-2">
             <Button variant="outline" onClick={exportCsv} disabled={!data.sessions.length} className="h-12 rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white"><Download className="size-4" />Export spreadsheet</Button>
             <Button variant="outline" onClick={exportJson} className="h-12 rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white"><FileJson className="size-4" />Download full backup</Button>
@@ -1383,6 +1477,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [sessionRpe, setSessionRpe] = useState<number | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [activeDate, setActiveDate] = useState(today);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [restTimer, setRestTimer] = useState<RestTimer | null>(null);
   const [restAlertLevel, setRestAlertLevel] = useState<RestAlertLevel>(() => {
     if (typeof window === "undefined") return "normal";
@@ -1428,6 +1523,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setSyncState("loading");
     const loaded = await loadTrainingData(account.id, trainingName);
     const next = loaded.data ?? emptyData();
+    const resolvedName = next.profile?.displayName?.trim() || trainingName;
+    setName(resolvedName);
+    rememberName(account.id, resolvedName);
     setData(next);
     setDrafts(await loadDrafts(account.id, trainingName) as Record<string, Record<string, SetEntry[]>>);
     setActiveDate(today());
@@ -1435,17 +1533,24 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setLastSyncedAt(loaded.lastSyncedAt);
     setSyncState(loaded.pending ? "pending" : loaded.cloudAvailable ? "synced" : "local");
     await waitForRepArcLoader(loaderStartedAt);
-    setStage(next.profile ? "app" : "profile");
+    setStage(next.profile ? next.consent?.termsVersion === CURRENT_TERMS_VERSION ? "app" : "consent" : "profile");
   };
 
   useEffect(() => {
     const remembered = savedName(account.id);
     const timer = window.setTimeout(() => {
-      if (remembered) void openForUser(remembered);
-      else {
-        setStage("name");
-        setSyncState("local");
+      if (remembered) {
+        void openForUser(remembered);
+        return;
       }
+      void loadTrainingData(account.id).then((loaded) => {
+        const cloudName = loaded.data?.profile?.displayName?.trim();
+        if (cloudName) void openForUser(cloudName);
+        else {
+          setStage("name");
+          setSyncState("local");
+        }
+      });
     }, 0);
     return () => window.clearTimeout(timer);
     // The initial identity lookup should run once.
@@ -1638,6 +1743,23 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     };
   }, [attemptCloudSync, syncState]);
 
+  useEffect(() => {
+    const refreshDateAfterResume = () => {
+      if (document.visibilityState !== "visible" || stage !== "app" || editingSessionId || sessionStartedAt) return;
+      const currentDate = today();
+      if (activeDate === currentDate) return;
+      setActiveDate(currentDate);
+      selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, currentDate);
+      setNotice("A new day started — today’s scheduled workout is ready");
+    };
+    window.addEventListener("focus", refreshDateAfterResume);
+    document.addEventListener("visibilitychange", refreshDateAfterResume);
+    return () => {
+      window.removeEventListener("focus", refreshDateAfterResume);
+      document.removeEventListener("visibilitychange", refreshDateAfterResume);
+    };
+  }, [activeDate, data.profile, data.program.activeId, data.program.frequency, data.program.preferredWeekdays, editingSessionId, sessionStartedAt, stage]);
+
   const persist = async (next: TrainingData, successMessage?: string, mode: RestoreMode = "merge") => {
     const previousUnit = data.profile?.unit;
     const nextUnit = next.profile?.unit;
@@ -1678,39 +1800,78 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const finishProfile = async (profile: Profile, frequency: TrainingFrequency, preferredWeekdays: number[]) => {
     const now = new Date().toISOString();
-    const next: TrainingData = { ...data, updatedAt: now, setupVersion: 2, setupCompletedAt: now, profile, program: { ...data.program, frequency, preferredWeekdays } };
+    const next: TrainingData = {
+      ...data,
+      updatedAt: now,
+      setupVersion: 3,
+      setupCompletedAt: now,
+      profile,
+      program: { ...data.program, frequency, preferredWeekdays },
+      consent: { termsVersion: CURRENT_TERMS_VERSION, adultConfirmedAt: now, safetyAcceptedAt: now },
+      planHistory: [{ id: globalThis.crypto?.randomUUID?.() ?? `plan-${now}`, effectiveAt: now, kind: "setup", programId: data.program.activeId, week: data.program.week, frequency, preferredWeekdays: [...preferredWeekdays], track: profile.programTrack, goal: profile.goal, equipment: profile.equipment, status: "active" }],
+    };
     const saved = await persist(next, "Your training plan is ready");
     if (saved) setStage("app");
     return saved;
   };
 
-  const switchProfile = () => {
-    forgetName(account.id);
-    setName("");
-    setData(emptyData());
-    setDrafts({});
-    setLastSyncedAt(undefined);
-    setSyncState("loading");
-    pendingRestSetsRef.current.clear();
-    setRestTimer(null);
-    setView("train");
-    setStage("name");
+  const acceptCurrentTerms = async () => {
+    const now = new Date().toISOString();
+    const accepted = { ...data, updatedAt: now, consent: { termsVersion: CURRENT_TERMS_VERSION, adultConfirmedAt: now, safetyAcceptedAt: now } };
+    const next = accepted.planHistory.length ? accepted : recordPlanChange(accepted, "setup", now);
+    const saved = await persist(next, "Terms confirmation saved");
+    if (saved) setStage("app");
+    return saved;
+  };
+
+  const renameProfile = async (nextName: string) => {
+    const trimmed = nextName.trim();
+    if (!data.profile || !trimmed || !slugify(trimmed) || trimmed.length > 40) return false;
+    const now = new Date().toISOString();
+    const next = { ...data, profile: { ...data.profile, displayName: trimmed }, updatedAt: now };
+    const saved = await persist(next, "Training name updated");
+    if (saved) {
+      setName(trimmed);
+      rememberName(account.id, trimmed);
+    }
+    return saved;
   };
 
   const activeProgram = PROGRAMS[data.program.activeId];
   const profile = data.profile;
-  const activeDays = programDays(data.program.activeId, data.program.frequency, profile?.programTrack ?? trainingTrack(profile?.gender ?? "man"), profile?.goal ?? "balanced", profile?.equipment ?? "full");
+  const editingSession = editingSessionId ? data.sessions.find((session) => session.id === editingSessionId) : undefined;
+  const workingProgramId = editingSession?.programId ?? data.program.activeId;
+  const workingWeek = editingSession?.programWeek ?? data.program.week;
+  const workingFrequency = editingSession?.programFrequency ?? data.program.frequency;
+  const snapshotDay = editingSession?.planSnapshot ? trainingDayFromSnapshot(editingSession.planSnapshot) : null;
+  const activeDays = snapshotDay
+    ? [snapshotDay]
+    : programDays(
+        workingProgramId,
+        workingFrequency,
+        editingSession?.planSnapshot?.track ?? profile?.programTrack ?? trainingTrack(profile?.gender ?? "man"),
+        editingSession?.planSnapshot?.goal ?? profile?.goal ?? "balanced",
+        editingSession?.planSnapshot?.equipment ?? profile?.equipment ?? "full",
+      );
   const day = activeDays.find((item) => item.id === dayId) ?? null;
-  const currentSession = day
+  const keyForExercise = (exercise: Exercise, index?: number) => {
+    const snapshotIndex = index ?? day?.exercises.indexOf(exercise) ?? -1;
+    return editingSession?.planSnapshot?.exercises[snapshotIndex]?.key ?? exerciseKey(exercise, data.swaps);
+  };
+  const resolvedForExercise = (exercise: Exercise, index?: number) => exerciseFromKey(keyForExercise(exercise, index))
+    ?? resolveExerciseVariant(exercise, data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name);
+  const currentSession = editingSession ?? (day
     ? data.sessions.find((session) =>
         !session.deletedAt
         &&
         session.date === activeDate
         && session.dayId === day.id
-        && (data.program.activeId !== "phase2" || (session.programWeek === data.program.week && (session.programFrequency ?? 5) === data.program.frequency)),
+        && (workingProgramId === "phase2"
+          ? session.programId === "phase2" && session.programWeek === workingWeek && (session.programFrequency ?? 5) === workingFrequency
+          : session.programId !== "phase2"),
       )
-    : undefined;
-  const draftKey = day ? `${data.program.activeId}:${data.program.week}:${activeDate}:${day.id}` : null;
+    : undefined);
+  const draftKey = day ? `${workingProgramId}:${workingWeek}:${activeDate}:${day.id}` : null;
   const sessionStartStorageKey = name && draftKey ? `reparc-session-start:${slugify(account.id)}:${slugify(name)}:${draftKey}` : null;
   const shouldKeepScreenAwake = stage === "app" && view === "train" && Boolean(day) && (Boolean(restTimer) || (Boolean(sessionStartedAt) && !currentSession?.completedAt));
 
@@ -1765,7 +1926,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const log = day && draftKey
     ? drafts[draftKey] ?? sessionEntriesForDay(
         day,
-        data.swaps,
+        editingSession ? {} : data.swaps,
         currentSession?.entries,
         currentSession?.unit,
         profile?.unit,
@@ -1774,13 +1935,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const historyFor = (key: string) =>
     activeSessions(data)
-      .filter((session) => session.entries[key]?.some((entry) => isFilledSet(entry, exerciseFromKey(key))))
+      .filter((session) => session.entries[key]?.some((entry) => isFilledSet(entry, storedExercise(session, key))))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-  const loadForEntry = (exercise: Exercise | null, entry: SetEntry, sessionUnit: Unit) => {
+  const loadForEntry = (exercise: Exercise | null, entry: SetEntry, session: Session) => {
     if (!profile) return 0;
-    const external = convertWeight(numeric(entry.w), sessionUnit, profile.unit);
-    return exercise?.bodyweight ? profile.bodyweight + external : external;
+    const external = convertWeight(numeric(entry.w), session.unit, profile.unit);
+    const bodyweight = convertWeight(session.bodyweightAtSession ?? profile.bodyweight, session.unit, profile.unit);
+    return exercise ? effectiveExerciseLoad(exercise, external, bodyweight) : external;
   };
 
   const estimatedTrainingMax = (exercise: Exercise, key: string) => {
@@ -1793,7 +1955,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         return entries.reduce((setBest, entry) => {
           if (!isFilledSet(entry, historicalExercise)) return setBest;
           const external = convertWeight(numeric(entry.w), session.unit, profile.unit);
-          const load = historicalExercise?.bodyweight ? profile.bodyweight + external : external;
+          const historicalBodyweight = convertWeight(session.bodyweightAtSession ?? profile.bodyweight, session.unit, profile.unit);
+          const load = historicalExercise ? effectiveExerciseLoad(historicalExercise, external, historicalBodyweight) : external;
           return Math.max(setBest, estimatedOneRepMax(load, numeric(entry.r)));
         }, entryBest);
       }, 0);
@@ -1805,10 +1968,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   };
 
   const prescriptionFor = (exercise: Exercise) =>
-    data.program.activeId === "phase2" && exercise.sbsRole
-      ? data.program.calibrationRequired
-        ? { ...sbsPrescription(exercise.sbsRole, data.program.week), deload: true }
-        : sbsPrescription(exercise.sbsRole, data.program.week)
+    workingProgramId === "phase2" && exercise.sbsRole
+      ? !editingSession && data.program.calibrationRequired
+        ? { ...sbsPrescription(exercise.sbsRole, workingWeek), deload: true }
+        : sbsPrescription(exercise.sbsRole, workingWeek)
       : null;
 
   const suggestionFor = (exercise: Exercise, key: string): Suggestion | null => {
@@ -1822,8 +1985,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         value,
         tag: storedTrainingMax ? "hold" : "estimate",
         reason: prescription.deload
-          ? `Week ${data.program.week} deload · ${Math.round(prescription.intensity * 100)}% TM · no AMRAP`
-          : `Week ${data.program.week} · ${Math.round(prescription.intensity * 100)}% TM · final set ${prescription.repOutTarget}+`,
+          ? `Week ${workingWeek} deload · ${Math.round(prescription.intensity * 100)}% TM · no AMRAP`
+          : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · final set ${prescription.repOutTarget}+`,
       };
     }
     const history = historyFor(key);
@@ -1839,7 +2002,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       };
     }
 
-    if (exercise.bodyweight) return { value: null, tag: "bodyweight", reason: "Start with bodyweight. Add load after the top of the range." };
+    if (exercise.loadingType === "bodyweight" || exercise.bodyweight) return { value: null, tag: "bodyweight", reason: "Start with bodyweight. Add load after the top of the range." };
+    if (!exercise.ratio) return { value: null, tag: "estimate", reason: "No reliable estimate exists for this variation. Choose a conservative first load and adjust after set one." };
     const factor = LEVELS.find((level) => level.id === profile.level)?.factor ?? 0.8;
     const estimate = profile.bodyweight * (exercise.ratio ?? 0) * factor;
     return {
@@ -1855,7 +2019,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const exercise = exerciseFromKey(key);
     const best = history.map((session) =>
       session.entries[key].reduce(
-        (max, entry) => Math.max(max, estimatedOneRepMax(loadForEntry(exercise, entry, session.unit), numeric(entry.r))),
+        (max, entry) => Math.max(max, estimatedOneRepMax(loadForEntry(exercise, entry, session), numeric(entry.r))),
         0,
       ),
     );
@@ -1950,7 +2114,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setDrafts((previous) => {
       const dayLog = previous[draftKey] ?? sessionEntriesForDay(
         day,
-        data.swaps,
+        editingSession ? {} : data.swaps,
         currentSession?.entries,
         currentSession?.unit,
         profile?.unit,
@@ -1969,6 +2133,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const applySwap = async (exercise: Exercise, alternative: string | null) => {
     if (!day || !draftKey) return;
+    if (editingSession) {
+      setNotice("Historical sessions keep their saved exercise variation. Change the current plan from a new workout instead.");
+      return;
+    }
     const nextSwaps = { ...data.swaps };
     if (alternative) nextSwaps[exercise.id] = alternative;
     else delete nextSwaps[exercise.id];
@@ -2005,13 +2173,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       return;
     }
     const entries: Record<string, SetEntry[]> = {};
-    day.exercises.forEach((exercise) => {
-      const key = exerciseKey(exercise, data.swaps);
+    day.exercises.forEach((baseExercise, exerciseIndex) => {
+      const key = keyForExercise(baseExercise, exerciseIndex);
+      const exercise = resolvedForExercise(baseExercise, exerciseIndex);
       const sets = log[key] ?? [];
       if (!sets.some((entry) => isFilledSet(entry, exercise))) return;
       entries[key] = sets.map((entry) => ({
         ...entry,
-        w: exercise.bodyweight && entry.r !== "" && entry.w === "" ? "0" : entry.w,
+        w: !exerciseNeedsLoad(exercise) && entry.r !== "" && entry.w === "" ? "0" : entry.w,
       }));
     });
     if (!Object.keys(entries).length) {
@@ -2021,24 +2190,30 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const now = new Date().toISOString();
     const startedAt = currentSession?.startedAt ?? sessionStartedAt ?? now;
     const durationSeconds = currentSession?.durationSeconds ?? Math.min(43_200, Math.max(0, Math.round((Date.parse(now) - Date.parse(startedAt)) / 1000)));
+    const planSnapshot = currentSession?.planSnapshot ?? buildSessionPlanSnapshot(data, day, workingProgramId, workingWeek, workingFrequency);
+    const plannedSets = planSnapshot.exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
+    const completedSetCount = Object.entries(entries).reduce((sum, [key, sets]) => {
+      const snapshot = planSnapshot.exercises.find((exercise) => exercise.key === key);
+      const exercise = snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
+      return sum + sets.filter((entry) => isFilledSet(entry, exercise)).length;
+    }, 0);
+    const completionStatus = completedSetCount >= plannedSets ? "completed" as const : "partial" as const;
+    const calibrationSession = !editingSession && data.program.calibrationRequired;
+    const calibrationCompleted = calibrationSession && completionStatus === "completed";
+    const affectsProgression = !calibrationSession && completionStatus === "completed";
     const trainingMaxesBefore = { ...(currentSession?.trainingMaxesBefore ?? {}) };
     const trainingMaxesAfter = { ...data.program.trainingMaxes };
-    if (data.program.activeId === "phase2") {
-      day.exercises.forEach((exercise) => {
+    if (workingProgramId === "phase2") {
+      planSnapshot.exercises.forEach((snapshot) => {
+        const exercise = { ...snapshot, alternatives: [] } as Exercise;
         if (!exercise.sbsRole) return;
-        const key = exerciseKey(exercise, data.swaps);
-        const finalSet = entries[key]?.[exercise.sets - 1];
-        if (!finalSet || !isFilledSet(finalSet, exercise)) return;
-        const prescription = prescriptionFor(exercise);
-        if (!prescription) return;
+        const key = snapshot.key;
         const baseTrainingMax = currentSession?.trainingMaxesBefore?.[key]
           ?? data.program.trainingMaxes[key]
           ?? estimatedTrainingMax(exercise, key);
         if (!baseTrainingMax) return;
         trainingMaxesBefore[key] = baseTrainingMax;
-        trainingMaxesAfter[key] = prescription.deload
-          ? baseTrainingMax
-          : baseTrainingMax * (1 + sbsTrainingMaxChange(numeric(finalSet.r), prescription.repOutTarget));
+        trainingMaxesAfter[key] = baseTrainingMax;
       });
     }
     const session: Session = {
@@ -2047,85 +2222,72 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       dayId: day.id,
       unit: profile.unit,
       entries,
-      programId: data.program.activeId,
-      programWeek: data.program.activeId === "phase2" ? data.program.week : undefined,
-      programFrequency: data.program.activeId === "phase2" ? data.program.frequency : undefined,
-      trainingMaxesBefore: data.program.activeId === "phase2" ? trainingMaxesBefore : undefined,
-      trainingMaxesAfter: data.program.activeId === "phase2" ? trainingMaxesAfter : undefined,
+      programId: workingProgramId,
+      programWeek: workingProgramId === "phase2" ? workingWeek : undefined,
+      programFrequency: workingFrequency,
+      trainingMaxesBefore: workingProgramId === "phase2" ? trainingMaxesBefore : undefined,
+      trainingMaxesAfter: workingProgramId === "phase2" ? trainingMaxesAfter : undefined,
       readiness: readiness ?? undefined,
       sessionRpe: sessionRpe ?? undefined,
       startedAt,
       completedAt: now,
       durationSeconds,
+      completionStatus,
+      affectsProgression,
+      bodyweightAtSession: currentSession?.bodyweightAtSession ?? profile.bodyweight,
+      planSnapshot,
+      logicalKey: currentSession?.logicalKey ?? sessionLogicalKey(activeDate, workingProgramId, workingProgramId === "phase2" ? workingWeek : undefined, workingFrequency, day.id),
       revision: (currentSession?.revision ?? 0) + 1,
       createdAt: currentSession?.createdAt ?? now,
       updatedAt: now,
     };
-    let sessions = currentSession
+    const sessions = currentSession
       ? data.sessions.map((item) => item.id === currentSession.id ? session : item)
       : [...data.sessions, session];
-    let recalculatedTrainingMaxes = trainingMaxesAfter;
-    if (currentSession && data.program.activeId === "phase2") {
-      const rolling: Record<string, number> = {};
-      const revisedById = new Map<string, Session>();
-      activeSessions({ sessions }).filter((item) => item.programId === "phase2").sort((a, b) => (a.programWeek ?? 1) - (b.programWeek ?? 1) || a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)).forEach((item) => {
-        const before = { ...(item.trainingMaxesBefore ?? {}) };
-        const after = { ...(item.trainingMaxesAfter ?? {}) };
-        Object.entries(item.entries).forEach(([key, sets]) => {
-          const exercise = exerciseFromKey(key);
-          if (!exercise?.sbsRole) return;
-          const base = rolling[key] ?? before[key] ?? before[exercise.id] ?? data.program.trainingMaxes[key] ?? data.program.trainingMaxes[exercise.id];
-          if (!base) return;
-          before[key] = base;
-          const finalSet = sets[exercise.sets - 1];
-          const prescription = sbsPrescription(exercise.sbsRole, item.programWeek ?? 1);
-          after[key] = !finalSet || !isFilledSet(finalSet, exercise) || prescription.deload
-            ? base
-            : base * (1 + sbsTrainingMaxChange(numeric(finalSet.r), prescription.repOutTarget));
-          rolling[key] = after[key];
-        });
-        revisedById.set(item.id, { ...item, trainingMaxesBefore: before, trainingMaxesAfter: after });
-      });
-      sessions = sessions.map((item) => revisedById.get(item.id) ?? item);
-      recalculatedTrainingMaxes = { ...data.program.trainingMaxes, ...rolling };
-    }
     const sessionRevisions = currentSession
-      ? [...data.sessionRevisions, { id: globalThis.crypto?.randomUUID?.() ?? `revision-${now}`, sessionId: currentSession.id, action: "edited" as const, at: now, note: "Session values updated", previous: currentSession }]
+      ? [...data.sessionRevisions, { id: globalThis.crypto?.randomUUID?.() ?? `revision-${now}`, sessionId: currentSession.id, action: "edited" as const, at: now, note: "Session values updated", previous: currentSession }].slice(-5_000)
       : data.sessionRevisions;
-    const next = {
+    let next: TrainingData = {
       ...data,
       sessions,
       sessionRevisions,
       program: {
         ...data.program,
-        trainingMaxes: recalculatedTrainingMaxes,
-        calibrationRequired: false,
+        calibrationRequired: calibrationCompleted ? false : data.program.calibrationRequired,
       },
       updatedAt: now,
     };
+    if (workingProgramId === "phase2") next = recalculatePhase2Progression(next);
     const saved = await persist(
       next,
-      currentSession ? "Session updated — previous version kept in history" : data.program.calibrationRequired ? "Calibration session saved — normal progression resumes next time" : "Session saved — strong work",
+      currentSession ? "Session updated — previous version kept in history" : calibrationCompleted ? "Calibration session saved — normal progression resumes next time" : calibrationSession ? "Partial calibration saved — complete it before progression resumes" : "Session saved — strong work",
     );
     if (saved) {
       if (sessionStartStorageKey) window.localStorage.removeItem(sessionStartStorageKey);
       setNotice(currentSession ? "Session updated — previous version kept in history" : "Session saved — complete the week when you are ready");
+      if (editingSession) {
+        setEditingSessionId(null);
+        setView("progress");
+      }
     }
   };
 
   const finishWeek = async (status: "completed" | "extended" | "skipped") => {
     if (data.program.activeId !== "phase2") return;
-    const completedDayIds = activeDays.filter((programDay) => activeSessions(data).some((session) =>
+    const currentWeekDays = programDays("phase2", data.program.frequency, profile?.programTrack ?? "current", profile?.goal ?? "balanced", profile?.equipment ?? "full");
+    const completedDayIds = currentWeekDays.filter((programDay) => activeSessions(data).some((session) =>
       session.programId === "phase2"
       && session.programWeek === data.program.week
       && (session.programFrequency ?? 5) === data.program.frequency
-      && session.dayId === programDay.id,
+      && session.dayId === programDay.id
+      && sessionCountsAsCompletedDay(session, data)
     )).map((programDay) => programDay.id);
-    const skippedDayIds = activeDays.filter((programDay) => !completedDayIds.includes(programDay.id)).map((programDay) => programDay.id);
+    const skippedDayIds = currentWeekDays.filter((programDay) => !completedDayIds.includes(programDay.id)).map((programDay) => programDay.id);
     if (status === "completed" && skippedDayIds.length) {
-      setNotice(`Complete all ${activeDays.length} sessions or choose “Skip missing & advance”.`);
+      setNotice(`Complete all ${currentWeekDays.length} sessions or choose “Skip missing & advance”.`);
       return;
     }
+    if (status === "skipped" && skippedDayIds.length && !window.confirm(`Advance week ${data.program.week} and mark ${skippedDayIds.length} missing session${skippedDayIds.length === 1 ? "" : "s"} as skipped? Training maxes will only use fully completed eligible sessions.`)) return;
     const now = new Date().toISOString();
     const advances = status !== "extended";
     const finalWeek = data.program.week >= 21 && advances;
@@ -2153,8 +2315,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   };
 
   const editSession = (session: Session) => {
-    const frequency = session.programFrequency ?? data.program.frequency;
-    setData((current) => ({ ...current, program: { ...current.program, activeId: session.programId ?? current.program.activeId, week: session.programWeek ?? current.program.week, frequency } }));
+    setEditingSessionId(session.id);
     setActiveDate(session.date);
     setDayId(session.dayId);
     setReadiness(session.readiness ?? null);
@@ -2166,24 +2327,35 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setNotice(`Editing ${prettyDate(session.date)}. Saving will preserve the previous revision.`);
   };
 
+  const cancelHistoricalEdit = () => {
+    setEditingSessionId(null);
+    const currentDate = today();
+    setActiveDate(currentDate);
+    selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, currentDate);
+    setView("progress");
+    setNotice("Historical edit cancelled");
+  };
+
   if (stage === "loading") return <LoadingScreen />;
   if (stage === "name") return <NameSetup onContinue={openForUser} />;
   if (stage === "profile") return <ProfileSetup accountId={account.id} name={name} onSave={finishProfile} />;
+  if (stage === "consent") return <ConsentUpdate onAccept={acceptCurrentTerms} />;
   if (!profile) return <LoadingScreen />;
 
   const totalSets = day?.exercises.reduce((sum, exercise) => sum + exercise.sets, 0) ?? 0;
   const completedSets = day
-    ? day.exercises.reduce((sum, exercise) => {
-        const key = exerciseKey(exercise, data.swaps);
-        return sum + (log[key] ?? []).filter((entry) => isFilledSet(entry, exercise)).length;
+    ? day.exercises.reduce((sum, exercise, index) => {
+        const key = keyForExercise(exercise, index);
+        return sum + (log[key] ?? []).filter((entry) => isFilledSet(entry, resolvedForExercise(exercise, index))).length;
       }, 0)
     : 0;
   const completion = totalSets ? Math.round((completedSets / totalSets) * 100) : 0;
   const exerciseIsComplete = (index: number) => {
     const exercise = day?.exercises[index];
     if (!exercise) return false;
-    const entries = log[exerciseKey(exercise, data.swaps)] ?? [];
-    return entries.length >= exercise.sets && entries.slice(0, exercise.sets).every((entry) => entry.w !== "" && entry.r !== "");
+    const resolved = resolvedForExercise(exercise, index);
+    const entries = log[keyForExercise(exercise, index)] ?? [];
+    return entries.length >= resolved.sets && entries.slice(0, resolved.sets).every((entry) => isFilledSet(entry, resolved));
   };
   const firstIncompleteExerciseIndex = day?.exercises.findIndex((_, index) => !exerciseIsComplete(index)) ?? -1;
   const lastAccessibleExerciseIndex = firstIncompleteExerciseIndex === -1 ? (day?.exercises.length ?? 1) - 1 : firstIncompleteExerciseIndex;
@@ -2198,7 +2370,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setNotice("");
   };
   const formattedToday = prettyDate(activeDate, { weekday: "long", day: "numeric", month: "long" });
-  const weekCompletedDays = data.program.activeId === "phase2" ? activeDays.filter((programDay) => activeSessions(data).some((session) => session.programId === "phase2" && session.programWeek === data.program.week && (session.programFrequency ?? 5) === data.program.frequency && session.dayId === programDay.id)).length : 0;
+  const currentProgramDays = programDays(data.program.activeId, data.program.frequency, profile?.programTrack ?? "current", profile?.goal ?? "balanced", profile?.equipment ?? "full");
+  const weekCompletedDays = data.program.activeId === "phase2" ? currentProgramDays.filter((programDay) => activeSessions(data).some((session) => session.programId === "phase2" && session.programWeek === data.program.week && (session.programFrequency ?? 5) === data.program.frequency && session.dayId === programDay.id && sessionCountsAsCompletedDay(session, data))).length : 0;
 
   return (
     <main id="main-content" className={`min-h-dvh bg-[#0b0d0c] text-stone-100 ${view === "train" && day ? "pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pb-12" : "pb-12"}`}>
@@ -2273,12 +2446,12 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             ))}
           </div>
 
-          {data.program.activeId === "phase2" && (
+          {data.program.activeId === "phase2" && !editingSession && (
             <details className="mt-5 rounded-2xl border border-white/10 bg-white/[0.035] p-4 lg:block lg:[&>summary]:cursor-default">
-              <summary className="flex cursor-pointer list-none items-center justify-between"><span className="eyebrow">Week progress</span><span className="font-mono text-sm text-stone-300">{weekCompletedDays} / {activeDays.length}</span></summary>
-              <Progress value={(weekCompletedDays / activeDays.length) * 100} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />
+              <summary className="flex cursor-pointer list-none items-center justify-between"><span className="eyebrow">Week progress</span><span className="font-mono text-sm text-stone-300">{weekCompletedDays} / {currentProgramDays.length}</span></summary>
+              <Progress value={(weekCompletedDays / currentProgramDays.length) * 100} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />
               <div className="mt-4 grid gap-2">
-                <Button type="button" onClick={() => void finishWeek(weekCompletedDays === activeDays.length ? "completed" : "skipped")} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><CalendarCheck className="size-4" />{weekCompletedDays === activeDays.length ? "Complete week & advance" : "Skip missing & advance"}</Button>
+                <Button type="button" onClick={() => void finishWeek(weekCompletedDays === currentProgramDays.length ? "completed" : "skipped")} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><CalendarCheck className="size-4" />{weekCompletedDays === currentProgramDays.length ? "Complete week & advance" : "Skip missing & advance"}</Button>
                 <Button type="button" variant="ghost" onClick={() => void finishWeek("extended")} className="h-9 rounded-xl text-xs text-stone-400 hover:bg-white/10 hover:text-white">Extend this week</Button>
               </div>
               <p className="mt-3 text-[10px] leading-4 text-stone-600">Weeks never advance automatically. You decide when to stay, extend, skip, or progress.</p>
@@ -2300,8 +2473,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         </aside>
 
         <section className="min-w-0">
+          {editingSession && <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><div><p className="font-semibold text-sky-200">Editing {prettyDate(editingSession.date)}</p><p className="mt-1 text-xs text-stone-400">This uses the saved historical plan and cannot change your current program, week, schedule, or training status.</p></div><Button type="button" variant="ghost" onClick={cancelHistoricalEdit} className="h-9 shrink-0 rounded-xl text-xs text-sky-200 hover:bg-white/10">Cancel</Button></div>}
           {data.program.status === "paused" && <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><p className="font-semibold text-amber-200">Training is paused</p><p className="mt-1 text-xs text-stone-400">Your history and drafts are safe. Resume from Setup before saving another workout.</p></div>}
-          {data.program.calibrationRequired && data.program.status !== "paused" && <div className="mb-4 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><p className="font-semibold text-sky-200">Return calibration session</p><p className="mt-1 text-xs text-stone-400">Use conservative loads. This workout will not adjust SBS training maxes; normal progression resumes afterward.</p></div>}
+          {!editingSession && data.program.calibrationRequired && data.program.status !== "paused" && <div className="mb-4 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><p className="font-semibold text-sky-200">Return calibration session</p><p className="mt-1 text-xs text-stone-400">Use conservative loads. This workout will not adjust SBS training maxes; normal progression resumes afterward.</p></div>}
           {!day ? (
             <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-white/15 bg-white/[0.025] px-6 text-center">
               <div>
@@ -2332,26 +2506,28 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               {restTimer && <div ref={restTimerAnchorRef} className="scroll-mt-24 lg:hidden"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4" /></div>}
 
               <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
-                <div className="flex items-center justify-between gap-3"><p className="eyebrow text-stone-500">Exercise {activeExerciseIndex + 1} of {day.exercises.length}</p><p className="truncate text-xs font-semibold text-stone-300">{data.swaps[day.exercises[activeExerciseIndex]?.id] ?? day.exercises[activeExerciseIndex]?.name}</p></div>
+                <div className="flex items-center justify-between gap-3"><p className="eyebrow text-stone-500">Exercise {activeExerciseIndex + 1} of {day.exercises.length}</p><p className="truncate text-xs font-semibold text-stone-300">{day.exercises[activeExerciseIndex] ? resolvedForExercise(day.exercises[activeExerciseIndex], activeExerciseIndex).name : ""}</p></div>
                 <div className="mt-3 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${day.exercises.length}, minmax(0, 1fr))` }} role="tablist" aria-label="Choose an exercise">
                   {day.exercises.map((item, index) => {
-                    const itemKey = exerciseKey(item, data.swaps);
-                    const complete = (log[itemKey] ?? []).filter((entry) => isFilledSet(entry, item)).length >= item.sets;
+                    const itemKey = keyForExercise(item, index);
+                    const resolvedItem = resolvedForExercise(item, index);
+                    const complete = (log[itemKey] ?? []).filter((entry) => isFilledSet(entry, resolvedItem)).length >= resolvedItem.sets;
                     const locked = index > lastAccessibleExerciseIndex;
-                    return <Button key={item.id} type="button" role="tab" aria-selected={activeExerciseIndex === index} aria-label={`${index + 1}. ${data.swaps[item.id] ?? item.name}${complete ? ", complete" : locked ? ", locked until earlier exercises are complete" : ""}`} variant="outline" data-selected={activeExerciseIndex === index} disabled={locked} onClick={() => goToExercise(index)} className="selection-button h-10 rounded-xl px-0 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-35">{complete ? <Check className="size-3.5" /> : locked ? <Lock className="size-3.5" /> : index + 1}</Button>;
+                    return <Button key={item.id} type="button" role="tab" aria-selected={activeExerciseIndex === index} aria-label={`${index + 1}. ${resolvedItem.name}${complete ? ", complete" : locked ? ", locked until earlier exercises are complete" : ""}`} variant="outline" data-selected={activeExerciseIndex === index} disabled={locked} onClick={() => goToExercise(index)} className="selection-button h-10 rounded-xl px-0 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-35">{complete ? <Check className="size-3.5" /> : locked ? <Lock className="size-3.5" /> : index + 1}</Button>;
                   })}
                 </div>
               </div>
 
               <div className="space-y-3">
-                {day.exercises.map((exercise, exerciseIndex) => {
+                {day.exercises.map((baseExercise, exerciseIndex) => {
                   if (exerciseIndex !== activeExerciseIndex) return null;
-                  const key = exerciseKey(exercise, data.swaps);
+                  const key = keyForExercise(baseExercise, exerciseIndex);
+                  const exercise = resolvedForExercise(baseExercise, exerciseIndex);
                   const sets = log[key] ?? Array.from({ length: exercise.sets }, emptySet);
                   const suggestion = suggestionFor(exercise, key);
                   const history = historyFor(key);
                   const last = history.at(-1);
-                  const displayName = data.swaps[exercise.id] ?? exercise.name;
+                  const displayName = exercise.name;
                   const guidance = exerciseGuidance(displayName);
                   const isStalled = stalled(key);
                   const prescription = prescriptionFor(exercise);
@@ -2384,6 +2560,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               variant="ghost"
                               size="sm"
                               onClick={() => setOpenSwap(openSwap === exercise.id ? null : exercise.id)}
+                              disabled={Boolean(editingSession)}
                               aria-expanded={openSwap === exercise.id}
                               className="h-8 rounded-lg px-2.5 text-[11px] text-stone-400 hover:bg-white/10 hover:text-white"
                             >
@@ -2393,14 +2570,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
                           {openSwap === exercise.id && (
                             <div className="motion-pop ml-7 mt-4 grid gap-2 rounded-xl border border-white/10 bg-black/20 p-2 sm:grid-cols-2">
-                              {[exercise.name, ...exercise.alternatives].map((option) => {
+                              {[baseExercise.name, ...baseExercise.alternatives].map((option) => {
                                 const active = displayName === option;
                                 return (
                                   <Button
                                     key={option}
                                     type="button"
                                     variant="ghost"
-                                    onClick={() => void applySwap(exercise, option === exercise.name ? null : option)}
+                                    onClick={() => void applySwap(baseExercise, option === baseExercise.name ? null : option)}
                                     data-selected={active}
                                     className="selection-button h-auto min-h-10 justify-start whitespace-normal rounded-lg px-3 py-2 text-left text-xs"
                                   >
@@ -2420,7 +2597,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
                           <div className="mt-5 grid grid-cols-[1.25rem_repeat(3,minmax(0,1fr))] items-center gap-2">
                             <span />
-                            <span className="field-label">{exercise.bodyweight ? `Added ${profile.unit}` : profile.unit}</span>
+                            <span className="field-label">{exercise.loadingType === "assisted-bodyweight" ? `Assistance ${profile.unit}` : exercise.loadingType === "bodyweight" || exercise.bodyweight ? `Added ${profile.unit}` : exercise.loadingType === "unloaded" ? "Load optional" : profile.unit}</span>
                             <span className="field-label">Reps</span>
                             <span className="field-label">RIR</span>
                             {sets.flatMap((entry, setIndex) => [
@@ -2434,7 +2611,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                                 onChange={(event) => setField(key, setIndex, "w", event.target.value)}
                                 onBlur={() => finishSet(key, setIndex)}
                                 onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-                                placeholder={exercise.bodyweight ? "0" : suggestion?.value === null ? "—" : String(suggestion?.value ?? "")}
+                                placeholder={!exerciseNeedsLoad(exercise) ? "0" : suggestion?.value === null ? "—" : String(suggestion?.value ?? "")}
                                 aria-label={`${displayName}, set ${setIndex + 1}, weight in ${profile.unit}`}
                                 className="set-input"
                               />,
@@ -2473,7 +2650,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                             <div>
                               <p className="eyebrow">Target load</p>
                               <p className="mt-2 font-mono text-3xl font-semibold tracking-tight">
-                                {suggestion?.value === null ? <span className="text-xl">Bodyweight</span> : <>{suggestion?.value}<span className="ml-1 text-sm text-stone-500">{profile.unit}</span></>}
+                                {suggestion?.value === null ? <span className="text-xl">{exercise.loadingType === "bodyweight" ? "Bodyweight" : exercise.loadingType === "assisted-bodyweight" ? "Choose assistance" : exercise.loadingType === "unloaded" ? "No fixed load" : "Choose load"}</span> : <>{suggestion?.value}<span className="ml-1 text-sm text-stone-500">{profile.unit}</span></>}
                               </p>
                             </div>
                             <div className="max-w-[12rem] text-right md:mt-5 md:text-left">
@@ -2541,7 +2718,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           onRestore={(next, mode) => persist(next, mode === "merge" ? "Backup merged" : "Backup restored", mode)}
           onSignOut={onSignOut}
           onDeleteAccount={onDeleteAccount}
-          onSwitch={switchProfile}
+          onRename={renameProfile}
           restAlertLevel={restAlertLevel}
           alertPermission={alertPermission}
           wakeLockState={wakeLockState}

@@ -12,6 +12,7 @@ A secure, offline-first workout log with evidence-aligned progression, account-o
 - Pause/resume calibration and explicit Phase 2 review
 - Rolling bodyweight trends with cut, maintain, and bulk context
 - IndexedDB-first offline logging with a coalesced newest-snapshot outbox
+- Atomic server revisions with automatic merge-and-retry protection when the same account edits on two devices
 - Passwordless Supabase accounts with HTTP-only cookie sessions and RLS ownership
 - Same-origin mutation checks, strict JSON/body limits, and durable per-account write throttling
 - JSON restore preview with merge or authoritative replacement and an automatic rollback download
@@ -45,4 +46,4 @@ The `npm run dev`, `npm run build`, and `npm run lint` scripts are cross-platfor
 
 ## Data compatibility
 
-Training data remains schema version 5; optional readiness, session-effort, and timing fields are backward compatible. Raw v2-v5 and versioned account-era JSON backups are accepted. The first authenticated load on an existing device migrates its earlier profile into an account-scoped IndexedDB record and uploads it to the authenticated cloud row.
+Training data uses schema version 6. It adds immutable workout-plan snapshots, explicit completion/progression state, plan-history records and versioned consent while preserving v2-v5 migrations. Raw v2-v6 and versioned account-era JSON backups are accepted after strict validation. The first authenticated load on an existing device migrates its earlier profile into an account-scoped IndexedDB record and uploads it to the authenticated cloud row.

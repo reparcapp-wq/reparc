@@ -39,8 +39,8 @@ export type TrainingSyncResult = {
 };
 
 type RemoteResult =
-  | { available: true; data: TrainingData | null }
-  | { available: false; data: null };
+  | { available: true; data: TrainingData | null; revision: number }
+  | { available: false; data: null; revision: number };
 
 const activeSyncs = new Map<string, Promise<TrainingSyncResult>>();
 
@@ -216,6 +216,7 @@ async function writePendingRecord(identity: string, data: TrainingData, mode: Sy
       key,
       data,
       revision: (current?.revision ?? 0) + 1,
+      serverRevision: current?.serverRevision,
       dirty: true,
       syncMode: current?.dirty && current.syncMode === "replace" ? "replace" : mode,
       pendingSince: current?.pendingSince ?? now,
@@ -226,7 +227,7 @@ async function writePendingRecord(identity: string, data: TrainingData, mode: Sy
   }
 }
 
-async function storeMergedRecord(identity: string, data: TrainingData, options: { dirty: boolean; lastSyncedAt?: string }) {
+async function storeMergedRecord(identity: string, data: TrainingData, options: { dirty: boolean; lastSyncedAt?: string; serverRevision?: number }) {
   const key = profileKey(identity);
   writeLegacyLocal(identity, data);
   try {
@@ -238,6 +239,7 @@ async function storeMergedRecord(identity: string, data: TrainingData, options: 
       key,
       data,
       revision: (current?.revision ?? 0) + 1,
+      serverRevision: options.serverRevision ?? current?.serverRevision,
       dirty: options.dirty,
       syncMode: options.dirty ? current?.syncMode ?? "merge" : undefined,
       pendingSince: options.dirty ? current?.pendingSince ?? now : undefined,
@@ -249,10 +251,10 @@ async function storeMergedRecord(identity: string, data: TrainingData, options: 
   }
 }
 
-async function commitSyncRecord(identity: string, uploadedRevision: number, remoteData: TrainingData) {
+async function commitSyncRecord(identity: string, uploadedRevision: number, remoteData: TrainingData, remoteRevision?: number) {
   const key = profileKey(identity);
   try {
-    const record = await commitOfflineSync(key, uploadedRevision, remoteData);
+    const record = await commitOfflineSync(key, uploadedRevision, remoteData, remoteRevision);
     writeLegacyLocal(identity, record.data);
     return record;
   } catch {
@@ -264,6 +266,7 @@ async function commitSyncRecord(identity: string, uploadedRevision: number, remo
       key,
       data,
       revision: current?.revision ?? uploadedRevision,
+      serverRevision: remoteRevision ?? current?.serverRevision,
       dirty: hasNewerWrite,
       syncMode: hasNewerWrite ? current?.syncMode ?? "merge" : undefined,
       pendingSince: hasNewerWrite ? current?.pendingSince ?? now : undefined,
@@ -344,30 +347,42 @@ async function timedFetch(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 async function readRemote(): Promise<RemoteResult> {
-  if (!navigator.onLine) return { available: false, data: null };
+  if (!navigator.onLine) return { available: false, data: null, revision: 0 };
   try {
     const response = await timedFetch("/api/training", { cache: "no-store" });
     if (response.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));
-    if (response.status === 404) return { available: true, data: null };
-    if (!response.ok) return { available: false, data: null };
-    const payload = await response.json() as { data?: unknown; updatedAt?: string };
-    return { available: true, data: payload.data ? normalizeTrainingData(payload.data, payload.updatedAt) : null };
+    if (response.status === 404) return { available: true, data: null, revision: 0 };
+    if (!response.ok) return { available: false, data: null, revision: 0 };
+    const payload = await response.json() as { data?: unknown; updatedAt?: string; revision?: number };
+    return { available: true, data: payload.data ? normalizeTrainingData(payload.data, payload.updatedAt) : null, revision: Math.max(0, Math.trunc(Number(payload.revision) || 0)) };
   } catch {
-    return { available: false, data: null };
+    return { available: false, data: null, revision: 0 };
   }
 }
 
-async function uploadProfile(data: TrainingData, mode: SyncMode) {
+async function uploadProfile(data: TrainingData, mode: SyncMode, baseRevision = 0) {
   if (!navigator.onLine) throw new Error("Offline");
   const response = await timedFetch("/api/training", {
     method: "PUT",
     headers: { "Content-Type": "application/json", "X-RepArc-Request": "1" },
-    body: JSON.stringify({ data, mode }),
+    body: JSON.stringify({ data, mode, baseRevision }),
   });
   if (response.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));
+  if (response.status === 409) {
+    const payload = await response.json() as { data?: unknown; updatedAt?: string; revision?: number };
+    return {
+      conflict: true as const,
+      data: payload.data ? normalizeTrainingData(payload.data, payload.updatedAt) : data,
+      revision: Math.max(0, Math.trunc(Number(payload.revision) || 0)),
+    };
+  }
   if (!response.ok) throw new Error("Cloud save unavailable");
-  const payload = await response.json() as { data?: unknown; updatedAt?: string };
-  return payload.data ? normalizeTrainingData(payload.data, payload.updatedAt) : data;
+  const payload = await response.json() as { data?: unknown; updatedAt?: string; revision?: number };
+  return {
+    conflict: false as const,
+    data: payload.data ? normalizeTrainingData(payload.data, payload.updatedAt) : data,
+    revision: Math.max(0, Math.trunc(Number(payload.revision) || baseRevision + 1)),
+  };
 }
 
 async function runSync(identity: string): Promise<TrainingSyncResult> {
@@ -376,8 +391,13 @@ async function runSync(identity: string): Promise<TrainingSyncResult> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (!latest.dirty) return { data: latest.data, saved: true, synced: true, pending: false, lastSyncedAt: latest.lastSyncedAt };
     try {
-      const remoteData = await uploadProfile(latest.data, latest.syncMode ?? "merge");
-      latest = await commitSyncRecord(identity, latest.revision, remoteData);
+      const remote = await uploadProfile(latest.data, latest.syncMode ?? "merge", latest.serverRevision ?? 0);
+      if (remote.conflict) {
+        const merged = mergeTrainingData(latest.data, remote.data);
+        latest = await storeMergedRecord(identity, merged, { dirty: true, lastSyncedAt: latest.lastSyncedAt, serverRevision: remote.revision });
+        continue;
+      }
+      latest = await commitSyncRecord(identity, latest.revision, remote.data, remote.revision);
     } catch {
       return { data: latest.data, saved: true, synced: false, pending: true, lastSyncedAt: latest.lastSyncedAt };
     }
@@ -406,13 +426,13 @@ export async function loadTrainingData(identity: string, legacyName?: string) {
   if (!remote.available) return { data: local?.data ?? null, cloudAvailable: false, pending: local?.dirty ?? false, lastSyncedAt: local?.lastSyncedAt };
   if (!local && !remote.data) return { data: null, cloudAvailable: true, pending: false, lastSyncedAt: undefined };
   if (!local && remote.data) {
-    const record = await storeMergedRecord(identity, remote.data, { dirty: false, lastSyncedAt: new Date().toISOString() });
+    const record = await storeMergedRecord(identity, remote.data, { dirty: false, lastSyncedAt: new Date().toISOString(), serverRevision: remote.revision });
     return { data: record.data, cloudAvailable: true, pending: false, lastSyncedAt: record.lastSyncedAt };
   }
   const merged = remote.data ? mergeTrainingData(local!.data, remote.data) : local!.data;
   const remoteSnapshot = remote.data ? JSON.stringify(remote.data) : "";
   const needsUpload = Boolean(local!.dirty || !remote.data || JSON.stringify(merged) !== remoteSnapshot);
-  const record = await storeMergedRecord(identity, merged, { dirty: needsUpload, lastSyncedAt: local!.lastSyncedAt });
+  const record = await storeMergedRecord(identity, merged, { dirty: needsUpload, lastSyncedAt: local!.lastSyncedAt, serverRevision: remote.revision });
   if (!needsUpload) return { data: record.data, cloudAvailable: true, pending: false, lastSyncedAt: record.lastSyncedAt };
   const result = await syncTrainingData(identity);
   return { data: result.data, cloudAvailable: result.synced, pending: result.pending, lastSyncedAt: result.lastSyncedAt };

@@ -47,6 +47,25 @@ test("rejects arbitrary JSON and unsupported future backup formats", () => {
   assert.throws(() => backup.parseTrainingBackup(JSON.stringify({ format: "my-progress-backup", formatVersion: 2, data: training.emptyData() })), /newer/i);
 });
 
+test("restores a legacy backup whose sessions predate per-session units", () => {
+  const legacy = {
+    version: 5,
+    updatedAt: "2026-08-29T00:00:00.000Z",
+    profile: { bodyweight: 75, unit: "kg", level: "intermediate" },
+    program: { activeId: "phase1", week: 1, frequency: 5 },
+    sessions: [{
+      id: "legacy-session",
+      date: "2026-08-28",
+      dayId: "UA",
+      entries: { ua1: [{ w: "20", r: "10", rir: "2" }] },
+      createdAt: "2026-08-28T12:00:00.000Z",
+      updatedAt: "2026-08-28T12:00:00.000Z",
+    }],
+  };
+  const restored = backup.parseTrainingBackup(JSON.stringify(legacy));
+  assert.equal(restored.data.sessions[0].unit, "kg");
+});
+
 test("replace remains authoritative if another local edit lands before its upload", () => {
   const original = training.emptyData();
   const first = offline.nextPendingOfflineRecord("account", undefined, original, "replace", "2026-08-29T01:00:00.000Z");

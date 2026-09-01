@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
-const trackedFiles = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
+const trackedFiles = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { encoding: "utf8" })
   .split("\0")
   .filter(Boolean)
   .filter((path) => !path.startsWith(".next/") && !path.startsWith("dist/") && path !== "scripts/security-static-check.mjs")

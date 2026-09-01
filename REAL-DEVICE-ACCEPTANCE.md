@@ -12,3 +12,5 @@ Complete this record on physical hardware before every public release. Automated
 For each device verify: first registration and every mandatory onboarding field; returning OTP; input fields do not zoom the page; guide tabs auto-scroll; training entry, rest timer and completion; airplane-mode launch and logging; reconnect sync; update prompt without sign-out; JSON/CSV export; restore preview and rollback download; keyboard and reduced-motion behavior where supported; and account deletion.
 
 Use two distinct accounts on two devices to verify RLS isolation. Use one account on two devices to verify newest-state synchronization. Record failures with reproduction steps and do not sign off until corrected and retested.
+
+Status: **physical-device acceptance not yet recorded**. Browser emulation and automated tests do not satisfy this gate.
