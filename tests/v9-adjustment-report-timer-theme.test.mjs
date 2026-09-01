@@ -144,3 +144,16 @@ test("foreground rest completion runs a ten-second alert pattern", async () => {
   assert.match(source, /setAppBadge/);
   assert.match(source, /silent: false/);
 });
+
+test("workout alarm mode keeps visible sessions awake and recovers overdue timers", async () => {
+  const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  assert.match(source, /wakeLock\.request\("screen"\)/);
+  assert.match(source, /shouldKeepScreenAwake/);
+  assert.match(source, /document\.visibilityState === "visible"/);
+  assert.match(source, /Math\.max\(-599, Math\.ceil/);
+  assert.match(source, /Rest completed \$\{displaySeconds\} seconds ago/);
+  assert.match(source, /Alarm readiness/);
+  assert.match(source, /Exact offline alarm/);
+  assert.match(source, /Native app only/);
+  assert.match(source, /Run alert test/);
+});

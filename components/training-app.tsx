@@ -119,6 +119,16 @@ type RestTimer = {
 };
 type AlertPermission = NotificationPermission | "unsupported";
 type RestAlertLevel = "quiet" | "normal" | "strong";
+type WakeLockState = "active" | "available" | "unavailable";
+type WakeLockSentinelLike = {
+  released: boolean;
+  release: () => Promise<void>;
+  addEventListener: (type: "release", listener: () => void) => void;
+};
+type WakeLockNavigator = Navigator & {
+  standalone?: boolean;
+  wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinelLike> };
+};
 
 const today = () => isoDate();
 
@@ -134,16 +144,18 @@ const emptySet = (): SetEntry => ({ w: "", r: "", rir: "" });
 const formatTimer = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-function RestTimerPanel({ timer, remaining, permission, className = "", onClose, onAdd, onEnable }: {
+function RestTimerPanel({ timer, remaining, permission, wakeLockState, className = "", onClose, onAdd, onEnable }: {
   timer: RestTimer;
   remaining: number;
   permission: AlertPermission;
+  wakeLockState: WakeLockState;
   className?: string;
   onClose: () => void;
   onAdd: () => void;
   onEnable: () => void;
 }) {
-  const complete = remaining === 0;
+  const complete = remaining <= 0;
+  const displaySeconds = complete ? Math.abs(remaining) : remaining;
   return (
     <aside className={`motion-rest overflow-hidden rounded-[1.35rem] border p-4 shadow-xl backdrop-blur-xl ${complete ? "border-amber-300 bg-amber-300 text-[#0b0d0c]" : "border-white/15 bg-[#171a17]/95 text-stone-100"} ${className}`} aria-label={`Rest timer for ${timer.exerciseName}`}>
       <div className="flex items-center gap-3">
@@ -152,12 +164,12 @@ function RestTimerPanel({ timer, remaining, permission, className = "", onClose,
           <p className={`eyebrow ${complete ? "text-black/60" : "text-amber-300"}`}>{complete ? "Rest complete" : "Recover for your next set"}</p>
           <p className="mt-1 truncate text-sm font-semibold">{timer.exerciseName}</p>
         </div>
-        <time className="font-mono text-3xl font-semibold tracking-[-0.06em]" aria-label={`${remaining} seconds remaining`}>{formatTimer(remaining)}</time>
+        <time className="font-mono text-3xl font-semibold tracking-[-0.06em]" aria-label={complete ? `Rest completed ${displaySeconds} seconds ago` : `${remaining} seconds remaining`}>{complete ? "+" : ""}{formatTimer(displaySeconds)}</time>
         <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close rest timer" className={`size-8 rounded-lg ${complete ? "text-black/60 hover:bg-black/10 hover:text-black" : "text-stone-500 hover:bg-white/10 hover:text-white"}`}><X className="size-4" /></Button>
       </div>
       {!complete && <Progress value={Math.min(100, ((timer.durationSeconds - remaining) / timer.durationSeconds) * 100)} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />}
       <div className="mt-3 flex items-center justify-between gap-3">
-        <p className={`text-[11px] ${complete ? "text-black/60" : "text-stone-500"}`}>{complete ? "Continue when your technique and breathing are ready." : permission === "granted" ? "System notifications enabled" : permission === "unsupported" ? "System notifications unavailable here" : "Enable notifications before switching apps"}</p>
+        <p className={`text-[11px] ${complete ? "text-black/60" : "text-stone-500"}`}>{complete ? "Continue when your technique and breathing are ready." : wakeLockState === "active" ? "Screen awake · keep RepArc visible for guaranteed sound" : permission === "granted" ? "Notifications allowed · background timing is best effort" : permission === "unsupported" ? "Keep RepArc visible for a reliable alert" : "Enable notifications before switching apps"}</p>
         <div className="flex shrink-0 gap-1">
           {!complete && permission === "default" && <Button type="button" variant="ghost" onClick={onEnable} className="h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Enable</Button>}
           {!complete && <Button type="button" variant="outline" onClick={onAdd} className="h-8 rounded-lg border-white/10 bg-white/[0.04] px-2 text-[11px] text-stone-300"><Plus className="size-3" />30 sec</Button>}
@@ -949,7 +961,11 @@ function SettingsView({
   onDeleteAccount,
   onSwitch,
   restAlertLevel,
+  alertPermission,
+  wakeLockState,
+  isStandalone,
   onRestAlertLevelChange,
+  onEnableRestAlerts,
   onTestRestAlert,
 }: {
   account: Account;
@@ -962,8 +978,12 @@ function SettingsView({
   onDeleteAccount: () => Promise<void>;
   onSwitch: () => void;
   restAlertLevel: RestAlertLevel;
+  alertPermission: AlertPermission;
+  wakeLockState: WakeLockState;
+  isStandalone: boolean;
   onRestAlertLevelChange: (level: RestAlertLevel) => void;
-  onTestRestAlert: () => void;
+  onEnableRestAlerts: () => Promise<void>;
+  onTestRestAlert: () => Promise<void>;
 }) {
   const { theme, setTheme } = useTheme();
   const profile = data.profile!;
@@ -1286,11 +1306,26 @@ function SettingsView({
           <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
             <p className="eyebrow text-amber-300">Rest alert</p>
             <h2 className="mt-2 text-xl font-semibold">Choose how strongly RepArc gets your attention</h2>
-            <p className="mt-2 text-xs leading-5 text-stone-500">Foreground completion uses a ten-second sound and vibration where supported. On iPhone, background notifications require RepArc to be installed with Add to Home Screen and notifications allowed. iOS can still suppress web-app sound, full-screen alarms, and Dynamic Island activity.</p>
+            <p className="mt-2 text-xs leading-5 text-stone-500">During an active workout RepArc keeps the screen awake where supported. Foreground completion uses a ten-second sound and vibration. Background web alerts remain best effort and may be delayed or silenced by the device.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               {([['quiet','Quiet'],['normal','Normal'],['strong','Strong']] as const).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={restAlertLevel === value} data-selected={restAlertLevel === value} onClick={() => onRestAlertLevelChange(value)} className="selection-button min-h-12 justify-start rounded-xl border-white/10"><BellRing className="size-4" />{label}</Button>)}
             </div>
-            <Button type="button" variant="ghost" onClick={onTestRestAlert} className="mt-3 h-10 rounded-xl text-xs text-amber-300 hover:bg-white/10 hover:text-amber-200"><Play className="size-3.5" />Test alert</Button>
+            <details className="mt-4 rounded-xl border border-white/10 bg-black/15 p-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-stone-300"><span className="flex items-center gap-2"><BellRing className="size-3.5 text-amber-300" />Alarm readiness</span><ChevronDown className="size-4 text-stone-500" /></summary>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {[
+                  ["App mode", isStandalone ? "Installed" : "Browser tab", isStandalone],
+                  ["Notifications", alertPermission === "granted" ? "Allowed" : alertPermission === "denied" ? "Blocked" : alertPermission === "unsupported" ? "Unavailable" : "Not enabled", alertPermission === "granted"],
+                  ["Screen awake", wakeLockState === "unavailable" ? "Unavailable" : wakeLockState === "active" ? "Active now" : "Ready in workout", wakeLockState !== "unavailable"],
+                  ["Exact offline alarm", "Native app only", false],
+                ].map(([label, value, ready]) => <div key={String(label)} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-2.5"><p className={`font-mono text-[10px] ${ready ? "text-emerald-300" : "text-stone-500"}`}>{String(value)}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{String(label)}</p></div>)}
+              </div>
+              <p className="mt-3 text-[10px] leading-4 text-stone-600">For iPhone background notifications, install RepArc with Add to Home Screen. Keep RepArc visible when exact timing matters; the web platform cannot schedule an offline system alarm.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {alertPermission === "default" && <Button type="button" variant="outline" onClick={() => void onEnableRestAlerts()} className="h-9 rounded-lg border-white/10 bg-white/[0.035] px-3 text-[11px] text-stone-300">Enable notifications</Button>}
+                <Button type="button" variant="ghost" onClick={() => void onTestRestAlert()} className="h-9 rounded-lg px-3 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200"><Play className="size-3.5" />Run alert test</Button>
+              </div>
+            </details>
           </article>
         </>}
 
@@ -1343,8 +1378,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [alertPermission, setAlertPermission] = useState<AlertPermission>(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
+  const [wakeLockState, setWakeLockState] = useState<WakeLockState>("unavailable");
+  const [isStandalone, setIsStandalone] = useState(false);
   const pendingRestSetsRef = useRef(new Set<string>());
   const audioContextRef = useRef<AudioContext | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const alertedRestEndRef = useRef<number | null>(null);
   const restoredTimerKeyRef = useRef<string | null>(null);
   const restoredSessionStartKeyRef = useRef<string | null>(null);
@@ -1405,15 +1443,33 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   }, [account.id, drafts, name, stage]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    const synchronizeTimer = () => {
       const currentTime = Date.now();
       setRestTimer((current) => {
-        if (!current || current.remainingSeconds <= 0) return current;
-        const remainingSeconds = Math.max(0, Math.ceil((current.endsAt - currentTime) / 1000));
+        if (!current) return current;
+        const remainingSeconds = Math.max(-599, Math.ceil((current.endsAt - currentTime) / 1000));
         return remainingSeconds === current.remainingSeconds ? current : { ...current, remainingSeconds };
       });
-    }, 250);
-    return () => window.clearInterval(interval);
+    };
+    const synchronizeWhenVisible = () => {
+      if (document.visibilityState === "visible") synchronizeTimer();
+    };
+    const interval = window.setInterval(synchronizeTimer, 250);
+    window.addEventListener("focus", synchronizeTimer);
+    document.addEventListener("visibilitychange", synchronizeWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", synchronizeTimer);
+      document.removeEventListener("visibilitychange", synchronizeWhenVisible);
+    };
+  }, []);
+
+  useEffect(() => {
+    const displayMode = window.matchMedia("(display-mode: standalone)");
+    const updateDisplayMode = () => setIsStandalone(displayMode.matches || Boolean((navigator as WakeLockNavigator).standalone));
+    updateDisplayMode();
+    displayMode.addEventListener?.("change", updateDisplayMode);
+    return () => displayMode.removeEventListener?.("change", updateDisplayMode);
   }, []);
 
   const restTimerStorageKey = name ? `reparc-rest-timer:${slugify(account.id)}:${slugify(name)}` : null;
@@ -1506,7 +1562,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   }, [restAlertLevel, showRestNotification]);
 
   useEffect(() => {
-    if (!restExerciseId || !restEndsAt || restRemaining !== 0 || alertedRestEndRef.current === restEndsAt) return;
+    if (!restExerciseId || !restEndsAt || restRemaining > 0 || alertedRestEndRef.current === restEndsAt) return;
     alertedRestEndRef.current = restEndsAt;
     triggerRestAlert(restExerciseName ?? "Exercise", `rest-${restEndsAt}`);
   }, [restEndsAt, restExerciseId, restExerciseName, restRemaining, triggerRestAlert]);
@@ -1620,6 +1676,46 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     : undefined;
   const draftKey = day ? `${data.program.activeId}:${data.program.week}:${activeDate}:${day.id}` : null;
   const sessionStartStorageKey = name && draftKey ? `reparc-session-start:${slugify(account.id)}:${slugify(name)}:${draftKey}` : null;
+  const shouldKeepScreenAwake = stage === "app" && view === "train" && Boolean(day) && (Boolean(restTimer) || (Boolean(sessionStartedAt) && !currentSession?.completedAt));
+
+  useEffect(() => {
+    const wakeLock = (navigator as WakeLockNavigator).wakeLock;
+    if (!wakeLock) return;
+    let cancelled = false;
+    const capabilityTimer = window.setTimeout(() => setWakeLockState((current) => current === "active" ? current : "available"), 0);
+
+    const requestWakeLock = async () => {
+      if (cancelled || !shouldKeepScreenAwake || document.visibilityState !== "visible" || (wakeLockRef.current && !wakeLockRef.current.released)) return;
+      try {
+        const sentinel = await wakeLock.request("screen");
+        if (cancelled) {
+          await sentinel.release();
+          return;
+        }
+        wakeLockRef.current = sentinel;
+        setWakeLockState("active");
+        sentinel.addEventListener("release", () => {
+          if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+          if (!cancelled) setWakeLockState("available");
+        });
+      } catch {
+        setWakeLockState("available");
+      }
+    };
+    const requestWhenVisible = () => {
+      if (document.visibilityState === "visible") void requestWakeLock();
+    };
+    void requestWakeLock();
+    document.addEventListener("visibilitychange", requestWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(capabilityTimer);
+      document.removeEventListener("visibilitychange", requestWhenVisible);
+      const sentinel = wakeLockRef.current;
+      wakeLockRef.current = null;
+      if (sentinel && !sentinel.released) void sentinel.release().catch(() => undefined);
+    };
+  }, [shouldKeepScreenAwake]);
 
   useEffect(() => {
     if (!sessionStartStorageKey || currentSession?.startedAt || restoredSessionStartKeyRef.current === sessionStartStorageKey) return;
@@ -1772,6 +1868,18 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     }
     const permission = await Notification.requestPermission();
     setAlertPermission(permission);
+  };
+
+  const testRestAlert = async () => {
+    prepareChime();
+    let permission: AlertPermission = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+    if (permission === "default") {
+      permission = await Notification.requestPermission();
+      setAlertPermission(permission);
+    }
+    triggerRestAlert("Alarm readiness test", undefined, true);
+    if (permission === "granted") await showRestNotification("Alarm readiness test", `rest-readiness-${Date.now()}`).catch(() => undefined);
+    setNotice(permission === "granted" ? "Alert test sent — confirm that you heard or saw it" : "Foreground alert tested — system notifications are not enabled on this device");
   };
 
   const setField = (key: string, index: number, field: keyof SetEntry, value: string) => {
@@ -2185,7 +2293,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 {currentSession && <span className="hidden rounded-full bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-300 sm:inline-flex"><Check className="mr-1.5 size-3.5" />Saved today</span>}
               </div>
 
-              {restTimer && <div ref={restTimerAnchorRef} className="scroll-mt-24 lg:hidden"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4" /></div>}
+              {restTimer && <div ref={restTimerAnchorRef} className="scroll-mt-24 lg:hidden"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4" /></div>}
 
               <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
                 <div className="flex items-center justify-between gap-3"><p className="eyebrow text-stone-500">Exercise {activeExerciseIndex + 1} of {day.exercises.length}</p><p className="truncate text-xs font-semibold text-stone-300">{data.swaps[day.exercises[activeExerciseIndex]?.id] ?? day.exercises[activeExerciseIndex]?.name}</p></div>
@@ -2399,13 +2507,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           onDeleteAccount={onDeleteAccount}
           onSwitch={switchProfile}
           restAlertLevel={restAlertLevel}
+          alertPermission={alertPermission}
+          wakeLockState={wakeLockState}
+          isStandalone={isStandalone}
           onRestAlertLevelChange={setRestAlertLevel}
-          onTestRestAlert={() => triggerRestAlert("Test alert", undefined, true)}
+          onEnableRestAlerts={enableRestAlerts}
+          onTestRestAlert={testRestAlert}
         />
       )}
 
       {view === "train" && day && restTimer && (
-        <RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="fixed bottom-5 right-5 z-50 hidden w-[22rem] lg:block" />
+        <RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="fixed bottom-5 right-5 z-50 hidden w-[22rem] lg:block" />
       )}
 
       {view === "train" && day && (
