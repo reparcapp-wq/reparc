@@ -172,4 +172,7 @@ test("setup uses compact drill-down navigation without a sideways category strip
   assert.doesNotMatch(app, /aria-label="Setup sections"/);
   assert.match(tools, /toolSection/);
   assert.match(tools, /Data and account tools/);
+  assert.match(tools, /aria-expanded=\{toolSection === value\}/);
+  assert.match(tools, /style=\{\{ order: index \* 2 \}\}/);
+  assert.match(tools, /toolSection === "account" && <article style=\{\{ order: 1 \}\}/);
 });
