@@ -8,13 +8,14 @@ A secure, offline-first workout log with evidence-aligned progression, account-o
 - Editable, soft-deleted, revisioned workout history
 - Independent histories and training maxes for substitutions
 - Deterministic set-by-set and next-session load guidance with readiness, completion, RIR-coverage, and confidence guardrails; suggestions are always user-approved
-- In-app daily reports covering adherence, repetitions, external-load volume, effort, duration, performance signals, and exercise-level next-session guidance
+- Compact in-app daily reports covering adherence, repetitions, external-load volume, effort, duration, performance signals, and expandable next-session guidance
 - Pause/resume calibration and explicit Phase 2 review
 - Rolling bodyweight trends with cut, maintain, and bulk context
 - IndexedDB-first offline logging with a coalesced newest-snapshot outbox
 - Passwordless Supabase accounts with HTTP-only cookie sessions and RLS ownership
 - JSON restore preview with merge or authoritative replacement and an automatic rollback download
-- Installable PWA with user-approved updates, persistent rest timers, service-worker background alerts, and configurable alert strength
+- Installable PWA with user-approved updates, persistent rest timers, service-worker notifications where the platform permits, and configurable foreground alert strength
+- Focused exercise sequencing that requires visible load and repetition entries before forward navigation
 - System, light, and dark appearance modes
 - Keyboard skip navigation, persistent focus indicators, labelled inputs, and enlarged touch controls
 - Opt-in minimal diagnostics and private beta feedback with no workout data attached automatically

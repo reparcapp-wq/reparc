@@ -102,9 +102,40 @@ test("timer and theme integration use persistent, non-blocking platform behavior
   assert.match(source, /serviceWorker\.ready/);
   assert.match(source, /showNotification/);
   assert.doesNotMatch(source, /new Notification\(/);
-  assert.match(source, /className="mb-4 lg:hidden"/);
+  assert.match(source, /scroll-mt-24 lg:hidden/);
   assert.match(source, /hidden w-\[22rem\] lg:block/);
   assert.match(serviceWorker, /notificationclick/);
   assert.match(layout, /ThemeProvider/);
   assert.match(source, /System.*Light.*Dark/s);
+});
+
+test("focused training locks forward navigation and keeps secondary controls compact", async () => {
+  const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  assert.match(source, /lastAccessibleExerciseIndex/);
+  assert.match(source, /Complete every kg and reps field/);
+  assert.match(source, /disabled=\{activeExerciseIndex === day\.exercises\.length - 1 \|\| !exerciseIsComplete/);
+  assert.match(source, /scrollIntoView/);
+  assert.match(source, /reparc-session-start:/);
+  assert.match(source, /<details className="mt-4 rounded-2xl[^>]+aria-label="Session effort"/);
+  assert.doesNotMatch(source, /<Scale className=/);
+});
+
+test("progress uses progressive disclosure and the light theme covers custom controls", async () => {
+  const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /visibleBuckets/);
+  assert.match(source, /Analysis and next-session guidance/);
+  assert.match(source, /Show older/);
+  assert.match(source, /Under 1 min/);
+  assert.match(css, /html\.light \.set-input/);
+  assert.match(css, /html\.light \.selection-button\[data-selected="true"\]/);
+  assert.match(css, /html\.light \.target-panel/);
+});
+
+test("foreground rest completion runs a ten-second alert pattern", async () => {
+  const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  assert.match(source, /playChime\(testOnly \? 2 : 10\)/);
+  assert.match(source, /length: 13/);
+  assert.match(source, /setAppBadge/);
+  assert.match(source, /silent: false/);
 });

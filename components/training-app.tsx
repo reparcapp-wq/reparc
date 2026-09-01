@@ -17,6 +17,7 @@ import {
   Dumbbell,
   FileJson,
   History,
+  Lock,
   LockOpen,
   Mars,
   Monitor,
@@ -27,7 +28,6 @@ import {
   Play,
   RefreshCw,
   Settings,
-  Scale,
   Trash2,
   Pencil,
   Timer,
@@ -157,7 +157,7 @@ function RestTimerPanel({ timer, remaining, permission, className = "", onClose,
       </div>
       {!complete && <Progress value={Math.min(100, ((timer.durationSeconds - remaining) / timer.durationSeconds) * 100)} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />}
       <div className="mt-3 flex items-center justify-between gap-3">
-        <p className={`text-[11px] ${complete ? "text-black/60" : "text-stone-500"}`}>{complete ? "Continue when your technique and breathing are ready." : permission === "granted" ? "Background alerts enabled" : "Enable alerts before switching apps"}</p>
+        <p className={`text-[11px] ${complete ? "text-black/60" : "text-stone-500"}`}>{complete ? "Continue when your technique and breathing are ready." : permission === "granted" ? "System notifications enabled" : permission === "unsupported" ? "System notifications unavailable here" : "Enable notifications before switching apps"}</p>
         <div className="flex shrink-0 gap-1">
           {!complete && permission === "default" && <Button type="button" variant="ghost" onClick={onEnable} className="h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Enable</Button>}
           {!complete && <Button type="button" variant="outline" onClick={onAdd} className="h-8 rounded-lg border-white/10 bg-white/[0.04] px-2 text-[11px] text-stone-300"><Plus className="size-3" />30 sec</Button>}
@@ -577,6 +577,7 @@ function ProgressView({
   onEditSession: (session: Session) => void;
 }) {
   const [range, setRange] = useState<HistoryRange>("day");
+  const [visibleBuckets, setVisibleBuckets] = useState<Record<HistoryRange, number>>({ day: 5, week: 8, month: 12, year: 10 });
   const [weighDate, setWeighDate] = useState(today);
   const [weighValue, setWeighValue] = useState("");
   const [message, setMessage] = useState("");
@@ -690,6 +691,7 @@ function ProgressView({
     });
     return [...groups.entries()];
   }, [range, sortedSessions]);
+  const visibleGrouped = grouped.slice(0, visibleBuckets[range]);
 
   const bucketLabel = (key: string) => {
     if (range === "day") return prettyDate(key, { weekday: "short", day: "numeric", month: "long" });
@@ -756,13 +758,16 @@ function ProgressView({
                   {trend.weeklyChangePercent > 0 ? "+" : ""}{trend.weeklyChangePercent.toFixed(2)}% versus the prior 7 days. Treat this as a trend, not a daily verdict.
                 </p>
               ) : <p className="mt-3 text-xs text-stone-500">Log at least three recent measurements to show a trend. Daily fluctuations are normal.</p>}
-              <div className="mt-4 grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_auto]">
-                <Input type="date" aria-label="Weigh-in date" value={weighDate} max={today()} onChange={(event) => setWeighDate(event.target.value)} className="h-11 rounded-xl border-white/10 bg-white/[0.035] text-white" />
-                <Input inputMode="decimal" aria-label={`Bodyweight in ${profile.unit}`} value={weighValue} onChange={(event) => /^\d*\.?\d*$/.test(event.target.value) && setWeighValue(event.target.value)} placeholder={`Weight (${profile.unit})`} className="h-11 rounded-xl border-white/10 bg-white/[0.035] font-mono text-white" />
-                <Button onClick={() => void addWeighIn()} className="h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200"><Scale className="size-4" />Log</Button>
-              </div>
-              {!!weighIns.length && <div className="mt-4 flex flex-wrap gap-2">{[...weighIns].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5).map((entry) => <span key={entry.id} className="inline-flex items-center gap-2 rounded-full bg-white/[0.05] px-3 py-1.5 font-mono text-[10px] text-stone-400">{prettyDate(entry.date, { month: "short", day: "numeric" })} · {convertWeight(entry.weight, entry.unit, profile.unit).toFixed(1)} {profile.unit}<button type="button" onClick={() => void deleteWeighIn(entry.id)} aria-label={`Remove weigh-in from ${entry.date}`} className="grid min-h-6 min-w-6 place-items-center rounded-full text-stone-500 hover:text-red-300"><X className="size-3" /></button></span>)}</div>}
-              {message && <p className="mt-3 text-xs text-amber-300" role="status">{message}</p>}
+              <details className="mt-4 border-t border-white/10 pt-4">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-stone-300">Log or review weigh-ins<ChevronDown className="size-4 text-stone-500" /></summary>
+                <div className="mt-4 grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_auto]">
+                  <Input type="date" aria-label="Weigh-in date" value={weighDate} max={today()} onChange={(event) => setWeighDate(event.target.value)} className="h-11 rounded-xl border-white/10 bg-white/[0.035] text-white" />
+                  <Input inputMode="decimal" aria-label={`Bodyweight in ${profile.unit}`} value={weighValue} onChange={(event) => /^\d*\.?\d*$/.test(event.target.value) && setWeighValue(event.target.value)} placeholder={`Weight (${profile.unit})`} className="h-11 rounded-xl border-white/10 bg-white/[0.035] font-mono text-white" />
+                  <Button onClick={() => void addWeighIn()} className="h-11 rounded-xl bg-amber-300 px-6 font-bold text-[#0b0d0c] hover:bg-amber-200">Log</Button>
+                </div>
+                {!!weighIns.length && <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.08]" aria-label="Recent weigh-ins"><p className="border-b border-white/[0.08] px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-stone-600">Recent weigh-ins</p>{[...weighIns].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5).map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-3 py-2 first:border-t-0"><span className="text-xs text-stone-500">{prettyDate(entry.date, { month: "short", day: "numeric", year: "numeric" })}</span><div className="flex items-center gap-2"><strong className="font-mono text-xs text-stone-300">{convertWeight(entry.weight, entry.unit, profile.unit).toFixed(1)} {profile.unit}</strong><button type="button" onClick={() => void deleteWeighIn(entry.id)} aria-label={`Remove weigh-in from ${entry.date}`} className="grid min-h-8 min-w-8 place-items-center rounded-lg text-stone-500 hover:bg-red-300/10 hover:text-red-300"><X className="size-3.5" /></button></div></div>)}</div>}
+                {message && <p className="mt-3 text-xs text-amber-300" role="status">{message}</p>}
+              </details>
             </article>
           )}
 
@@ -776,7 +781,7 @@ function ProgressView({
             </div>
           ) : (
             <div className="mt-5 space-y-3">
-              {grouped.map(([key, sessions]) => {
+              {visibleGrouped.map(([key, sessions]) => {
                 const keys = [...new Set(sessions.flatMap((session) => Object.keys(session.entries)))];
                 const dailyReport = range === "day" ? buildDailyReport(data, key) : null;
                 const sets = sessions.reduce((sum, session) => sum + Object.entries(session.entries).reduce(
@@ -799,28 +804,28 @@ function ProgressView({
                           </div>
                           <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 font-mono text-[10px] uppercase text-stone-500">{dailyReport.confidence} confidence</span>
                         </div>
-                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                           {[
                             ["Completion", `${dailyReport.completionPercent}%`],
-                            ["Total reps", String(dailyReport.totalReps)],
                             ["Avg RIR", dailyReport.averageRir === null ? "Not logged" : dailyReport.averageRir.toFixed(1)],
-                            ["RIR coverage", `${dailyReport.rirCoveragePercent}%`],
-                            ["Loaded volume", `${Math.round(dailyReport.loadedVolume).toLocaleString()} ${profile.unit}`],
                             ["Session effort", dailyReport.averageSessionRpe === null ? "Not logged" : `${dailyReport.averageSessionRpe.toFixed(1)} / 10`],
-                            ...(dailyReport.totalDurationSeconds === null ? [] : [["Duration", `${Math.round(dailyReport.totalDurationSeconds / 60)} min`]]),
+                            ["Duration", dailyReport.totalDurationSeconds === null ? "Not measured" : dailyReport.totalDurationSeconds < 60 ? "Under 1 min" : `${Math.round(dailyReport.totalDurationSeconds / 60)} min`],
                           ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
                         </div>
-                        {!!dailyReport.exercises.length && <div className="mt-4 space-y-2">{dailyReport.exercises.map((exercise) => exercise.recommendation && (
-                          <div key={exercise.key} className="rounded-xl border border-white/[0.07] bg-black/15 p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{exercise.name}</p><span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${exercise.recommendation.action === "increase" ? "bg-emerald-300/10 text-emerald-300" : exercise.recommendation.action === "decrease" || exercise.recommendation.action === "stop" ? "bg-red-300/10 text-red-300" : "bg-white/[0.07] text-stone-400"}`}>{exercise.recommendation.action}{exercise.recommendation.nextLoad !== null ? ` · ${exercise.recommendation.nextLoad} ${profile.unit}` : ""}</span></div>
-                            <p className="mt-1 text-[11px] leading-4 text-stone-500">{exercise.recommendation.reason}</p>
-                            <p className="mt-1 font-mono text-[9px] text-stone-600">Based on {exercise.recommendation.evidence.join(" · ")} · {exercise.recommendation.confidence} confidence</p>
-                          </div>
-                        ))}</div>}
-                        <p className="mt-3 text-[10px] leading-4 text-stone-600">This report is descriptive, not a readiness score or medical assessment. RepArc reduces confidence when planned sets or RIR are missing.</p>
+                        <details className="mt-3 rounded-xl border border-white/[0.07] bg-black/10 p-3">
+                          <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-stone-300">Analysis and next-session guidance<ChevronDown className="size-4 text-stone-500" /></summary>
+                          <div className="mt-3 grid grid-cols-3 gap-2"><div><p className="font-mono text-sm text-stone-200">{dailyReport.totalReps}</p><p className="text-[9px] uppercase text-stone-600">Total reps</p></div><div><p className="font-mono text-sm text-stone-200">{Math.round(dailyReport.loadedVolume).toLocaleString()} {profile.unit}</p><p className="text-[9px] uppercase text-stone-600">Loaded volume</p></div><div><p className="font-mono text-sm text-stone-200">{dailyReport.rirCoveragePercent}%</p><p className="text-[9px] uppercase text-stone-600">RIR coverage</p></div></div>
+                          {!!dailyReport.exercises.length && <div className="mt-3 space-y-2">{dailyReport.exercises.map((exercise) => exercise.recommendation && (
+                            <div key={exercise.key} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{exercise.name}</p><span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${exercise.recommendation.action === "increase" ? "bg-emerald-300/10 text-emerald-300" : exercise.recommendation.action === "decrease" || exercise.recommendation.action === "stop" ? "bg-red-300/10 text-red-300" : "bg-white/[0.07] text-stone-400"}`}>{exercise.recommendation.action}{exercise.recommendation.nextLoad !== null ? ` · ${exercise.recommendation.nextLoad} ${profile.unit}` : ""}</span></div>
+                              <p className="mt-1 text-[11px] leading-4 text-stone-500">{exercise.recommendation.reason}</p>
+                            </div>
+                          ))}</div>}
+                          <p className="mt-3 text-[10px] leading-4 text-stone-600">Descriptive only—not a readiness score or medical assessment. Missing sets or RIR reduce confidence.</p>
+                        </details>
                       </section>
                     )}
-                    <div>
+                    {!dailyReport && <div>
                       {keys.map((exerciseKeyValue) => {
                         const points = (series[exerciseKeyValue] ?? []).map((point) => point.value).slice(-12);
                         const first = points[0] ?? 0;
@@ -839,7 +844,7 @@ function ProgressView({
                           </div>
                         );
                       })}
-                    </div>
+                    </div>}
                     <footer className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
                       {sessions.map((session) => (
                         <div key={session.id} className="flex items-center gap-1 rounded-xl bg-white/[0.035] p-1">
@@ -852,6 +857,7 @@ function ProgressView({
                   </article>
                 );
               })}
+              {visibleGrouped.length < grouped.length && <Button type="button" variant="outline" onClick={() => setVisibleBuckets((current) => ({ ...current, [range]: current[range] + 5 }))} className="h-11 w-full rounded-xl border-white/10 bg-white/[0.025] text-xs text-stone-400 hover:bg-white/[0.06] hover:text-white">Show older {range === "day" ? "days" : `${range}s`}</Button>}
             </div>
           )}
 
@@ -1223,7 +1229,7 @@ function SettingsView({
           <article className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-6 md:col-span-2">
             <p className="eyebrow text-amber-300">Rest alert</p>
             <h2 className="mt-2 text-xl font-semibold">Choose how strongly RepArc gets your attention</h2>
-            <p className="mt-2 text-xs leading-5 text-stone-500">Alerts use sound, vibration where supported, and a system notification when the app is in the background. Device silent mode and browser permissions still take priority.</p>
+            <p className="mt-2 text-xs leading-5 text-stone-500">Foreground completion uses a ten-second sound and vibration where supported. On iPhone, background notifications require RepArc to be installed with Add to Home Screen and notifications allowed. iOS can still suppress web-app sound, full-screen alarms, and Dynamic Island activity.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               {([['quiet','Quiet'],['normal','Normal'],['strong','Strong']] as const).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={restAlertLevel === value} data-selected={restAlertLevel === value} onClick={() => onRestAlertLevelChange(value)} className="selection-button min-h-12 justify-start rounded-xl border-white/10"><BellRing className="size-4" />{label}</Button>)}
             </div>
@@ -1284,6 +1290,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const audioContextRef = useRef<AudioContext | null>(null);
   const alertedRestEndRef = useRef<number | null>(null);
   const restoredTimerKeyRef = useRef<string | null>(null);
+  const restoredSessionStartKeyRef = useRef<string | null>(null);
+  const restTimerAnchorRef = useRef<HTMLDivElement | null>(null);
   const syncAttemptRef = useRef(false);
 
   const selectScheduledDay = (programId: ProgramId, frequency: TrainingFrequency, preferredWeekdays: number[], selectedProfile?: Profile | null, date = today()) => {
@@ -1297,6 +1305,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setReadinessOpen(false);
     setSessionRpe(null);
     setSessionStartedAt(null);
+    restoredSessionStartKeyRef.current = null;
     setActiveExerciseIndex(0);
     setDayId(match?.id ?? null);
   };
@@ -1390,25 +1399,25 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (context.state === "suspended") void context.resume();
   };
 
-  const playChime = () => {
+  const playChime = (durationSeconds = 10) => {
     const context = audioContextRef.current;
     if (!context) return;
     if (context.state === "suspended") void context.resume();
     const start = context.currentTime;
-    const repeats = restAlertLevel === "strong" ? 3 : restAlertLevel === "quiet" ? 1 : 2;
     const peak = restAlertLevel === "strong" ? 0.32 : restAlertLevel === "quiet" ? 0.08 : 0.2;
-    Array.from({ length: repeats }, (_, index) => index * 0.22).forEach((offset, index) => {
+    const repeats = Math.max(1, Math.ceil(durationSeconds / 0.45));
+    Array.from({ length: repeats }, (_, index) => index * 0.45).forEach((offset, index) => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.type = "sine";
       oscillator.frequency.value = index === 0 ? 740 : 988;
       gain.gain.setValueAtTime(0.0001, start + offset);
       gain.gain.exponentialRampToValueAtTime(peak, start + offset + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.28);
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(start + offset);
-      oscillator.stop(start + offset + 0.17);
+      oscillator.stop(start + offset + 0.29);
     });
   };
 
@@ -1420,16 +1429,21 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       tag,
       renotify: true,
       requireInteraction: restAlertLevel === "strong",
+      silent: false,
       data: { url: "/" },
       vibrate: restAlertLevel === "strong" ? [250, 100, 250, 100, 250] : restAlertLevel === "quiet" ? [120] : [180, 90, 180],
     } as NotificationOptions & { vibrate: number[] });
   }, [restAlertLevel]);
 
-  const triggerRestAlert = useCallback((exerciseNameValue: string, tag = `rest-test-${Date.now()}`) => {
+  const triggerRestAlert = useCallback((exerciseNameValue: string, tag = `rest-test-${Date.now()}`, testOnly = false) => {
     prepareChime();
-    playChime();
-    navigator.vibrate?.(restAlertLevel === "strong" ? [250, 100, 250, 100, 250] : restAlertLevel === "quiet" ? [120] : [180, 90, 180]);
-    if (document.visibilityState !== "visible") void showRestNotification(exerciseNameValue, tag);
+    playChime(testOnly ? 2 : 10);
+    const vibration = testOnly ? [250, 100, 250] : Array.from({ length: 13 }, () => [500, 250]).flat();
+    navigator.vibrate?.(vibration);
+    if (!testOnly) {
+      if ("setAppBadge" in navigator) void (navigator as Navigator & { setAppBadge: (count?: number) => Promise<void> }).setAppBadge(1).catch(() => undefined);
+      if (document.visibilityState !== "visible") void showRestNotification(exerciseNameValue, tag).catch(() => undefined);
+    }
   // Audio helpers intentionally use the latest alert setting from this render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restAlertLevel, showRestNotification]);
@@ -1548,6 +1562,16 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       )
     : undefined;
   const draftKey = day ? `${data.program.activeId}:${data.program.week}:${activeDate}:${day.id}` : null;
+  const sessionStartStorageKey = name && draftKey ? `reparc-session-start:${slugify(account.id)}:${slugify(name)}:${draftKey}` : null;
+
+  useEffect(() => {
+    if (!sessionStartStorageKey || currentSession?.startedAt || restoredSessionStartKeyRef.current === sessionStartStorageKey) return;
+    restoredSessionStartKeyRef.current = sessionStartStorageKey;
+    const stored = window.localStorage.getItem(sessionStartStorageKey);
+    if (!stored || !Number.isFinite(Date.parse(stored))) return;
+    const restore = window.setTimeout(() => setSessionStartedAt((current) => current ?? stored), 0);
+    return () => window.clearTimeout(restore);
+  }, [currentSession?.startedAt, sessionStartStorageKey]);
 
   const log = day && draftKey
     ? drafts[draftKey] ?? sessionEntriesForDay(
@@ -1662,7 +1686,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     });
   };
 
-  const closeRestTimer = () => setRestTimer(null);
+  const closeRestTimer = () => {
+    navigator.vibrate?.(0);
+    if ("clearAppBadge" in navigator) void (navigator as Navigator & { clearAppBadge: () => Promise<void> }).clearAppBadge().catch(() => undefined);
+    setRestTimer(null);
+  };
   const addRestTime = () => setRestTimer((current) => current ? { ...current, durationSeconds: current.durationSeconds + 30, endsAt: current.endsAt + 30_000, remainingSeconds: current.remainingSeconds + 30 } : null);
 
   const finishSet = (key: string, index: number) => {
@@ -1674,6 +1702,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (!entry || !isFilledSet(entry, exercise)) return;
     pendingRestSetsRef.current.delete(pendingKey);
     startRestTimer(exercise);
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      window.setTimeout(() => restTimerAnchorRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }), 60);
+    }
   };
 
   const enableRestAlerts = async () => {
@@ -1691,10 +1722,18 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (field === "rir" && value !== "" && (!/^\d{0,2}(?:\.\d)?$/.test(value) || Number(value) > 10)) return;
     if (field === "w" && value !== "" && !/^\d{0,4}(?:\.\d{0,2})?$/.test(value)) return;
     if (!day || !draftKey) return;
-    if (value !== "" && !sessionStartedAt) setSessionStartedAt(new Date().toISOString());
+    if (value !== "" && !sessionStartedAt) {
+      const startedAt = new Date().toISOString();
+      setSessionStartedAt(startedAt);
+      if (sessionStartStorageKey) window.localStorage.setItem(sessionStartStorageKey, startedAt);
+    }
     const exercise = exerciseFromKey(key);
     const previousEntry = log[key]?.[index] ?? emptySet();
-    const nextEntry = { ...previousEntry, [field]: value };
+    const nextEntry = {
+      ...previousEntry,
+      [field]: value,
+      ...(exercise?.bodyweight && field === "r" && value !== "" && previousEntry.w === "" ? { w: "0" } : {}),
+    };
     const completesSet = Boolean(
       exercise
       && !isFilledSet(previousEntry, exercise)
@@ -1720,7 +1759,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         ...previous,
         [draftKey]: {
           ...dayLog,
-          [key]: sets.map((entry, setIndex) => setIndex === index ? { ...entry, [field]: value } : entry),
+          [key]: sets.map((entry, setIndex) => setIndex === index ? nextEntry : entry),
         },
       };
     });
@@ -1867,7 +1906,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       next,
       currentSession ? "Session updated — previous version kept in history" : data.program.calibrationRequired ? "Calibration session saved — normal progression resumes next time" : "Session saved — strong work",
     );
-    if (saved) setNotice(currentSession ? "Session updated — previous version kept in history" : "Session saved — complete the week when you are ready");
+    if (saved) {
+      if (sessionStartStorageKey) window.localStorage.removeItem(sessionStartStorageKey);
+      setNotice(currentSession ? "Session updated — previous version kept in history" : "Session saved — complete the week when you are ready");
+    }
   };
 
   const finishWeek = async (status: "completed" | "extended" | "skipped") => {
@@ -1936,6 +1978,24 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       }, 0)
     : 0;
   const completion = totalSets ? Math.round((completedSets / totalSets) * 100) : 0;
+  const exerciseIsComplete = (index: number) => {
+    const exercise = day?.exercises[index];
+    if (!exercise) return false;
+    const entries = log[exerciseKey(exercise, data.swaps)] ?? [];
+    return entries.length >= exercise.sets && entries.slice(0, exercise.sets).every((entry) => entry.w !== "" && entry.r !== "");
+  };
+  const firstIncompleteExerciseIndex = day?.exercises.findIndex((_, index) => !exerciseIsComplete(index)) ?? -1;
+  const lastAccessibleExerciseIndex = firstIncompleteExerciseIndex === -1 ? (day?.exercises.length ?? 1) - 1 : firstIncompleteExerciseIndex;
+  const goToExercise = (index: number) => {
+    if (!day || index < 0 || index >= day.exercises.length) return;
+    if (index > lastAccessibleExerciseIndex) {
+      setNotice("Complete every kg and reps field in the current exercise before continuing.");
+      return;
+    }
+    setActiveExerciseIndex(index);
+    setOpenSwap(null);
+    setNotice("");
+  };
   const formattedToday = prettyDate(activeDate, { weekday: "long", day: "numeric", month: "long" });
   const weekCompletedDays = data.program.activeId === "phase2" ? activeDays.filter((programDay) => activeSessions(data).some((session) => session.programId === "phase2" && session.programWeek === data.program.week && (session.programFrequency ?? 5) === data.program.frequency && session.dayId === programDay.id)).length : 0;
 
@@ -1994,6 +2054,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   setDayId(item.id);
                   setReadiness(null);
                   setReadinessOpen(false);
+                  setSessionRpe(null);
+                  setSessionStartedAt(null);
+                  restoredSessionStartKeyRef.current = null;
                   setActiveExerciseIndex(0);
                   pendingRestSetsRef.current.clear();
                   setRestTimer(null);
@@ -2029,7 +2092,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>
               <Progress value={completion} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />
               <p className="mt-4 text-xs leading-5 text-stone-500">
-                Complete weight and reps to count a set. For bodyweight moves, reps alone are enough.
+                Complete kg and reps for every working set before moving to the next exercise. Bodyweight sets display 0 added load.
               </p>
             </div>
           )}
@@ -2065,7 +2128,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 {currentSession && <span className="hidden rounded-full bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-300 sm:inline-flex"><Check className="mr-1.5 size-3.5" />Saved today</span>}
               </div>
 
-              {restTimer && <RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4 lg:hidden" />}
+              {restTimer && <div ref={restTimerAnchorRef} className="scroll-mt-24 lg:hidden"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4" /></div>}
 
               <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
                 <div className="flex items-center justify-between gap-3"><p className="eyebrow text-stone-500">Exercise {activeExerciseIndex + 1} of {day.exercises.length}</p><p className="truncate text-xs font-semibold text-stone-300">{data.swaps[day.exercises[activeExerciseIndex]?.id] ?? day.exercises[activeExerciseIndex]?.name}</p></div>
@@ -2073,7 +2136,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   {day.exercises.map((item, index) => {
                     const itemKey = exerciseKey(item, data.swaps);
                     const complete = (log[itemKey] ?? []).filter((entry) => isFilledSet(entry, item)).length >= item.sets;
-                    return <Button key={item.id} type="button" role="tab" aria-selected={activeExerciseIndex === index} aria-label={`${index + 1}. ${data.swaps[item.id] ?? item.name}${complete ? ", complete" : ""}`} variant="outline" data-selected={activeExerciseIndex === index} onClick={() => { setActiveExerciseIndex(index); setOpenSwap(null); }} className="selection-button h-10 rounded-xl px-0 text-xs font-bold">{complete ? <Check className="size-3.5" /> : index + 1}</Button>;
+                    const locked = index > lastAccessibleExerciseIndex;
+                    return <Button key={item.id} type="button" role="tab" aria-selected={activeExerciseIndex === index} aria-label={`${index + 1}. ${data.swaps[item.id] ?? item.name}${complete ? ", complete" : locked ? ", locked until earlier exercises are complete" : ""}`} variant="outline" data-selected={activeExerciseIndex === index} disabled={locked} onClick={() => goToExercise(index)} className="selection-button h-10 rounded-xl px-0 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-35">{complete ? <Check className="size-3.5" /> : locked ? <Lock className="size-3.5" /> : index + 1}</Button>;
                   })}
                 </div>
               </div>
@@ -2201,35 +2265,34 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               Last · {prettyDate(last.date)} · {last.entries[key].filter((entry) => isFilledSet(entry, exercise)).map((entry) => `${entry.w || 0}×${entry.r}${entry.rir !== "" ? ` @${entry.rir}` : ""}`).join("  /  ")}
                             </p>
                           )}
-                          {liveAdjustment && (
-                            <div className={`ml-7 mt-3 rounded-xl border p-3 ${liveAdjustment.action === "stop" ? "border-red-300/25 bg-red-300/[0.06]" : "border-amber-300/20 bg-amber-300/[0.04]"}`}>
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="flex items-center gap-1.5 text-xs font-semibold"><TrendingUp className="size-3.5" />Next-set adjustment</p>
-                                <span className="font-mono text-[9px] uppercase text-stone-500">{liveAdjustment.confidence} confidence</span>
-                              </div>
-                              <p className="mt-1 text-[11px] leading-4 text-stone-400">{liveAdjustment.reason}</p>
-                              <p className="mt-1 font-mono text-[9px] text-stone-600">Based on {liveAdjustment.evidence.join(" · ")}</p>
-                              {nextSetIndex >= 0 && liveAdjustment.nextLoad !== null && liveAdjustment.action !== "stop" && <Button type="button" variant="ghost" onClick={() => setField(key, nextSetIndex, "w", String(liveAdjustment.nextLoad))} className="mt-2 h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Apply {liveAdjustment.nextLoad} {profile.unit} to set {nextSetIndex + 1}</Button>}
-                            </div>
-                          )}
                         </div>
 
-                        <div className="target-panel flex flex-row items-center justify-between rounded-2xl border border-white/10 bg-black/20 p-4 md:flex-col md:items-start">
-                          <div>
-                            <p className="eyebrow">Target load</p>
-                            <p className="mt-2 font-mono text-3xl font-semibold tracking-tight">
-                              {suggestion?.value === null ? <span className="text-xl">Bodyweight</span> : <>{suggestion?.value}<span className="ml-1 text-sm text-stone-500">{profile.unit}</span></>}
-                            </p>
+                        <div className="space-y-3">
+                          <div className="target-panel flex flex-row items-center justify-between rounded-2xl border border-white/10 bg-black/20 p-4 md:flex-col md:items-start">
+                            <div>
+                              <p className="eyebrow">Target load</p>
+                              <p className="mt-2 font-mono text-3xl font-semibold tracking-tight">
+                                {suggestion?.value === null ? <span className="text-xl">Bodyweight</span> : <>{suggestion?.value}<span className="ml-1 text-sm text-stone-500">{profile.unit}</span></>}
+                              </p>
+                            </div>
+                            <div className="max-w-[12rem] text-right md:mt-5 md:text-left">
+                              {suggestion && (
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${suggestion.tag === "up" ? "bg-amber-300 text-[#0b0d0c]" : suggestion.tag === "down" ? "bg-red-300 text-[#0b0d0c]" : "bg-white/10 text-stone-400"}`}>
+                                  <TagIcon className="size-3" />{suggestion.tag === "estimate" ? "Starting point" : suggestion.tag}
+                                </span>
+                              )}
+                              <p className="mt-2 text-[11px] leading-4 text-stone-500">{suggestion?.reason}</p>
+                              {suggestion?.confidence && <p className="mt-1 font-mono text-[9px] uppercase text-stone-600">{suggestion.confidence} confidence</p>}
+                            </div>
                           </div>
-                          <div className="max-w-[12rem] text-right md:mt-5 md:text-left">
-                            {suggestion && (
-                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${suggestion.tag === "up" ? "bg-amber-300 text-[#0b0d0c]" : suggestion.tag === "down" ? "bg-red-300 text-[#0b0d0c]" : "bg-white/10 text-stone-400"}`}>
-                                <TagIcon className="size-3" />{suggestion.tag === "estimate" ? "Starting point" : suggestion.tag}
-                              </span>
-                            )}
-                            <p className="mt-2 text-[11px] leading-4 text-stone-500">{suggestion?.reason}</p>
-                            {suggestion?.confidence && <p className="mt-1 font-mono text-[9px] uppercase text-stone-600">{suggestion.confidence} confidence</p>}
-                          </div>
+                          {liveAdjustment && (
+                            <div className={`rounded-2xl border p-4 ${liveAdjustment.action === "stop" ? "border-red-300/25 bg-red-300/[0.06]" : "border-amber-300/20 bg-amber-300/[0.04]"}`}>
+                              <div className="flex flex-wrap items-center justify-between gap-2"><p className="flex items-center gap-1.5 text-xs font-semibold"><TrendingUp className="size-3.5" />Next-set adjustment</p><span className="font-mono text-[9px] uppercase text-stone-500">{liveAdjustment.confidence}</span></div>
+                              <p className="mt-2 text-[11px] leading-4 text-stone-400">{liveAdjustment.reason}</p>
+                              <p className="mt-1 font-mono text-[9px] text-stone-600">{liveAdjustment.evidence.join(" · ")}</p>
+                              {nextSetIndex >= 0 && liveAdjustment.nextLoad !== null && liveAdjustment.action !== "stop" && <Button type="button" variant="ghost" onClick={() => setField(key, nextSetIndex, "w", String(liveAdjustment.nextLoad))} className="mt-2 h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Apply {liveAdjustment.nextLoad} {profile.unit}</Button>}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </article>
@@ -2238,16 +2301,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button type="button" variant="outline" disabled={activeExerciseIndex === 0} onClick={() => { setActiveExerciseIndex((index) => Math.max(0, index - 1)); setOpenSwap(null); }} className="h-11 rounded-xl border-white/10 bg-white/[0.035] text-stone-300">Previous</Button>
-                <Button type="button" disabled={activeExerciseIndex === day.exercises.length - 1} onClick={() => { setActiveExerciseIndex((index) => Math.min(day.exercises.length - 1, index + 1)); setOpenSwap(null); }} className="h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">Next exercise</Button>
+                <Button type="button" variant="outline" disabled={activeExerciseIndex === 0} onClick={() => goToExercise(activeExerciseIndex - 1)} className="h-11 rounded-xl border-white/10 bg-white/[0.035] text-stone-300">Previous</Button>
+                <Button type="button" disabled={activeExerciseIndex === day.exercises.length - 1 || !exerciseIsComplete(activeExerciseIndex)} onClick={() => goToExercise(activeExerciseIndex + 1)} className="h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{exerciseIsComplete(activeExerciseIndex) ? "Next exercise" : "Complete kg & reps"}</Button>
               </div>
 
               <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-xs leading-5 text-stone-500"><summary className="cursor-pointer font-semibold text-stone-300">{data.program.activeId === "phase2" ? "What does AMRAP mean?" : "What does RIR mean?"}</summary><p className="mt-3">{data.program.activeId === "phase2" ? "For SBS lifts, complete the normal sets, then take the final set to technical failure. That result adjusts next week’s training max. Deload weeks skip the AMRAP." : "RIR means reps in reserve. Aim for roughly 1–3 on working sets. Leave it blank if you are unsure; reps and load still count."}</p></details>
 
-              <section className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4" aria-label="Session effort">
-                <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow text-stone-500">Session effort · optional</p><p className="mt-1 text-xs text-stone-400">How hard was the workout overall? This improves the daily report; it never overrides set performance.</p></div>{sessionRpe !== null && <button type="button" onClick={() => setSessionRpe(null)} className="text-[11px] text-stone-500 hover:text-white">Clear</button>}</div>
+              <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4" aria-label="Session effort">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div><p className="eyebrow text-stone-500">Session effort · optional</p><p className="mt-1 text-xs text-stone-400">{sessionRpe === null ? "Add a 1–10 whole-workout effort rating" : `Recorded ${sessionRpe} / 10`}</p></div><ChevronDown className="size-4 text-stone-500" /></summary>
+                <div className="mt-4 flex items-center justify-between gap-3"><p className="text-xs text-stone-500">This improves the daily report and never overrides set performance.</p>{sessionRpe !== null && <button type="button" onClick={() => setSessionRpe(null)} className="text-[11px] text-stone-500 hover:text-white">Clear</button>}</div>
                 <div className="mt-3 grid grid-cols-5 gap-1.5 sm:grid-cols-10">{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <Button key={value} type="button" variant="outline" aria-pressed={sessionRpe === value} data-selected={sessionRpe === value} onClick={() => setSessionRpe(value)} className="selection-button h-10 rounded-lg border-white/10 px-0 font-mono text-xs">{value}</Button>)}</div>
-              </section>
+              </details>
 
               <div className="mt-5 hidden items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#121512] p-4 lg:flex">
                 <div>
@@ -2279,7 +2343,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           onSwitch={switchProfile}
           restAlertLevel={restAlertLevel}
           onRestAlertLevelChange={setRestAlertLevel}
-          onTestRestAlert={() => triggerRestAlert("Test alert")}
+          onTestRestAlert={() => triggerRestAlert("Test alert", undefined, true)}
         />
       )}
 
