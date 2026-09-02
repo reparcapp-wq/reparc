@@ -27,7 +27,7 @@ test("legal controls, release source, and technique guidance ship with the app",
   assert.match(terms, /at least 18/);
   assert.match(telemetry, /NEXT_PUBLIC_APP_RELEASE/);
   assert.match(nextConfig, /packageMetadata\.version/);
-  assert.equal(JSON.parse(packageJson).version, "10.1.0");
+  assert.equal(JSON.parse(packageJson).version, "10.2.0");
   assert.match(app, /Technique guide/);
   assert.match(guidance, /sharp, sudden or worsening pain/i);
 });

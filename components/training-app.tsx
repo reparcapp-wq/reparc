@@ -9,7 +9,10 @@ import {
   ClipboardCheck,
   Check,
   CalendarCheck,
+  CalendarDays,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   Cloud,
   CloudOff,
@@ -661,7 +664,7 @@ function ProgressView({
   onEditSession: (session: Session) => void;
 }) {
   const [range, setRange] = useState<HistoryRange>("day");
-  const [visibleBuckets, setVisibleBuckets] = useState<Record<HistoryRange, number>>({ day: 5, week: 8, month: 12, year: 10 });
+  const [selectedBuckets, setSelectedBuckets] = useState<Partial<Record<HistoryRange, string>>>({});
   const [weighDate, setWeighDate] = useState(today);
   const [weighValue, setWeighValue] = useState("");
   const [message, setMessage] = useState("");
@@ -791,7 +794,62 @@ function ProgressView({
     if (range === "day" || grouped.some(([key]) => key === currentBucketKey)) return grouped;
     return [[currentBucketKey, [] as Session[]], ...grouped] as Array<[string, Session[]]>;
   }, [currentBucketKey, grouped, range]);
-  const visibleGrouped = reportGroups.slice(0, visibleBuckets[range]);
+  const selectedBucketKey = selectedBuckets[range] ?? reportGroups[0]?.[0] ?? currentBucketKey;
+  const selectedSessions = range === "day"
+    ? sortedSessions.filter((session) => session.date === selectedBucketKey)
+    : reportGroups.find(([key]) => key === selectedBucketKey)?.[1] ?? [];
+  const visibleGrouped: Array<[string, Session[]]> = [[selectedBucketKey, selectedSessions]];
+
+  const selectBucket = (key: string) => setSelectedBuckets((current) => ({ ...current, [range]: key }));
+  const shiftBucket = (direction: -1 | 1) => {
+    if (range === "day") {
+      const date = new Date(`${selectedBucketKey}T12:00:00`);
+      date.setDate(date.getDate() + direction);
+      const key = dateOnly(date);
+      if (key <= today()) selectBucket(key);
+      return;
+    }
+    if (range === "week") {
+      const bounds = bucketBounds("week", selectedBucketKey);
+      const date = new Date(`${bounds.start}T12:00:00`);
+      date.setDate(date.getDate() + direction * 7);
+      const key = weekKey(dateOnly(date));
+      if (key <= currentBucketKey) selectBucket(key);
+      return;
+    }
+    if (range === "month") {
+      const [year, month] = selectedBucketKey.split("-").map(Number);
+      const date = new Date(year, month - 1 + direction, 1, 12);
+      const key = dateOnly(date).slice(0, 7);
+      if (key <= currentBucketKey) selectBucket(key);
+      return;
+    }
+    const key = String(Number(selectedBucketKey) + direction);
+    if (key <= currentBucketKey) selectBucket(key);
+  };
+
+  const selectedWeekDates = useMemo(() => {
+    if (range !== "day") return [];
+    const selected = new Date(`${selectedBucketKey}T12:00:00`);
+    const monday = new Date(selected);
+    monday.setDate(selected.getDate() - ((selected.getDay() + 6) % 7));
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + index);
+      return dateOnly(date);
+    });
+  }, [range, selectedBucketKey]);
+
+  const dailyStatus = (date: string) => {
+    const absence = data.absences.find((record) => record.missedDates.includes(date));
+    if (absence?.resolution === "trained-elsewhere") return "external" as const;
+    if (absence?.resolution === "skip") return "skipped" as const;
+    if (absence?.resolution === "pause") return "paused" as const;
+    const report = buildDailyReport(data, date);
+    return report.status;
+  };
+  const quickPeriodKeys = reportGroups.slice(0, 4).map(([key]) => key);
+  const canMoveNewer = selectedBucketKey < currentBucketKey;
 
   const bucketLabel = (key: string) => {
     if (range === "day") return prettyDate(key, { weekday: "short", day: "numeric", month: "long" });
@@ -841,6 +899,43 @@ function ProgressView({
                 ))}
               </TabsList>
             </Tabs>
+          </div>
+
+          <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/[0.025] p-3 sm:p-4" aria-label="Choose a report period">
+            <div className="flex items-center justify-between gap-3">
+              <Button type="button" variant="ghost" size="icon" onClick={() => shiftBucket(-1)} aria-label={`Previous ${range}`} className="size-10 shrink-0 rounded-xl text-stone-400 hover:bg-white/10 hover:text-white"><ChevronLeft className="size-4" /></Button>
+              <div className="min-w-0 text-center"><p className="eyebrow text-stone-600">Selected {range}</p><p className="mt-1 truncate text-sm font-semibold text-stone-200">{bucketLabel(selectedBucketKey)}</p></div>
+              <Button type="button" variant="ghost" size="icon" onClick={() => shiftBucket(1)} disabled={!canMoveNewer} aria-label={`Next ${range}`} className="size-10 shrink-0 rounded-xl text-stone-400 hover:bg-white/10 hover:text-white disabled:opacity-25"><ChevronRight className="size-4" /></Button>
+            </div>
+
+            {range === "day" ? (
+              <>
+                <div className="mt-3 grid grid-cols-7 gap-1.5" aria-label="Selected week">
+                  {selectedWeekDates.map((date) => {
+                    const status = dailyStatus(date);
+                    const selected = date === selectedBucketKey;
+                    const future = date > today();
+                    const statusClass = status === "completed"
+                      ? "bg-emerald-300"
+                      : status === "adjusted"
+                        ? "bg-amber-300"
+                        : status === "partial" || status === "skipped"
+                          ? "bg-red-300"
+                          : status === "external"
+                            ? "bg-sky-300"
+                            : status === "paused"
+                              ? "bg-stone-400"
+                              : "bg-stone-700";
+                    return <button key={date} type="button" disabled={future} aria-current={selected ? "date" : undefined} onClick={() => selectBucket(date)} className={`min-h-16 rounded-xl border px-1 py-2 text-center transition-colors ${selected ? "border-amber-300 bg-amber-300/10 text-amber-200" : "border-white/[0.07] bg-black/15 text-stone-500 hover:border-white/20 hover:text-stone-200"} disabled:opacity-25`}><span className="block text-[9px] font-bold uppercase tracking-wider">{prettyDate(date, { weekday: "short" })}</span><span className="mt-1 block font-mono text-sm font-semibold">{Number(date.slice(-2))}</span><span className={`mx-auto mt-1 block size-1.5 rounded-full ${statusClass}`} aria-hidden="true" /><span className="sr-only">{status}</span></button>;
+                  })}
+                </div>
+                <label className="mt-3 flex min-h-10 items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-black/15 px-3 text-xs text-stone-500"><span className="flex items-center gap-2"><CalendarDays className="size-3.5" />Jump to date</span><input type="date" value={selectedBucketKey} max={today()} onChange={(event) => event.target.value && selectBucket(event.target.value)} className="max-w-36 bg-transparent text-right font-mono text-xs text-stone-300 outline-none" /></label>
+              </>
+            ) : (
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label={`Recent ${range} reports`}>
+                {quickPeriodKeys.map((key) => <button key={key} type="button" aria-pressed={selectedBucketKey === key} onClick={() => selectBucket(key)} className={`min-h-10 rounded-xl border px-2 py-2 text-[10px] ${selectedBucketKey === key ? "border-amber-300 bg-amber-300 font-bold text-[#0b0d0c]" : "border-white/10 bg-black/15 text-stone-400 hover:border-white/20 hover:text-white"}`}>{bucketLabel(key)}</button>)}
+              </div>
+            )}
           </div>
 
           {profile.weightTrackingEnabled && (
@@ -1007,7 +1102,6 @@ function ProgressView({
                   </article>
                 );
               })}
-              {visibleGrouped.length < reportGroups.length && <Button type="button" variant="outline" onClick={() => setVisibleBuckets((current) => ({ ...current, [range]: current[range] + 5 }))} className="h-11 w-full rounded-xl border-white/10 bg-white/[0.025] text-xs text-stone-400 hover:bg-white/[0.06] hover:text-white">Show older {range === "day" ? "days" : `${range}s`}</Button>}
             </div>
           )}
 

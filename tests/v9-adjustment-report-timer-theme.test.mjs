@@ -149,12 +149,14 @@ test("focused training locks forward navigation and keeps secondary controls com
   assert.doesNotMatch(source, /<Scale className=/);
 });
 
-test("progress uses progressive disclosure and the light theme covers custom controls", async () => {
+test("progress shows one navigable report and the light theme covers custom controls", async () => {
   const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(source, /visibleBuckets/);
+  assert.match(source, /selectedBuckets/);
+  assert.match(source, /selectedWeekDates/);
+  assert.match(source, /Jump to date/);
   assert.match(source, /Analysis and next-session guidance/);
-  assert.match(source, /Show older/);
+  assert.doesNotMatch(source, /Show older/);
   assert.match(source, /Under 1 min/);
   assert.match(source, /In progress/);
   assert.match(source, /Final report/);
