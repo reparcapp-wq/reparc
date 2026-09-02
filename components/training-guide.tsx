@@ -19,6 +19,41 @@ const references = [
     href: "https://acsm.org/resistance-training-guidelines-update-2026/",
   },
   {
+    grade: "Consensus guidance",
+    title: "Progression models in resistance training",
+    result: "ACSM recommends progressive loading in context, commonly increasing load after the target can be exceeded by one to two repetitions rather than after a single arbitrary result.",
+    limitation: "The 2009 position stand is broad guidance; equipment increments, exercise type and training status still matter.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/19204579/",
+  },
+  {
+    grade: "Moderate",
+    title: "Accuracy of repetitions-in-reserve ratings",
+    result: "A meta-analysis found that lifters underpredicted repetitions to failure by about one repetition on average, with substantial variation and better accuracy nearer failure.",
+    limitation: "RIR is useful but subjective; RepArc lowers confidence when it is missing and never treats it as an exact measurement.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/34542869/",
+  },
+  {
+    grade: "Emerging",
+    title: "Cross-validation of estimated 1RM equations",
+    result: "A 2025 study using four- to ten-repetition sets found prediction accuracy varied by exercise and equation, supporting exercise-specific trend use rather than a universal true-1RM claim.",
+    limitation: "The study tested bench press and leg extension; RepArc therefore treats its estimate as a narrow trend and suppresses unsuitable movements.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/39495260/",
+  },
+  {
+    grade: "Measurement caution",
+    title: "Methods used to quantify resistance-training volume",
+    result: "External load × repetitions is a simple volume-load measure, but different volume methods produce substantially different values.",
+    limitation: "RepArc’s external-load volume is descriptive and should be compared only within the same exercise and setup—not as mechanical work or a cross-exercise score.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/19130641/",
+  },
+  {
+    grade: "Moderate",
+    title: "Rest intervals and muscle hypertrophy",
+    result: "A systematic review found a small hypertrophy benefit from rest periods longer than 60 seconds, with little appreciable difference beyond roughly 90 seconds in the available evidence.",
+    limitation: "Evidence was heterogeneous; longer rest may still be practical for heavy compound sets or individual performance.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/39205815/",
+  },
+  {
     grade: "Moderate",
     title: "Sex differences in resistance training",
     result: "No meaningful sex difference in relative hypertrophy or lower-body strength response; relative upper-body strength gains favored women in the available studies.",
@@ -160,14 +195,14 @@ export function TrainingGuide() {
 
       <div id={`guide-panel-${active}`} key={active} className="guide-topic mt-4" role="tabpanel" aria-labelledby={`guide-tab-${active}`}>
         {active === "start" && <GuideSection eyebrow="01 / Start" title="What the app does">
-          <p>RepArc turns each completed workout into the next practical target. It records sets, load, repetitions and RIR, then uses your own recent performance before relying on demographic estimates.</p>
+          <p>RepArc records sets, load, repetitions and RIR, then uses comparable history from that exact exercise to suggest the next practical target. When reliable history does not exist, it asks you to calibrate conservatively instead of inventing a demographic load.</p>
           <p>The app is evidence-informed, not a promise of a particular result. Sleep, nutrition, technique, health, equipment and consistency all affect outcomes.</p>
         </GuideSection>}
 
         {active === "program" && <GuideSection eyebrow="02 / Program" title="Foundation, then autoregulation">
           <p><strong className="text-stone-200">Phase 1 · Foundation:</strong> build consistent technique and usable performance history. You can move to Phase 2 after reviewing the transition; there is no arbitrary calendar lock.</p>
-          <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using a training max and final performance set. Weeks 7, 14 and 21 reduce loading.</p>
-          <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions.</p>
+          <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using an exercise-specific training max and final performance set. Weeks 7, 14 and 21 use four sets of five at reduced loading without an AMRAP.</p>
+          <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions. Foundation supports equipment substitutions; Phase 2 currently requires its programmed full-gym lifts because each lift needs its own training max.</p>
           <p><strong className="text-stone-200">Missed time:</strong> RepArc continues with the next unfinished workout instead of compressing sessions into fewer days. You can record a moved workout, a skip, training elsewhere or a planned pause. Breaks of at least two weeks trigger one to three conservative return sessions; these temporary load and volume factors are cautious product guardrails, not individualized medical prescriptions.</p>
           <p className="text-xs text-stone-500">RepArc is independent and is not affiliated with, reviewed by or endorsed by Stronger by Science. It does not redistribute the original spreadsheets; the official free bundle is linked in Evidence.</p>
         </GuideSection>}
@@ -175,7 +210,8 @@ export function TrainingGuide() {
         {active === "logging" && <GuideSection eyebrow="03 / Logging" title="Sets, RIR and recommendations">
           <p><strong className="text-stone-200">RIR</strong> means repetitions in reserve: how many technically sound repetitions you believe remained. Most normal sets should finish with roughly one to three RIR.</p>
           <p><strong className="text-stone-200">AMRAP</strong> means as many technically sound repetitions as possible—not repetitions performed after form breaks down. Stop for pain, loss of control or unsafe technique.</p>
-          <p>First-session loads are estimates. Adjust after the first set. Completed history, rep ranges and RIR become the stronger signal afterward.</p>
+          <p>When the exact exercise has no comparable history, choose a load that should leave about two to three good repetitions after the target range and adjust after set one. RepArc does not transfer a machine, dumbbell or related lift into a different exercise’s training max.</p>
+          <p>Estimated performance max is calculated only from comparable four- to ten-repetition sets on suitable loaded movements. It is a noisy exercise-specific trend, not a true 1RM. External-load volume is descriptive, counts both sides when the field is labeled “each side,” and should not be compared across different exercises or machines.</p>
         </GuideSection>}
 
         {active === "women" && <GuideSection eyebrow="04 / Women’s track" title="What changes—and what does not">
@@ -196,7 +232,7 @@ export function TrainingGuide() {
         </GuideSection>}
 
         {active === "evidence" && <section className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-7">
-          <div className="flex items-start gap-3"><Activity className="mt-1 size-5 shrink-0 text-amber-300" /><div><p className="eyebrow text-amber-300">07 / Evidence</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Evidence library</h2><p className="mt-2 text-xs leading-5 text-stone-500">Last reviewed 30 August 2026. Ratings describe confidence for this app decision, not the quality of every outcome in a paper.</p></div></div>
+          <div className="flex items-start gap-3"><Activity className="mt-1 size-5 shrink-0 text-amber-300" /><div><p className="eyebrow text-amber-300">07 / Evidence</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Evidence library</h2><p className="mt-2 text-xs leading-5 text-stone-500">Last reviewed 2 September 2026. Ratings describe confidence for this app decision, not the quality of every outcome in a paper.</p></div></div>
           <details className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4"><summary className="cursor-pointer text-sm font-semibold text-stone-200">Show all {references.length} reviewed sources</summary><div className="mt-4 grid gap-3 sm:grid-cols-2">{references.map((reference) => <article key={reference.title} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><span className="rounded-full bg-amber-300/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-wider text-amber-200">{reference.grade}</span><h3 className="mt-3 font-semibold text-stone-100">{reference.title}</h3><p className="mt-2 text-xs leading-5 text-stone-400">{reference.result}</p><p className="mt-2 text-[11px] leading-5 text-stone-600"><strong className="text-stone-500">Limit:</strong> {reference.limitation}</p><a href={reference.href} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-amber-300 hover:text-amber-200">Open source <ExternalLink className="size-3.5" /><span className="sr-only"> for {reference.title}</span></a></article>)}</div></details>
         </section>}
       </div>

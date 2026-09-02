@@ -1,15 +1,19 @@
 import { nextSessionAdjustment, type AdjustmentConfidence, type LoadAdjustment } from "@/lib/autoregulation";
 import {
   activeSessions,
+  bodyweightForSession,
   convertWeight,
   effectiveExerciseLoad,
   estimatedOneRepMax,
+  externalLoadVolume,
   exerciseFromKey,
   exerciseName,
   isFilledSet,
+  isScheduledTrainingDate,
   numeric,
   sessionPlannedSets,
   sessionCountsAsCompletedDay,
+  supportsEstimatedMax,
   type Session,
   type TrainingData,
 } from "@/lib/training";
@@ -18,6 +22,7 @@ export type ScheduleAdherence = {
   available: boolean;
   expectedSessions: number;
   completedSessions: number;
+  loggedSessions: number;
   adherencePercent: number | null;
   movedSessions: number;
   skippedSessions: number;
@@ -27,13 +32,13 @@ export type ScheduleAdherence = {
 
 export function buildScheduleAdherence(data: TrainingData, startDate: string, endDate: string, asOfDate = new Date().toISOString().slice(0, 10)): ScheduleAdherence {
   const empty = { movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 };
-  if (!data.profile || startDate > endDate) return { available: false, expectedSessions: 0, completedSessions: 0, adherencePercent: null, ...empty };
+  if (!data.profile || startDate > endDate) return { available: false, expectedSessions: 0, completedSessions: 0, loggedSessions: 0, adherencePercent: null, ...empty };
   const effectiveEnd = endDate < asOfDate ? endDate : asOfDate;
-  if (startDate > effectiveEnd) return { available: true, expectedSessions: 0, completedSessions: 0, adherencePercent: null, ...empty };
+  if (startDate > effectiveEnd) return { available: true, expectedSessions: 0, completedSessions: 0, loggedSessions: 0, adherencePercent: null, ...empty };
   const history = [...data.planHistory].sort((left, right) => left.effectiveAt.localeCompare(right.effectiveAt));
   const setupDate = data.setupCompletedAt?.slice(0, 10);
   const trackingStart = setupDate && setupDate > startDate ? setupDate : startDate;
-  if (!history.length || trackingStart < history[0].effectiveAt.slice(0, 10)) return { available: false, expectedSessions: 0, completedSessions: 0, adherencePercent: null, ...empty };
+  if (!history.length || trackingStart < history[0].effectiveAt.slice(0, 10)) return { available: false, expectedSessions: 0, completedSessions: 0, loggedSessions: 0, adherencePercent: null, ...empty };
   const relevantAbsences = data.absences.filter((record) => record.endDate >= startDate && record.startDate <= effectiveEnd);
   const plannedDates = new Set(relevantAbsences.filter((record) => record.reason === "planned" || record.resolution === "pause").flatMap((record) => record.missedDates));
   let expectedSessions = 0;
@@ -45,7 +50,7 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
     const preferredWeekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
     if (status === "active" && preferredWeekdays.includes(cursor.getUTCDay()) && !plannedDates.has(date)) expectedSessions += 1;
   }
-  const completedSessions = new Set(activeSessions(data)
+  const loggedSessions = new Set(activeSessions(data)
     .filter((session) => session.date >= startDate && session.date <= effectiveEnd && sessionCountsAsCompletedDay(session, data))
     .map((session) => session.logicalKey ?? session.id)).size;
   const completedInRange = activeSessions(data).filter((session) => session.date >= startDate && session.date <= effectiveEnd && sessionCountsAsCompletedDay(session, data));
@@ -54,11 +59,15 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
     return !(plan?.preferredWeekdays ?? data.program.preferredWeekdays).includes(new Date(`${session.date}T12:00:00.000Z`).getUTCDay());
   }).length;
   const skippedSessions = relevantAbsences.filter((record) => record.resolution === "skip").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
-  const externalSessions = relevantAbsences.filter((record) => record.resolution === "trained-elsewhere").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
+  const externalSessions = relevantAbsences
+    .filter((record) => record.resolution === "trained-elsewhere")
+    .reduce((sum, record) => sum + record.missedDates.filter((date) => date >= startDate && date <= effectiveEnd).length, 0);
+  const completedSessions = Math.min(expectedSessions, loggedSessions + externalSessions);
   return {
     available: true,
     expectedSessions,
     completedSessions,
+    loggedSessions,
     adherencePercent: expectedSessions ? Math.min(100, Math.round((completedSessions / expectedSessions) * 100)) : null,
     movedSessions,
     skippedSessions,
@@ -67,7 +76,7 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
   };
 }
 
-export type DailyReportStatus = "completed" | "adjusted" | "partial" | "recovery";
+export type DailyReportStatus = "completed" | "adjusted" | "partial" | "recovery" | "missed";
 
 export type DailyExerciseReport = {
   key: string;
@@ -108,16 +117,15 @@ const exerciseForSession = (session: Session, key: string) => {
   return snapshot ? { ...snapshot, alternatives: [] } : exerciseFromKey(key);
 };
 
-const bestEstimatedMax = (session: Session, key: string, fallbackBodyweight: number, targetUnit: "kg" | "lb") => {
+const bestEstimatedMax = (data: TrainingData, session: Session, key: string, targetUnit: "kg" | "lb") => {
   const exercise = exerciseForSession(session, key);
-  if (!exercise) return 0;
-  if (exercise.loadingType === "unloaded") return 0;
+  if (!exercise || !supportsEstimatedMax(exercise)) return 0;
   return (session.entries[key] ?? []).reduce((best, entry) => {
     if (!isFilledSet(entry, exercise)) return best;
     const reps = numeric(entry.r);
     if (reps < 4 || reps > 10) return best;
     const externalLoad = convertWeight(numeric(entry.w), session.unit, targetUnit);
-    const bodyweight = session.bodyweightAtSession === undefined ? fallbackBodyweight : convertWeight(session.bodyweightAtSession, session.unit, targetUnit);
+    const bodyweight = bodyweightForSession(data, session, targetUnit);
     const effectiveLoad = effectiveExerciseLoad(exercise, externalLoad, bodyweight);
     return Math.max(best, estimatedOneRepMax(effectiveLoad, reps));
   }, 0);
@@ -145,15 +153,16 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const rirValues = completedEntries.filter(({ entry }) => entry.rir !== "").map(({ entry }) => numeric(entry.rir));
   const sessionRpes = sessions.flatMap((session) => typeof session.sessionRpe === "number" ? [session.sessionRpe] : []);
   const totalReps = completedEntries.reduce((sum, { entry }) => sum + numeric(entry.r), 0);
-  const loadedVolume = completedEntries.reduce((sum, { session, entry }) => sum + convertWeight(numeric(entry.w), session.unit, profile.unit) * numeric(entry.r), 0);
+  const loadedVolume = completedEntries.reduce((sum, { session, exercise, entry }) =>
+    sum + externalLoadVolume(exercise, convertWeight(numeric(entry.w), session.unit, profile.unit), numeric(entry.r)), 0);
 
   const exercises: DailyExerciseReport[] = keys.map((key) => {
     const exerciseSessions = sessions.filter((session) => session.entries[key]);
     const exercise = exerciseForSession(exerciseSessions.at(-1)!, key)!;
     const entries = exerciseSessions.flatMap((session) => session.entries[key] ?? []);
     const completed = entries.filter((entry) => isFilledSet(entry, exercise));
-    const todayBest = Math.max(0, ...exerciseSessions.map((session) => bestEstimatedMax(session, key, profile.bodyweight, profile.unit)));
-    const priorBest = Math.max(0, ...earlier.filter((session) => session.entries[key]).map((session) => bestEstimatedMax(session, key, profile.bodyweight, profile.unit)));
+    const todayBest = Math.max(0, ...exerciseSessions.map((session) => bestEstimatedMax(data, session, key, profile.unit)));
+    const priorBest = Math.max(0, ...earlier.filter((session) => session.entries[key]).map((session) => bestEstimatedMax(data, session, key, profile.unit)));
     const changePercent = priorBest > 0 && todayBest > 0 ? ((todayBest - priorBest) / priorBest) * 100 : null;
     const lastSession = exerciseSessions.at(-1);
     const recommendationEntries = (lastSession?.entries[key] ?? []).map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), lastSession?.unit ?? profile.unit, profile.unit)) });
@@ -176,25 +185,27 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const averageSessionRpe = sessionRpes.length ? sessionRpes.reduce((sum, value) => sum + value, 0) / sessionRpes.length : null;
   const durations = sessions.flatMap((session) => typeof session.durationSeconds === "number" && session.durationSeconds >= 0 ? [session.durationSeconds] : []);
   const totalDurationSeconds = durations.length ? durations.reduce((sum, value) => sum + value, 0) : null;
-  const performanceImprovements = exercises.filter((exercise) => exercise.changePercent !== null && exercise.changePercent >= 2.5).length;
+  const performanceImprovements = exercises.filter((exercise) => exercise.changePercent !== null && exercise.changePercent >= 5).length;
   const possiblePerformanceImprovements = performanceImprovements;
   const establishedPerformanceImprovements = exercises.filter((exercise) => {
     const history = earlier.filter((session) => session.entries[exercise.key]).sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt));
     if (history.length < 2) return false;
     const previous = history.at(-1)!;
-    const baseline = Math.max(0, ...history.slice(0, -1).map((session) => bestEstimatedMax(session, exercise.key, profile.bodyweight, profile.unit)));
-    const previousBest = bestEstimatedMax(previous, exercise.key, profile.bodyweight, profile.unit);
-    return baseline > 0 && previousBest >= baseline * 1.025 && exercise.bestEstimatedMax >= previousBest * 0.99;
+    const baseline = Math.max(0, ...history.slice(0, -1).map((session) => bestEstimatedMax(data, session, exercise.key, profile.unit)));
+    const previousBest = bestEstimatedMax(data, previous, exercise.key, profile.unit);
+    return baseline > 0 && previousBest >= baseline * 1.05 && exercise.bestEstimatedMax >= previousBest * 0.99;
   }).length;
-  const status: DailyReportStatus = !sessions.length ? "recovery" : completionPercent >= 100 ? "completed" : completionPercent >= 70 ? "adjusted" : "partial";
+  const status: DailyReportStatus = !sessions.length
+    ? isScheduledTrainingDate(data, date) ? "missed" : "recovery"
+    : completionPercent >= 100 ? "completed" : completionPercent >= 70 ? "adjusted" : "partial";
   const confidence: AdjustmentConfidence = completionPercent >= 100 && rirCoveragePercent >= 60
     ? "high"
     : completionPercent >= 70 && (rirCoveragePercent >= 30 || completedSets >= 6)
       ? "moderate"
       : "low";
-  const label = status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : "Recovery day";
+  const label = status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "missed" ? "Scheduled workout not recorded" : "Recovery day";
   const headline = !sessions.length
-    ? "No workout was recorded."
+    ? status === "missed" ? "A scheduled workout was not recorded." : "No workout was recorded."
     : establishedPerformanceImprovements > 0
       ? `${establishedPerformanceImprovements} exercise${establishedPerformanceImprovements === 1 ? "" : "s"} repeated a positive performance trend.`
       : possiblePerformanceImprovements > 0
@@ -203,7 +214,9 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
         ? "The planned work was completed without a clear performance change."
         : "Today adds useful history, but the incomplete plan limits progression confidence.";
   const summary = !sessions.length
-    ? "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
+    ? status === "missed"
+      ? "This date was on your saved training schedule. Record time away or a workout performed elsewhere to keep adherence context accurate."
+      : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
     : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". RIR was not recorded consistently, so load advice is conservative." : ` at ${averageRir.toFixed(1)} average RIR.`}`;
 
   return {

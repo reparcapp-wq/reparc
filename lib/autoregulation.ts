@@ -1,8 +1,7 @@
 import {
-  bumpBy,
   isFilledSet,
-  isLowerBodyExercise,
   numeric,
+  practicalLoadIncrement,
   type Exercise,
   type Readiness,
   type SetEntry,
@@ -54,7 +53,8 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness }: Adjust
   const load = loadFrom(latest, exercise);
   const reps = numeric(latest.r);
   const rir = latest.rir === "" ? null : numeric(latest.rir);
-  const increment = bumpBy(isLowerBodyExercise(exercise), unit);
+  const increment = practicalLoadIncrement(exercise, load, unit);
+  const practicalIncrease = load > 0 && increment / load <= 0.1;
   const evidence = [`${reps} reps`, rir === null ? "RIR not recorded" : `${rir} RIR`];
 
   if (readiness === "pain") {
@@ -82,6 +82,15 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness }: Adjust
   }
 
   if (rir !== null && rir >= 4 && reps >= exercise.repLow && !conservativeReadiness(readiness)) {
+    if (!exercise.bodyweight && !practicalIncrease) {
+      return {
+        action: "hold",
+        nextLoad: load,
+        confidence: "moderate",
+        reason: "The smallest standard increase would exceed 10% of this load. Add repetitions or use a smaller microload instead.",
+        evidence,
+      };
+    }
     return {
       action: "increase",
       nextLoad: exercise.bodyweight ? null : load + increment,
@@ -113,7 +122,8 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness }: Ad
   const reps = completed.map((entry) => numeric(entry.r));
   const rirValues = completed.filter((entry) => entry.rir !== "").map((entry) => numeric(entry.rir));
   const averageRir = average(rirValues);
-  const increment = bumpBy(isLowerBodyExercise(exercise), unit);
+  const increment = practicalLoadIncrement(exercise, representativeLoad, unit);
+  const practicalIncrease = representativeLoad > 0 && increment / representativeLoad <= 0.1;
   const allPlannedSets = completed.length >= exercise.sets;
   const allAtTop = allPlannedSets && reps.every((value) => value >= exercise.repHigh);
   const anyBelow = reps.some((value) => value < exercise.repLow);
@@ -162,6 +172,15 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness }: Ad
   }
 
   if (allAtTop && loadSpread <= increment && (averageRir === null || averageRir >= 1)) {
+    if (!exercise.bodyweight && !practicalIncrease) {
+      return {
+        action: "hold",
+        nextLoad: representativeLoad,
+        confidence,
+        reason: "The smallest standard increase would exceed 10% of this load. Add repetitions or use a smaller microload instead.",
+        evidence,
+      };
+    }
     return {
       action: "increase",
       nextLoad: exercise.bodyweight ? null : representativeLoad + increment,
@@ -172,6 +191,15 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness }: Ad
   }
 
   if (averageRir !== null && averageRir >= 4 && loadSpread <= increment) {
+    if (!exercise.bodyweight && !practicalIncrease) {
+      return {
+        action: "hold",
+        nextLoad: representativeLoad,
+        confidence,
+        reason: "The smallest standard increase would exceed 10% of this load. Add repetitions or use a smaller microload instead.",
+        evidence,
+      };
+    }
     return {
       action: "increase",
       nextLoad: exercise.bodyweight ? null : representativeLoad + increment,

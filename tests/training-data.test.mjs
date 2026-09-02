@@ -121,7 +121,35 @@ test("matches the official SBS hypertrophy week structure", () => {
     deload: false,
   });
   assert.equal(training.sbsPrescription("main", 7).deload, true);
+  assert.equal(training.sbsPrescription("main", 7).normalReps, 5);
+  assert.equal(training.sbsPrescription("main", 7).repOutTarget, 0);
+  assert.equal(training.sbsPrescription("auxiliary", 14).normalReps, 5);
+  assert.equal(training.sbsPrescription("auxiliary", 21).repOutTarget, 0);
   assert.equal(training.sbsPrescription("main", 20).intensity, 0.825);
+});
+
+test("Phase 2 training-max suggestions never transfer strength between unlike exercises", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  const target = training.phaseTwoProgrammedExercises("current").find((item) => item.name === "Barbell bench press");
+  const machine = { ...target, id: "machine-history", name: "Machine chest press", sbsRole: undefined };
+  const snapshot = { programId: "phase1", frequency: 3, preferredWeekdays: [1, 3, 5], track: "current", goal: "balanced", equipment: "full", dayId: "history", dayName: "History", focus: "Test", exercises: [{ ...machine, key: machine.id }] };
+  data.sessions = [{ id: "machine", date: "2026-08-31", dayId: "history", unit: "kg", entries: { [machine.id]: [{ w: "100", r: "8", rir: "2" }] }, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T11:00:00.000Z" }];
+  assert.equal(training.suggestedTrainingMax(data, target, "kg"), 0);
+  const exact = { ...target, key: target.id };
+  data.sessions.push({ id: "bench", date: "2026-09-01", dayId: "history", unit: "kg", entries: { [target.id]: [{ w: "80", r: "8", rir: "2" }] }, planSnapshot: { ...snapshot, exercises: [exact] }, completionStatus: "completed", revision: 1, createdAt: "2026-09-01T10:00:00.000Z", updatedAt: "2026-09-01T11:00:00.000Z" });
+  assert.ok(training.suggestedTrainingMax(data, target, "kg") > 0);
+});
+
+test("legacy sessions use the nearest prior weigh-in rather than today's profile weight", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 90, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.weighIns = [
+    { id: "prior", date: "2026-08-30", weight: 80, unit: "kg", createdAt: "a", updatedAt: "a" },
+    { id: "future", date: "2026-09-03", weight: 85, unit: "kg", createdAt: "b", updatedAt: "b" },
+  ];
+  const session = { id: "legacy", date: "2026-09-01", dayId: "UA", unit: "kg", entries: {}, revision: 1, createdAt: "2026-09-01T10:00:00.000Z", updatedAt: "2026-09-01T11:00:00.000Z" };
+  assert.equal(training.bodyweightForSession(data, session, "kg"), 80);
 });
 
 test("adjusts SBS training maxes from final-set performance", () => {

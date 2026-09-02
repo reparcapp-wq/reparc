@@ -316,15 +316,15 @@ export type SbsPrescription = {
 };
 
 const SBS_MAIN_WEEKS = [
-  [0.7, 10, 12], [0.725, 9, 11], [0.75, 8, 10], [0.725, 9, 11], [0.75, 8, 10], [0.775, 7, 9], [0.6, 14, 18],
-  [0.725, 9, 11], [0.75, 8, 10], [0.775, 7, 9], [0.75, 8, 10], [0.775, 7, 9], [0.8, 6, 8], [0.6, 14, 18],
-  [0.75, 8, 10], [0.775, 7, 9], [0.8, 6, 8], [0.775, 7, 9], [0.8, 6, 8], [0.825, 5, 6], [0.6, 14, 18],
+  [0.7, 10, 12], [0.725, 9, 11], [0.75, 8, 10], [0.725, 9, 11], [0.75, 8, 10], [0.775, 7, 9], [0.6, 5, 0],
+  [0.725, 9, 11], [0.75, 8, 10], [0.775, 7, 9], [0.75, 8, 10], [0.775, 7, 9], [0.8, 6, 8], [0.6, 5, 0],
+  [0.75, 8, 10], [0.775, 7, 9], [0.8, 6, 8], [0.775, 7, 9], [0.8, 6, 8], [0.825, 5, 6], [0.6, 5, 0],
 ] as const;
 
 const SBS_AUXILIARY_WEEKS = [
-  [0.65, 12, 15], [0.675, 11, 13], [0.7, 10, 12], [0.675, 11, 13], [0.7, 10, 12], [0.725, 9, 11], [0.55, 17, 21],
-  [0.675, 11, 13], [0.7, 10, 12], [0.725, 9, 11], [0.7, 10, 12], [0.725, 9, 11], [0.75, 8, 10], [0.55, 17, 21],
-  [0.7, 10, 12], [0.725, 9, 11], [0.75, 8, 10], [0.725, 9, 11], [0.75, 8, 10], [0.775, 7, 9], [0.55, 17, 21],
+  [0.65, 12, 15], [0.675, 11, 13], [0.7, 10, 12], [0.675, 11, 13], [0.7, 10, 12], [0.725, 9, 11], [0.55, 5, 0],
+  [0.675, 11, 13], [0.7, 10, 12], [0.725, 9, 11], [0.7, 10, 12], [0.725, 9, 11], [0.75, 8, 10], [0.55, 5, 0],
+  [0.7, 10, 12], [0.725, 9, 11], [0.75, 8, 10], [0.725, 9, 11], [0.75, 8, 10], [0.775, 7, 9], [0.55, 5, 0],
 ] as const;
 
 export const sbsPrescription = (role: SbsRole, week: number): SbsPrescription => {
@@ -665,6 +665,19 @@ export const effectiveExerciseLoad = (exercise: Exercise, externalLoad: number, 
   return externalLoad;
 };
 
+const bodyweightEstimatedMaxPattern = /\b(pull-?up|chin-?up|dip)s?\b/i;
+
+export const supportsEstimatedMax = (exercise?: Exercise | null) => {
+  if (!exercise) return false;
+  const loadingType = exercise.loadingType ?? (exercise.bodyweight ? "bodyweight" : "external");
+  if (loadingType === "external") return true;
+  return (loadingType === "bodyweight" || loadingType === "assisted-bodyweight")
+    && bodyweightEstimatedMaxPattern.test(exercise.name);
+};
+
+export const externalLoadVolume = (exercise: Exercise | null | undefined, externalLoad: number, reps: number) =>
+  Math.max(0, externalLoad) * Math.max(0, reps) * (exercise?.perSide ? 2 : 1);
+
 export const exerciseNeedsLoad = (exercise?: Exercise | null) => {
   const loadingType = exercise?.loadingType ?? (exercise?.bodyweight ? "bodyweight" : "external");
   return loadingType === "external" || loadingType === "assisted-bodyweight";
@@ -776,6 +789,11 @@ export const roundLoad = (value: number, unit: Unit) => {
 
 export const bumpBy = (lower: boolean, unit: Unit) =>
   unit === "kg" ? (lower ? 5 : 2.5) : lower ? 10 : 5;
+
+export const practicalLoadIncrement = (exercise: Pick<Exercise, "perSide">, currentLoad: number, unit: Unit) => {
+  const smallImplement = exercise.perSide || currentLoad < (unit === "kg" ? 20 : 45);
+  return unit === "kg" ? (smallImplement ? 1 : 2.5) : smallImplement ? 2.5 : 5;
+};
 
 export const estimatedOneRepMax = (weight: number, reps: number) =>
   weight > 0 && reps > 0 ? weight * (1 + reps / 30) : 0;
@@ -901,6 +919,18 @@ const planOnDate = (data: TrainingData, date: string) => {
     .filter((change) => change.effectiveAt.slice(0, 10) <= date)
     .sort((left, right) => left.effectiveAt.localeCompare(right.effectiveAt));
   return history.at(-1);
+};
+
+export const isScheduledTrainingDate = (data: TrainingData, date: string) => {
+  if (!data.profile || (data.setupCompletedAt && date < data.setupCompletedAt.slice(0, 10))) return false;
+  const plan = planOnDate(data, date);
+  const status = plan?.status ?? data.program.status;
+  const weekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
+  const plannedAway = data.absences.some((record) =>
+    record.missedDates.includes(date) && (record.reason === "planned" || record.resolution === "pause"));
+  return status === "active"
+    && weekdays.includes(new Date(`${date}T12:00:00.000Z`).getUTCDay())
+    && !plannedAway;
 };
 
 export type MissedTraining = {
@@ -1101,6 +1131,16 @@ export const isActiveSession = (session: Session) => !session.deletedAt;
 export const activeSessions = (data: Pick<TrainingData, "sessions">) => data.sessions.filter(isActiveSession);
 export const activeWeighIns = (data: Pick<TrainingData, "weighIns">) => data.weighIns.filter((entry) => !entry.deletedAt);
 
+export const bodyweightForSession = (data: TrainingData, session: Session, unit: Unit) => {
+  if (session.bodyweightAtSession !== undefined) return convertWeight(session.bodyweightAtSession, session.unit, unit);
+  const prior = activeWeighIns(data)
+    .filter((entry) => entry.date <= session.date)
+    .sort((left, right) => left.date.localeCompare(right.date) || left.updatedAt.localeCompare(right.updatedAt))
+    .at(-1);
+  if (prior) return convertWeight(prior.weight, prior.unit, unit);
+  return data.profile ? convertWeight(data.profile.bodyweight, data.profile.unit, unit) : 0;
+};
+
 const exerciseForSessionKey = (session: Session, key: string) => {
   const snapshot = session.planSnapshot?.exercises.find((exercise) => exercise.key === key);
   return snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
@@ -1277,15 +1317,17 @@ export const phaseTwoProgrammedExercises = (track: ProgramTrack = "current") =>
   track === "women" ? WOMENS_PHASE_TWO_PROGRAMMED_EXERCISES : PHASE_TWO_PROGRAMMED_EXERCISES;
 
 export const suggestedTrainingMax = (data: TrainingData, exercise: Exercise, unit: Unit) => {
-  const ids = new Set([exercise.id, ...(exercise.historyIds ?? [])]);
   return activeSessions(data).reduce((best, session) => {
     return Object.entries(session.entries).reduce((innerBest, [key, entries]) => {
-      if (!ids.has(key.split(":")[0]) || key.includes(":")) return innerBest;
+      const historicalExercise = exerciseForSessionKey(session, key);
+      if (!historicalExercise || historicalExercise.name.toLocaleLowerCase() !== exercise.name.toLocaleLowerCase() || !supportsEstimatedMax(historicalExercise)) return innerBest;
       return entries.reduce((setBest, entry) => {
         const reps = numeric(entry.r);
-        const weight = convertWeight(numeric(entry.w), session.unit, unit);
-        if (reps < 1 || reps > 12 || weight <= 0) return setBest;
-        return Math.max(setBest, estimatedOneRepMax(weight, reps) * 0.9);
+        if (!isFilledSet(entry, historicalExercise) || reps < 4 || reps > 10) return setBest;
+        const externalLoad = convertWeight(numeric(entry.w), session.unit, unit);
+        const effectiveLoad = effectiveExerciseLoad(historicalExercise, externalLoad, bodyweightForSession(data, session, unit));
+        if (effectiveLoad <= 0) return setBest;
+        return Math.max(setBest, estimatedOneRepMax(effectiveLoad, reps) * 0.9);
       }, innerBest);
     }, best);
   }, 0);

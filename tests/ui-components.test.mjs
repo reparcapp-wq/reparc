@@ -139,11 +139,14 @@ test("keeps required onboarding, focused training, and the evidence guide access
   assert.match(app, /Exercise \{activeExerciseIndex \+ 1\} of/);
   assert.match(app, /exerciseIndex !== activeExerciseIndex/);
   assert.match(app, /settingsCategory === "overview"/);
+  assert.match(app, /Phase 2 currently requires the programmed full-gym lifts/);
+  assert.match(app, /phaseTwoMaxesComplete/);
+  assert.match(app, /placeholder="Required"/);
   assert.doesNotMatch(app, /aria-label="Setup sections"[\s\S]*overflow-x-auto/);
   assert.match(guide, /role="tablist"/);
   assert.match(guide, /active === "program"/);
   assert.match(guide, /Evidence library/);
-  assert.match(guide, /Last reviewed 30 August 2026/);
+  assert.match(guide, /Last reviewed 2 September 2026/);
   assert.match(guide, /not pregnancy or postpartum prescriptions/i);
 });
 

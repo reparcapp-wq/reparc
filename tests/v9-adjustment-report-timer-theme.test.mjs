@@ -35,6 +35,15 @@ test("next-set advice holds instead of increasing when readiness is reduced", ()
   assert.equal(adjustment.nextSetAdjustment({ exercise, entries: [easy], unit: "kg", readiness: "low" }).action, "hold");
 });
 
+test("load advice does not force a standard increment larger than ten percent", () => {
+  const small = { ...exercise, perSide: true, sets: 3, repLow: 10, repHigh: 12 };
+  const entries = Array.from({ length: small.sets }, () => filled(5, small.repHigh, 3));
+  const result = adjustment.nextSessionAdjustment({ exercise: small, entries, unit: "kg", readiness: "normal" });
+  assert.equal(result.action, "hold");
+  assert.equal(result.nextLoad, 5);
+  assert.match(result.reason, /exceed 10%/i);
+});
+
 test("next-session advice does not progress incomplete or inconsistent work", () => {
   const incomplete = adjustment.nextSessionAdjustment({ exercise, entries: [filled(100, exercise.repHigh, 2)], unit: "kg", readiness: "normal" });
   assert.equal(incomplete.action, "hold");
@@ -76,13 +85,16 @@ test("daily report measures adherence and reduces confidence when effort data is
   assert.equal(report.exercises[0].recommendation.confidence, "low");
 });
 
-test("daily report treats a day without a session as recovery rather than failure", () => {
+test("daily report distinguishes a recovery day from a scheduled workout without a log", () => {
   const data = training.emptyData();
   data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
-  const report = reports.buildDailyReport(data, "2026-09-01");
-  assert.equal(report.status, "recovery");
-  assert.equal(report.completionPercent, 0);
-  assert.match(report.summary, /does not grade rest/i);
+  const recovery = reports.buildDailyReport(data, "2026-09-06");
+  assert.equal(recovery.status, "recovery");
+  assert.equal(recovery.completionPercent, 0);
+  assert.match(recovery.summary, /does not grade rest/i);
+  const missed = reports.buildDailyReport(data, "2026-09-01");
+  assert.equal(missed.status, "missed");
+  assert.match(missed.summary, /saved training schedule/i);
 });
 
 test("schedule adherence counts due days without inventing reports for missing workouts", () => {
@@ -97,7 +109,31 @@ test("schedule adherence counts due days without inventing reports for missing w
   const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "20" : "", r: String(exercise.repLow), rir: "2" }))]));
   data.sessions = [{ id: "monday", logicalKey: "monday", date: "2026-08-31", dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T11:00:00.000Z" }];
   const adherence = reports.buildScheduleAdherence(data, "2026-08-31", "2026-09-06", "2026-09-02");
-  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 });
+  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, loggedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 });
+});
+
+test("training elsewhere fulfills schedule adherence without creating performance data", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.setupCompletedAt = "2026-08-31T08:00:00.000Z";
+  data.program.frequency = 3;
+  data.program.preferredWeekdays = [1, 3, 5];
+  data.planHistory = [{ id: "setup", effectiveAt: data.setupCompletedAt, kind: "setup", programId: "phase1", week: 1, frequency: 3, preferredWeekdays: [1, 3, 5], track: "current", goal: "balanced", equipment: "full", status: "active" }];
+  data.absences = [{ id: "external", startDate: "2026-09-02", endDate: "2026-09-02", missedDates: ["2026-09-02"], reason: "busy", resolution: "trained-elsewhere", programId: "phase1", frequency: 3, resolvedDayIds: ["D1"], createdAt: "2026-09-02T12:00:00.000Z", updatedAt: "2026-09-02T12:00:00.000Z" }];
+  const adherence = reports.buildScheduleAdherence(data, "2026-08-31", "2026-09-02", "2026-09-02");
+  assert.equal(adherence.expectedSessions, 2);
+  assert.equal(adherence.loggedSessions, 0);
+  assert.equal(adherence.externalSessions, 1);
+  assert.equal(adherence.completedSessions, 1);
+  assert.equal(adherence.adherencePercent, 50);
+});
+
+test("external-load volume counts both sides and excludes pseudo-strength estimates", () => {
+  const perSide = { ...exercise, perSide: true };
+  assert.equal(training.externalLoadVolume(perSide, 20, 10), 400);
+  assert.equal(training.externalLoadVolume({ ...exercise, perSide: false }, 20, 10), 200);
+  assert.equal(training.supportsEstimatedMax({ ...exercise, name: "Push-up", bodyweight: true, loadingType: "bodyweight" }), false);
+  assert.equal(training.supportsEstimatedMax({ ...exercise, name: "Pull-up", bodyweight: true, loadingType: "bodyweight" }), true);
 });
 
 test("a performance improvement becomes established only after it repeats", () => {
