@@ -65,6 +65,7 @@ import {
   buildReturnPlan,
   buildSessionPlanSnapshot,
   bodyweightForSession,
+  comparableExerciseHistory,
   convertWeight,
   CURRENT_TERMS_VERSION,
   effectiveExerciseLoad,
@@ -2171,10 +2172,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       )
     : {};
 
-  const historyFor = (key: string) =>
-    activeSessions(data)
-      .filter((session) => session.entries[key]?.some((entry) => isFilledSet(entry, storedExercise(session, key))))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const historyFor = (exercise: Exercise) => comparableExerciseHistory(data, exercise);
 
   const estimatedTrainingMax = (exercise: Exercise, key: string) => {
     if (!profile) return 0;
@@ -2207,10 +2205,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · nearest available load · final set ${prescription.repOutTarget}+`,
       };
     }
-    const history = historyFor(key);
-    const last = history.at(-1);
-    if (last) {
-      const normalizedEntries = last.entries[key].map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
+    const lastHistory = historyFor(exercise).at(-1);
+    if (lastHistory) {
+      const { session: last, entries: lastEntries } = lastHistory;
+      const normalizedEntries = lastEntries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
       const adjustment = nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness, availableLoads });
       if (adjustment) return {
         value: adjustment.nextLoad,
@@ -2781,8 +2779,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                         reason: `Return session ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions} · conservative starting load · target ${data.program.returnPlan.targetRir} RIR`,
                       }
                     : baseSuggestion;
-                  const history = historyFor(key);
-                  const last = history.at(-1);
+                  const lastHistory = historyFor(exercise).at(-1);
+                  const last = lastHistory?.session;
+                  const lastEntries = lastHistory?.entries;
                   const displayName = exercise.name;
                   const guidance = exerciseGuidance(displayName);
                   const prescription = prescriptionFor(exercise);
@@ -2884,7 +2883,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                                 onChange={(event) => setField(key, setIndex, "r", event.target.value)}
                                 onBlur={() => finishSet(key, setIndex)}
                                 onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-                                placeholder={last?.entries[key]?.[setIndex]?.r || String(prescription ? (!prescription.deload && setIndex === exercise.sets - 1 ? prescription.repOutTarget : prescription.normalReps) : exercise.repHigh)}
+                                placeholder={lastEntries?.[setIndex]?.r || String(prescription ? (!prescription.deload && setIndex === exercise.sets - 1 ? prescription.repOutTarget : prescription.normalReps) : exercise.repHigh)}
                                 aria-label={`${displayName}, set ${setIndex + 1}, reps`}
                                 className="set-input"
                               />,
@@ -2902,7 +2901,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
                           {last && (
                             <p className="ml-7 mt-3 truncate font-mono text-[10px] text-stone-600">
-                              Last · {prettyDate(last.date)} · {last.entries[key].filter((entry) => isFilledSet(entry, exercise)).map((entry) => `${entry.w || 0}×${entry.r}${entry.rir !== "" ? ` @${entry.rir}` : ""}`).join("  /  ")}
+                              Last · {prettyDate(last.date)} · {lastEntries!.filter((entry) => isFilledSet(entry, lastHistory!.exercise)).map((entry) => `${entry.w || 0}×${entry.r}${entry.rir !== "" ? ` @${entry.rir}` : ""}`).join("  /  ")}
                             </p>
                           )}
                         </div>

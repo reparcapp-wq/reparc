@@ -167,6 +167,35 @@ test("Phase 2 training-max suggestions never transfer strength between unlike ex
   assert.ok(training.suggestedTrainingMax(data, target, "kg") > 0);
 });
 
+test("same exercise history follows Pec Deck across program slots and swaps", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  const upperC = training.programDays("phase1", 5, "current").find((day) => day.id === "UC");
+  const pecDeck = upperC.exercises.find((exercise) => exercise.name === "Pec deck");
+  const snapshot = training.buildSessionPlanSnapshot(data, { ...upperC, exercises: [pecDeck] }, "phase1", 1, 5);
+  data.sessions = [{
+    id: "pec-history",
+    date: "2026-09-01",
+    dayId: upperC.id,
+    unit: "kg",
+    entries: { [snapshot.exercises[0].key]: Array.from({ length: pecDeck.sets }, () => ({ w: "35", r: "12", rir: "2" })) },
+    planSnapshot: snapshot,
+    completionStatus: "completed",
+    revision: 1,
+    createdAt: "2026-09-01T10:00:00.000Z",
+    updatedAt: "2026-09-01T11:00:00.000Z",
+  }];
+  const upperA = training.programDays("phase1", 5, "current").find((day) => day.id === "UA");
+  const cableFly = upperA.exercises.find((exercise) => exercise.name === "Cable fly");
+  const pecDeckSwap = training.resolveExerciseVariant(cableFly, "Pec deck");
+  const history = training.comparableExerciseHistory(data, pecDeckSwap);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].key, "uc1");
+  assert.equal(history[0].exercise.name, "Pec deck");
+  assert.equal(history[0].entries[0].w, "35");
+  assert.equal(training.comparableExerciseHistory(data, training.resolveExerciseVariant(cableFly, "Dumbbell fly")).length, 0);
+});
+
 test("legacy sessions use the nearest prior weigh-in rather than today's profile weight", () => {
   const data = training.emptyData();
   data.profile = { bodyweight: 90, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };

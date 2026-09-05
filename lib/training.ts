@@ -1198,6 +1198,33 @@ const exerciseForSessionKey = (session: Session, key: string) => {
   return snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
 };
 
+export type ComparableExerciseHistory = {
+  session: Session;
+  key: string;
+  exercise: Exercise;
+  entries: SetEntry[];
+};
+
+export const comparableExerciseHistory = (data: TrainingData, target: Exercise): ComparableExerciseHistory[] => {
+  const targetIdentity = loadProfileId(target);
+  return activeSessions(data)
+    .flatMap((session) => {
+      const match = Object.entries(session.entries).find(([key, entries]) => {
+        const historicalExercise = exerciseForSessionKey(session, key);
+        return Boolean(
+          historicalExercise
+          && loadProfileId(historicalExercise) === targetIdentity
+          && entries.some((entry) => isFilledSet(entry, historicalExercise)),
+        );
+      });
+      if (!match) return [];
+      const [key, entries] = match;
+      const exercise = exerciseForSessionKey(session, key)!;
+      return [{ session, key, exercise, entries }];
+    })
+    .sort((left, right) => left.session.date.localeCompare(right.session.date) || left.session.createdAt.localeCompare(right.session.createdAt));
+};
+
 export function recalculatePhase2Progression(data: TrainingData): TrainingData {
   const rolling: Record<string, number> = {};
   const managedKeys = new Set<string>();
