@@ -2,12 +2,12 @@ import { nextSessionAdjustment, type AdjustmentConfidence, type LoadAdjustment }
 import {
   activeSessions,
   bodyweightForSession,
+  comparableExerciseHistory,
   convertWeight,
   effectiveExerciseLoad,
   estimatedOneRepMax,
   externalLoadVolume,
   exerciseFromKey,
-  exerciseName,
   isFilledSet,
   isScheduledTrainingDate,
   loadProfileId,
@@ -149,8 +149,17 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const allSessions = activeSessions(data);
   const sessions = allSessions.filter((session) => session.date === date);
   const sorenessRecovery = data.absences.some((record) => record.reason === "soreness" && record.resolution === "skip" && record.missedDates.includes(date));
-  const earlier = allSessions.filter((session) => session.date < date);
-  const keys = [...new Set(sessions.flatMap((session) => Object.keys(session.entries)))].filter((key) => sessions.some((session) => Boolean(exerciseForSession(session, key))));
+  const currentOccurrences = sessions
+    .flatMap((session) => Object.entries(session.entries).flatMap(([key, entries]) => {
+      const exercise = exerciseForSession(session, key);
+      return exercise ? [{ session, key, exercise, entries }] : [];
+    }))
+    .sort((left, right) => left.session.createdAt.localeCompare(right.session.createdAt));
+  const occurrencesByExercise = new Map<string, typeof currentOccurrences>();
+  currentOccurrences.forEach((occurrence) => {
+    const identity = loadProfileId(occurrence.exercise);
+    occurrencesByExercise.set(identity, [...(occurrencesByExercise.get(identity) ?? []), occurrence]);
+  });
   const plannedSets = sessions.reduce((sum, session) => sum + plannedSetsFor(data, session), 0);
   const completedSets = sessions.reduce((sum, session) => sum + Object.entries(session.entries).reduce((inner, [key, entries]) => {
     const exercise = exerciseForSession(session, key);
@@ -166,26 +175,33 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const loadedVolume = completedEntries.reduce((sum, { session, exercise, entry }) =>
     sum + externalLoadVolume(exercise, convertWeight(numeric(entry.w), session.unit, profile.unit), numeric(entry.r)), 0);
 
-  const exercises: DailyExerciseReport[] = keys.map((key) => {
-    const exerciseSessions = sessions.filter((session) => session.entries[key]);
-    const exercise = exerciseForSession(exerciseSessions.at(-1)!, key)!;
-    const entries = exerciseSessions.flatMap((session) => session.entries[key] ?? []);
-    const completed = entries.filter((entry) => isFilledSet(entry, exercise));
-    const todayBest = Math.max(0, ...exerciseSessions.map((session) => bestEstimatedMax(data, session, key, profile.unit)));
-    const priorBest = Math.max(0, ...earlier.filter((session) => session.entries[key]).map((session) => bestEstimatedMax(data, session, key, profile.unit)));
+  const establishedImprovementIds = new Set<string>();
+  const exercises: DailyExerciseReport[] = [...occurrencesByExercise.entries()].map(([identity, occurrences]) => {
+    const latest = occurrences.at(-1)!;
+    const exercise = latest.exercise;
+    const completed = occurrences.flatMap((occurrence) => occurrence.entries.filter((entry) => isFilledSet(entry, occurrence.exercise)));
+    const todayBest = Math.max(0, ...occurrences.map((occurrence) => bestEstimatedMax(data, occurrence.session, occurrence.key, profile.unit)));
+    const history = comparableExerciseHistory(data, exercise)
+      .filter((occurrence) => occurrence.session.date < date);
+    const priorBest = Math.max(0, ...history.map((occurrence) => bestEstimatedMax(data, occurrence.session, occurrence.key, profile.unit)));
     const changePercent = priorBest > 0 && todayBest > 0 ? ((todayBest - priorBest) / priorBest) * 100 : null;
-    const lastSession = exerciseSessions.at(-1);
-    const recommendationEntries = (lastSession?.entries[key] ?? []).map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), lastSession?.unit ?? profile.unit, profile.unit)) });
+    if (history.length >= 2) {
+      const previous = history.at(-1)!;
+      const baseline = Math.max(0, ...history.slice(0, -1).map((occurrence) => bestEstimatedMax(data, occurrence.session, occurrence.key, profile.unit)));
+      const previousBest = bestEstimatedMax(data, previous.session, previous.key, profile.unit);
+      if (baseline > 0 && previousBest >= baseline * 1.05 && todayBest >= previousBest * 0.99) establishedImprovementIds.add(identity);
+    }
+    const recommendationEntries = latest.entries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), latest.session.unit, profile.unit)) });
     return {
-      key,
-      name: exerciseName(key),
+      key: identity,
+      name: exercise.name,
       completedSets: completed.length,
-      plannedSets: exercise.sets * exerciseSessions.length,
+      plannedSets: occurrences.reduce((sum, occurrence) => sum + occurrence.exercise.sets, 0),
       totalReps: completed.reduce((sum, entry) => sum + numeric(entry.r), 0),
       bestEstimatedMax: todayBest,
       priorBestEstimatedMax: priorBest,
       changePercent,
-      recommendation: nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: lastSession?.readiness, availableLoads: loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit) }),
+      recommendation: nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: latest.session.readiness, availableLoads: loadProfileValues(data.loadProfiles[identity] ?? data.loadProfiles[latest.key], profile.unit) }),
     };
   });
 
@@ -199,14 +215,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const postCardioMinutes = sessions.reduce((sum, session) => sum + (session.postCardio?.durationMinutes ?? 0), 0);
   const performanceImprovements = exercises.filter((exercise) => exercise.changePercent !== null && exercise.changePercent >= 5).length;
   const possiblePerformanceImprovements = performanceImprovements;
-  const establishedPerformanceImprovements = exercises.filter((exercise) => {
-    const history = earlier.filter((session) => session.entries[exercise.key]).sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt));
-    if (history.length < 2) return false;
-    const previous = history.at(-1)!;
-    const baseline = Math.max(0, ...history.slice(0, -1).map((session) => bestEstimatedMax(data, session, exercise.key, profile.unit)));
-    const previousBest = bestEstimatedMax(data, previous, exercise.key, profile.unit);
-    return baseline > 0 && previousBest >= baseline * 1.05 && exercise.bestEstimatedMax >= previousBest * 0.99;
-  }).length;
+  const establishedPerformanceImprovements = establishedImprovementIds.size;
   const status: DailyReportStatus = !sessions.length
     ? sorenessRecovery ? "recovery" : isScheduledTrainingDate(data, date) ? "missed" : "recovery"
     : completionPercent >= 100 ? "completed" : completionPercent >= 70 ? "adjusted" : "partial";

@@ -196,6 +196,58 @@ test("same exercise history follows Pec Deck across program slots and swaps", ()
   assert.equal(training.comparableExerciseHistory(data, training.resolveExerciseVariant(cableFly, "Dumbbell fly")).length, 0);
 });
 
+test("every program and swap variant keeps history within its equipment-aware exercise identity", () => {
+  const catalog = [];
+  for (const programId of ["phase1", "phase2"]) {
+    for (const frequency of [3, 4, 5]) {
+      for (const track of ["current", "women"]) {
+        for (const day of training.programDays(programId, frequency, track)) {
+          for (const exercise of day.exercises) {
+            for (const name of [exercise.name, ...exercise.alternatives]) {
+              catalog.push(training.resolveExerciseVariant(exercise, name));
+            }
+          }
+        }
+      }
+    }
+  }
+  assert.ok(catalog.length > 300);
+  const namesByIdentity = new Map();
+  for (const exercise of catalog) {
+    const identity = training.loadProfileId(exercise);
+    if (!namesByIdentity.has(identity)) namesByIdentity.set(identity, new Set());
+    namesByIdentity.get(identity).add(exercise.name.toLocaleLowerCase());
+  }
+  for (const [identity, names] of namesByIdentity) {
+    assert.equal(names.size, 1, `${identity} unexpectedly combines ${[...names].join(", ")}`);
+  }
+
+  const samples = [...new Map(catalog.map((exercise) => [training.loadProfileId(exercise), exercise])).values()];
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.sessions = samples.map((exercise, index) => {
+    const key = `audit-${index}`;
+    return {
+      id: key,
+      date: `2026-08-${String((index % 28) + 1).padStart(2, "0")}`,
+      dayId: "audit",
+      unit: "kg",
+      entries: { [key]: [{ w: training.exerciseNeedsLoad(exercise) ? "20" : "", r: "8", rir: "2" }] },
+      planSnapshot: { programId: "phase1", frequency: 5, preferredWeekdays: [1, 2, 3, 4, 5], track: "current", goal: "balanced", equipment: "full", dayId: "audit", dayName: "Audit", focus: "Audit", exercises: [{ ...exercise, key }] },
+      completionStatus: "completed",
+      revision: 1,
+      createdAt: `2026-08-${String((index % 28) + 1).padStart(2, "0")}T${String(index % 24).padStart(2, "0")}:00:00.000Z`,
+      updatedAt: `2026-08-${String((index % 28) + 1).padStart(2, "0")}T${String(index % 24).padStart(2, "0")}:30:00.000Z`,
+    };
+  });
+  for (const target of catalog) {
+    const expectedIdentity = training.loadProfileId(target);
+    const history = training.comparableExerciseHistory(data, target);
+    assert.ok(history.length >= 1, `${target.name} lost its recorded history`);
+    assert.equal(history.every((item) => training.loadProfileId(item.exercise) === expectedIdentity), true, `${target.name} received unrelated history`);
+  }
+});
+
 test("legacy sessions use the nearest prior weigh-in rather than today's profile weight", () => {
   const data = training.emptyData();
   data.profile = { bodyweight: 90, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };

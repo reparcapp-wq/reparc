@@ -1209,18 +1209,15 @@ export const comparableExerciseHistory = (data: TrainingData, target: Exercise):
   const targetIdentity = loadProfileId(target);
   return activeSessions(data)
     .flatMap((session) => {
-      const match = Object.entries(session.entries).find(([key, entries]) => {
+      return Object.entries(session.entries).flatMap(([key, entries]) => {
         const historicalExercise = exerciseForSessionKey(session, key);
-        return Boolean(
-          historicalExercise
-          && loadProfileId(historicalExercise) === targetIdentity
-          && entries.some((entry) => isFilledSet(entry, historicalExercise)),
-        );
+        if (
+          !historicalExercise
+          || loadProfileId(historicalExercise) !== targetIdentity
+          || !entries.some((entry) => isFilledSet(entry, historicalExercise))
+        ) return [];
+        return [{ session, key, exercise: historicalExercise, entries }];
       });
-      if (!match) return [];
-      const [key, entries] = match;
-      const exercise = exerciseForSessionKey(session, key)!;
-      return [{ session, key, exercise, entries }];
     })
     .sort((left, right) => left.session.date.localeCompare(right.session.date) || left.session.createdAt.localeCompare(right.session.createdAt));
 };
@@ -1411,10 +1408,11 @@ export const phaseTwoProgrammedExercises = (track: ProgramTrack = "current") =>
   track === "women" ? WOMENS_PHASE_TWO_PROGRAMMED_EXERCISES : PHASE_TWO_PROGRAMMED_EXERCISES;
 
 export const suggestedTrainingMax = (data: TrainingData, exercise: Exercise, unit: Unit) => {
+  const targetIdentity = loadProfileId(exercise);
   return activeSessions(data).reduce((best, session) => {
     return Object.entries(session.entries).reduce((innerBest, [key, entries]) => {
       const historicalExercise = exerciseForSessionKey(session, key);
-      if (!historicalExercise || historicalExercise.name.toLocaleLowerCase() !== exercise.name.toLocaleLowerCase() || !supportsEstimatedMax(historicalExercise)) return innerBest;
+      if (!historicalExercise || loadProfileId(historicalExercise) !== targetIdentity || !supportsEstimatedMax(historicalExercise)) return innerBest;
       return entries.reduce((setBest, entry) => {
         const reps = numeric(entry.r);
         if (!isFilledSet(entry, historicalExercise) || reps < 4 || reps > 10) return setBest;

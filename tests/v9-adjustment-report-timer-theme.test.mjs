@@ -190,6 +190,42 @@ test("a performance improvement becomes established only after it repeats", () =
   assert.match(report.headline, /repeated a positive performance trend/i);
 });
 
+test("daily reports compare the same Pec Deck movement across different slots", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  const upperC = training.programDays("phase1", 5, "current").find((day) => day.id === "UC");
+  const pecDeck = upperC.exercises.find((item) => item.name === "Pec deck");
+  const priorSnapshot = training.buildSessionPlanSnapshot(data, { ...upperC, exercises: [pecDeck] }, "phase1", 1, 5);
+  const upperA = training.programDays("phase1", 5, "current").find((day) => day.id === "UA");
+  const cableFly = upperA.exercises.find((item) => item.name === "Cable fly");
+  data.swaps = { [cableFly.id]: "Pec deck" };
+  const currentSnapshot = training.buildSessionPlanSnapshot(data, { ...upperA, exercises: [cableFly] }, "phase1", 1, 5);
+  const session = (id, date, snapshot, weight) => ({
+    id,
+    date,
+    dayId: snapshot.dayId,
+    unit: "kg",
+    entries: { [snapshot.exercises[0].key]: Array.from({ length: snapshot.exercises[0].sets }, () => filled(weight, 10, 2)) },
+    planSnapshot: snapshot,
+    completionStatus: "completed",
+    revision: 1,
+    createdAt: `${date}T10:00:00.000Z`,
+    updatedAt: `${date}T11:00:00.000Z`,
+  });
+  data.sessions = [session("prior", "2026-09-01", priorSnapshot, 30), session("current", "2026-09-05", currentSnapshot, 35)];
+  const report = reports.buildDailyReport(data, "2026-09-05");
+  assert.equal(report.exercises.length, 1);
+  assert.equal(report.exercises[0].name, "Pec deck");
+  assert.ok(report.exercises[0].priorBestEstimatedMax > 0);
+  assert.ok(report.exercises[0].changePercent > 0);
+});
+
+test("progress trends group equivalent movements by identity rather than workout slot", async () => {
+  const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  assert.match(source, /const identity = loadProfileId\(exercise\)/);
+  assert.match(source, /series\[identity\]\?\.points/);
+});
+
 test("new session context fields survive validation while invalid values are discarded", () => {
   const migrated = training.normalizeTrainingData({
     profile: { bw: 80, unit: "kg", level: "some" },

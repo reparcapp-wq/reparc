@@ -735,7 +735,7 @@ function ProgressView({
   const activeWeeks = new Set(sessions.map((session) => weekKey(session.date))).size;
 
   const series = useMemo(() => {
-    const byExercise: Record<string, Array<{ date: string; value: number }>> = {};
+    const byExercise: Record<string, { name: string; points: Array<{ date: string; value: number }> }> = {};
     [...sessions]
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .forEach((session) => {
@@ -750,9 +750,10 @@ function ProgressView({
             const load = exercise ? effectiveExerciseLoad(exercise, external, bodyweight) : external;
             return Math.max(maximum, estimatedOneRepMax(load, reps));
           }, 0);
-          if (!best) return;
-          if (!byExercise[key]) byExercise[key] = [];
-          byExercise[key].push({ date: session.date, value: best });
+          if (!best || !exercise) return;
+          const identity = loadProfileId(exercise);
+          if (!byExercise[identity]) byExercise[identity] = { name: exercise.name, points: [] };
+          byExercise[identity].points.push({ date: session.date, value: best });
         });
       });
     return byExercise;
@@ -1023,7 +1024,10 @@ function ProgressView({
           ) : (
             <div className="mt-5 space-y-3">
               {visibleGrouped.map(([key, sessions]) => {
-                const keys = [...new Set(sessions.flatMap((session) => Object.keys(session.entries)))];
+                const movements = [...new Map(sessions.flatMap((session) => Object.keys(session.entries).flatMap((exerciseKeyValue) => {
+                  const exercise = storedExercise(session, exerciseKeyValue);
+                  return exercise ? [[loadProfileId(exercise), exercise.name] as const] : [];
+                }))).entries()];
                 const dailyReport = range === "day" ? buildDailyReport(data, key) : null;
                 const periodReports = range === "day"
                   ? []
@@ -1105,19 +1109,19 @@ function ProgressView({
                     {!dailyReport && !!sessions.length && !isCurrentPeriod && <details className="border-t border-white/10">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-xs font-semibold text-stone-300 sm:px-5">
                         <span>Exercises &amp; progression</span>
-                        <span className="flex items-center gap-2 font-mono text-[9px] font-normal uppercase tracking-wider text-stone-600">{keys.length} movement{keys.length === 1 ? "" : "s"}<ChevronDown className="size-4" /></span>
+                        <span className="flex items-center gap-2 font-mono text-[9px] font-normal uppercase tracking-wider text-stone-600">{movements.length} movement{movements.length === 1 ? "" : "s"}<ChevronDown className="size-4" /></span>
                       </summary>
                       <div className="border-t border-white/[0.07]">
-                      {keys.map((exerciseKeyValue) => {
-                        const points = (series[exerciseKeyValue] ?? []).map((point) => point.value).slice(-12);
+                      {movements.map(([identity, name]) => {
+                        const points = (series[identity]?.points ?? []).map((point) => point.value).slice(-12);
                         const first = points[0] ?? 0;
                         const latest = points.at(-1) ?? 0;
                         const delta = latest - first;
                         const deltaPercent = first > 0 ? (delta / first) * 100 : 0;
                         return (
-                          <div key={exerciseKeyValue} className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-3 border-t border-white/[0.07] px-4 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_6rem_4.5rem] sm:px-5">
+                          <div key={identity} className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-3 border-t border-white/[0.07] px-4 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_6rem_4.5rem] sm:px-5">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium">{exerciseName(exerciseKeyValue)}</p>
+                              <p className="truncate text-sm font-medium">{name}</p>
                               <p className="mt-1 font-mono text-[9px] uppercase tracking-wider text-stone-600">Estimated max trend</p>
                             </div>
                             <div className="hidden sm:block"><Sparkline points={points} /></div>
