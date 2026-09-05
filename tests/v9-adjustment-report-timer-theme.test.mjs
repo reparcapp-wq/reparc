@@ -23,10 +23,36 @@ const exercise = training.programDays("phase1", 5, "current")[0].exercises[0];
 const filled = (weight, reps, rir = "2") => ({ w: String(weight), r: String(reps), rir: String(rir) });
 
 test("next-set advice reduces one practical increment after a high-effort miss", () => {
-  const result = adjustment.nextSetAdjustment({ exercise, entries: [filled(100, exercise.repLow - 1, 0)], unit: "kg", readiness: "normal" });
+  const result = adjustment.nextSetAdjustment({ exercise, entries: [filled(100, exercise.repLow - 1, 0)], unit: "kg", readiness: "normal", availableLoads: [95, 100, 105] });
   assert.equal(result.action, "decrease");
-  assert.ok(result.nextLoad < 100);
-  assert.match(result.reason, /reduce|back off/i);
+  assert.equal(result.nextLoad, 95);
+  assert.match(result.reason, /lower load/i);
+});
+
+test("blank RIR remains unknown and cannot trigger an invented decrease", () => {
+  const result = adjustment.nextSetAdjustment({ exercise, entries: [filled(5, exercise.repLow - 1, "")], unit: "kg", readiness: "normal", availableLoads: [2.5, 5, 7.5] });
+  assert.equal(result.action, "hold");
+  assert.equal(result.nextLoad, 5);
+  assert.equal(result.confidence, "low");
+  assert.match(result.evidence.join(" "), /RIR not recorded/i);
+});
+
+test("blank RIR cannot trigger a next-session increase", () => {
+  const entries = Array.from({ length: exercise.sets }, () => filled(25, exercise.repHigh, ""));
+  const result = adjustment.nextSessionAdjustment({ exercise, entries, unit: "kg", readiness: "normal", availableLoads: [22.5, 25, 27.5] });
+  assert.equal(result.action, "hold");
+  assert.equal(result.nextLoad, 25);
+  assert.equal(result.confidence, "low");
+});
+
+test("equipment-aware advice never invents an unavailable 4 kg dumbbell", () => {
+  const lower = adjustment.nextSetAdjustment({ exercise, entries: [filled(5, exercise.repLow - 1, 0)], unit: "kg", readiness: "normal", availableLoads: [2.5, 5, 7.5] });
+  assert.equal(lower.nextLoad, 2.5);
+  const higher = adjustment.nextSetAdjustment({ exercise, entries: [filled(25, exercise.repHigh, 5)], unit: "kg", readiness: "normal", availableLoads: [22.5, 25, 27.5] });
+  assert.equal(higher.nextLoad, 27.5);
+  const unconfigured = adjustment.nextSetAdjustment({ exercise, entries: [filled(5, exercise.repLow - 1, 0)], unit: "kg", readiness: "normal" });
+  assert.equal(unconfigured.nextLoad, null);
+  assert.match(unconfigured.reason, /configure/i);
 });
 
 test("next-set advice holds instead of increasing when readiness is reduced", () => {
@@ -62,6 +88,14 @@ test("pain always overrides progression", () => {
   assert.equal(result.confidence, "high");
 });
 
+test("movement-limiting soreness blocks training and progression", () => {
+  const result = adjustment.nextSessionAdjustment({ exercise, entries: Array.from({ length: exercise.sets }, () => filled(100, exercise.repHigh, 3)), unit: "kg", readiness: "severe-soreness" });
+  assert.equal(result.action, "stop");
+  assert.equal(result.nextLoad, null);
+  assert.equal(result.confidence, "high");
+  assert.match(result.reason, /do not prescribe/i);
+});
+
 test("daily report measures adherence and reduces confidence when effort data is missing", () => {
   const base = training.emptyData();
   const profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
@@ -71,7 +105,7 @@ test("daily report measures adherence and reduces confidence when effort data is
   const priorEntries = Array.from({ length: first.sets }, () => filled(80, first.repLow, 2));
   const currentEntries = Array.from({ length: first.sets }, () => filled(85, first.repHigh, ""));
   const session = (id, date, entries, extra = {}) => ({ id, date, dayId: day.id, unit: "kg", entries: { [key]: entries }, programId: "phase1", revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z`, ...extra });
-  const data = { ...base, profile, setupVersion: 2, sessions: [session("prior", "2026-08-31", priorEntries), session("today", "2026-09-01", currentEntries, { sessionRpe: 7, durationSeconds: 3600 })] };
+  const data = { ...base, profile, setupVersion: 2, sessions: [session("prior", "2026-08-31", priorEntries), session("today", "2026-09-01", currentEntries, { sessionRpe: 7, durationSeconds: 3600, warmup: { mode: "walk", durationMinutes: 5, intensity: "easy" }, postCardio: { mode: "bike", durationMinutes: 10, intensity: "moderate" } })] };
   const report = reports.buildDailyReport(data, "2026-09-01");
   assert.equal(report.sessions, 1);
   assert.equal(report.completedSets, first.sets);
@@ -79,6 +113,8 @@ test("daily report measures adherence and reduces confidence when effort data is
   assert.equal(report.rirCoveragePercent, 0);
   assert.equal(report.averageSessionRpe, 7);
   assert.equal(report.totalDurationSeconds, 3600);
+  assert.equal(report.warmupMinutes, 5);
+  assert.equal(report.postCardioMinutes, 10);
   assert.equal(report.confidence, "low");
   assert.equal(report.performanceImprovements, 0);
   assert.ok(report.possiblePerformanceImprovements >= 1);
@@ -95,6 +131,11 @@ test("daily report distinguishes a recovery day from a scheduled workout without
   const missed = reports.buildDailyReport(data, "2026-09-01");
   assert.equal(missed.status, "missed");
   assert.match(missed.summary, /saved training schedule/i);
+  data.absences = [{ id: "soreness", startDate: "2026-09-01", endDate: "2026-09-01", missedDates: ["2026-09-01"], reason: "soreness", resolution: "skip", programId: "phase1", frequency: 5, resolvedDayIds: ["LA"], createdAt: "2026-09-02T08:00:00.000Z", updatedAt: "2026-09-02T08:00:00.000Z" }];
+  const sorenessRecovery = reports.buildDailyReport(data, "2026-09-01");
+  assert.equal(sorenessRecovery.status, "recovery");
+  assert.match(sorenessRecovery.label, /soreness recovery/i);
+  assert.match(sorenessRecovery.summary, /no performance was invented/i);
 });
 
 test("schedule adherence counts due days without inventing reports for missing workouts", () => {
@@ -109,7 +150,7 @@ test("schedule adherence counts due days without inventing reports for missing w
   const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "20" : "", r: String(exercise.repLow), rir: "2" }))]));
   data.sessions = [{ id: "monday", logicalKey: "monday", date: "2026-08-31", dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T11:00:00.000Z" }];
   const adherence = reports.buildScheduleAdherence(data, "2026-08-31", "2026-09-06", "2026-09-02");
-  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, loggedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 });
+  assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, loggedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, sorenessRecoverySessions: 0, externalSessions: 0, plannedBreakDays: 0 });
 });
 
 test("training elsewhere fulfills schedule adherence without creating performance data", () => {

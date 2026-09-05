@@ -36,7 +36,7 @@ export function parseTrainingBackup(text: string): BackupPreview {
   if (envelope && record.formatVersion !== 1) throw new Error("This backup format is newer than this app supports.");
   const raw = (envelope ? record.data : record) as Record<string, unknown>;
   const sourceVersion = Number(raw?.version);
-  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 7) throw new Error("This backup version is not supported.");
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 8) throw new Error("This backup version is not supported.");
   if (!Array.isArray(raw.sessions) || !raw.program || typeof raw.program !== "object") throw new Error("The backup is missing required training data.");
   if (raw.sessions.length > 5_000) throw new Error("This backup contains too many sessions to restore safely.");
   if (raw.weighIns !== undefined && !Array.isArray(raw.weighIns)) throw new Error("The backup contains an invalid weigh-in history.");

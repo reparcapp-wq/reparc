@@ -19,6 +19,8 @@ import {
   Download,
   Dumbbell,
   FileJson,
+  Footprints,
+  HeartPulse,
   History,
   Lock,
   LockOpen,
@@ -76,12 +78,17 @@ import {
   isFilledSet,
   isoDate,
   numeric,
+  loadProfileValues,
+  loadProfileId,
+  normalizeLoadValues,
   nextUnfinishedProgramDay,
   prettyDate,
   programDays,
   recalculatePhase2Progression,
+  returnPlanSetCount,
   recordPlanChange,
   resolveExerciseVariant,
+  resolveAvailableLoad,
   roundLoad,
   sbsPrescription,
   sessionCountsAsCompletedDay,
@@ -103,6 +110,9 @@ import {
   type Gender,
   type Level,
   type Profile,
+  type ConditioningLog,
+  type CardioMode,
+  type ConditioningIntensity,
   type ProgramId,
   type Readiness,
   type Session,
@@ -160,6 +170,38 @@ const waitForRepArcLoader = async (startedAt: number) => {
 };
 
 const emptySet = (): SetEntry => ({ w: "", r: "", rir: "" });
+
+const LOAD_PROFILE_PRESETS = [
+  { label: "Dumbbells 2.5–40 kg", unit: "kg" as const, values: [2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 37.5, 40] },
+  { label: "Stack 5–91 kg", unit: "kg" as const, values: [5, 9, 14, 18, 23, 27, 32, 36, 41, 45, 50, 54, 59, 64, 68, 73, 77, 82, 86, 91] },
+  { label: "Stack 4.5–90 kg", unit: "kg" as const, values: [4.5, 9, 14, 18, 23, 29, 36, 43, 50, 57, 63, 70, 77, 84, 90] },
+  { label: "Stack 4.5–104 kg", unit: "kg" as const, values: [4.5, 9, 14, 18, 23, 29, 36, 43, 50, 57, 63, 70, 77, 84, 90, 97, 104] },
+  { label: "Stack 9–104 kg", unit: "kg" as const, values: [9, 14, 18, 23, 29, 36, 43, 50, 57, 63, 70, 77, 84, 90, 97, 104] },
+] as const;
+
+function ConditioningEditor({ kind, value, onChange }: { kind: "warmup" | "post"; value: ConditioningLog | null; onChange: (value: ConditioningLog | null) => void }) {
+  const isWarmup = kind === "warmup";
+  const update = <K extends keyof ConditioningLog,>(field: K, next: ConditioningLog[K]) => onChange({ mode: value?.mode ?? "walk", durationMinutes: value?.durationMinutes ?? (isWarmup ? 5 : 10), intensity: value?.intensity ?? "easy", [field]: next });
+  const modes: Array<[CardioMode, string]> = [["walk", "Walk"], ["bike", "Bike"], ["stairs", "Stairs"], ["other", "Other"]];
+  const intensities: Array<[ConditioningIntensity, string]> = [["easy", "Easy"], ["moderate", "Moderate"], ["vigorous", "Vigorous"]];
+  return (
+    <details className="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-amber-300/10 text-amber-300">{isWarmup ? <Footprints className="size-4" /> : <HeartPulse className="size-4" />}</span><div><p className="text-sm font-semibold">{isWarmup ? "Warm-up" : "Post-lift cardio"} · optional</p><p className="mt-0.5 text-[11px] text-stone-500">{value ? `${value.durationMinutes} min · ${value.mode} · ${value.intensity}` : isWarmup ? "Brief and easy before working sets" : "After lifting or in a separate session"}</p></div></div>
+        <ChevronDown className="size-4 text-stone-500" />
+      </summary>
+      <div className="mt-4 space-y-3">
+        <p className="text-xs leading-5 text-stone-500">{isWarmup ? "Aim to feel warm without tiring yourself. Before the first heavy or unfamiliar movement, add 1–3 progressively heavier rehearsal sets; do not log those as working sets. Stairs can fatigue the legs, so keep them easy on lower-body days." : "This is not required for recovery. If strength is the priority, place substantial cardio after lifting or separate it by several hours."}</p>
+        <div className="grid grid-cols-4 gap-1.5">{modes.map(([mode, label]) => <Button key={mode} type="button" variant="outline" data-selected={value?.mode === mode} aria-pressed={value?.mode === mode} onClick={() => update("mode", mode)} className="selection-button h-9 rounded-lg px-1 text-[11px]">{label}</Button>)}</div>
+        <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+          <div className="grid grid-cols-3 gap-1.5">{intensities.map(([intensity, label]) => <Button key={intensity} type="button" variant="outline" data-selected={value?.intensity === intensity} aria-pressed={value?.intensity === intensity} onClick={() => update("intensity", intensity)} className="selection-button h-9 rounded-lg px-1 text-[10px]">{label}</Button>)}</div>
+          <Input inputMode="numeric" value={value?.durationMinutes ?? ""} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { if (/^\d{0,3}$/.test(event.target.value)) update("durationMinutes", Math.max(1, Math.min(300, Number(event.target.value) || 1))); }} placeholder={isWarmup ? "5 min" : "10 min"} aria-label={`${isWarmup ? "Warm-up" : "Post-lift cardio"} minutes`} className="h-9 rounded-lg border-white/10 bg-black/20 text-center font-mono text-xs" />
+        </div>
+        <div className="flex items-center justify-between"><p className="text-[10px] text-stone-600">Easy = full sentences. Moderate = talk, not sing.</p>{value && <button type="button" onClick={() => onChange(null)} className="text-[11px] text-stone-500 hover:text-white">Clear</button>}</div>
+      </div>
+    </details>
+  );
+}
 
 const formatTimer = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -844,6 +886,7 @@ function ProgressView({
 
   const dailyStatus = (date: string) => {
     const absence = data.absences.find((record) => record.missedDates.includes(date));
+    if (absence?.reason === "soreness" && absence.resolution === "skip") return "recovery" as const;
     if (absence?.resolution === "trained-elsewhere") return "external" as const;
     if (absence?.resolution === "skip") return "skipped" as const;
     if (absence?.resolution === "pause") return "paused" as const;
@@ -923,7 +966,7 @@ function ProgressView({
                         ? "bg-amber-300"
                         : status === "partial" || status === "skipped"
                           ? "bg-red-300"
-                          : status === "external"
+                          : status === "external" || status === "recovery"
                             ? "bg-sky-300"
                             : status === "paused"
                               ? "bg-stone-400"
@@ -1029,6 +1072,7 @@ function ProgressView({
                         <details className="mt-3 rounded-xl border border-white/[0.07] bg-black/10 p-3">
                           <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-stone-300">Analysis and next-session guidance<ChevronDown className="size-4 text-stone-500" /></summary>
                           <div className="mt-3 grid grid-cols-3 gap-2"><div><p className="font-mono text-sm text-stone-200">{dailyReport.totalReps}</p><p className="text-[9px] uppercase text-stone-600">Total reps</p></div><div><p className="font-mono text-sm text-stone-200">{Math.round(dailyReport.loadedVolume).toLocaleString()} {profile.unit}-reps</p><p className="text-[9px] uppercase text-stone-600">External volume</p></div><div><p className="font-mono text-sm text-stone-200">{dailyReport.rirCoveragePercent}%</p><p className="text-[9px] uppercase text-stone-600">RIR coverage</p></div></div>
+                          {(dailyReport.warmupMinutes > 0 || dailyReport.postCardioMinutes > 0) && <p className="mt-3 text-[10px] text-stone-600">Conditioning logged: {dailyReport.warmupMinutes} min warm-up · {dailyReport.postCardioMinutes} min post-lift. These minutes are descriptive and do not change load progression.</p>}
                           {!!dailyReport.exercises.length && <div className="mt-3 space-y-2">{dailyReport.exercises.map((exercise) => exercise.recommendation && (
                             <div key={exercise.key} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
                               <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{exercise.name}</p><span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${exercise.recommendation.action === "increase" ? "bg-emerald-300/10 text-emerald-300" : exercise.recommendation.action === "decrease" || exercise.recommendation.action === "stop" ? "bg-red-300/10 text-red-300" : "bg-white/[0.07] text-stone-400"}`}>{exercise.recommendation.action}{exercise.recommendation.nextLoad !== null ? ` · ${exercise.recommendation.nextLoad} ${profile.unit}` : ""}</span></div>
@@ -1054,7 +1098,7 @@ function ProgressView({
                           ["Avg effort", averageEffort === null ? "Not logged" : `${averageEffort.toFixed(1)} / 10`],
                         ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
                       </div>
-                      {scheduleAdherence && (scheduleAdherence.movedSessions > 0 || scheduleAdherence.skippedSessions > 0 || scheduleAdherence.externalSessions > 0 || scheduleAdherence.plannedBreakDays > 0) && <p className="mt-3 text-[10px] leading-4 text-stone-600">Schedule context: {[scheduleAdherence.movedSessions ? `${scheduleAdherence.movedSessions} moved` : "", scheduleAdherence.externalSessions ? `${scheduleAdherence.externalSessions} elsewhere` : "", scheduleAdherence.skippedSessions ? `${scheduleAdherence.skippedSessions} skipped` : "", scheduleAdherence.plannedBreakDays ? `${scheduleAdherence.plannedBreakDays} planned-break day${scheduleAdherence.plannedBreakDays === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}.</p>}
+                      {scheduleAdherence && (scheduleAdherence.movedSessions > 0 || scheduleAdherence.skippedSessions > 0 || scheduleAdherence.externalSessions > 0 || scheduleAdherence.plannedBreakDays > 0) && <p className="mt-3 text-[10px] leading-4 text-stone-600">Schedule context: {[scheduleAdherence.movedSessions ? `${scheduleAdherence.movedSessions} moved` : "", scheduleAdherence.externalSessions ? `${scheduleAdherence.externalSessions} elsewhere` : "", scheduleAdherence.sorenessRecoverySessions ? `${scheduleAdherence.sorenessRecoverySessions} soreness recovery` : "", scheduleAdherence.skippedSessions - scheduleAdherence.sorenessRecoverySessions ? `${scheduleAdherence.skippedSessions - scheduleAdherence.sorenessRecoverySessions} skipped` : "", scheduleAdherence.plannedBreakDays ? `${scheduleAdherence.plannedBreakDays} planned-break day${scheduleAdherence.plannedBreakDays === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}.</p>}
                       <p className="mt-3 text-[10px] text-stone-600">External-load volume: {Math.round(loadedVolume).toLocaleString()} {profile.unit}-reps. Per-side loads count both sides; compare only the same exercise and setup. Bodyweight is excluded.</p>
                     </section>}
                     {!dailyReport && !!sessions.length && !isCurrentPeriod && <details className="border-t border-white/10">
@@ -1216,10 +1260,17 @@ function SettingsView({
         convertWeight(value, profile.unit, unit),
       ]),
     );
+    const convertedLoadProfiles = Object.fromEntries(Object.entries(data.loadProfiles).map(([key, loadProfile]) => [key, {
+      ...loadProfile,
+      unit,
+      values: normalizeLoadValues(loadProfile.values.map((value) => convertWeight(value, loadProfile.unit, unit))),
+      updatedAt: new Date().toISOString(),
+    }]));
     const now = new Date().toISOString();
     const next = recordPlanChange({
       ...data,
       profile: { ...profile, unit, bodyweight: convertedBodyweight },
+      loadProfiles: convertedLoadProfiles,
       program: { ...data.program, trainingMaxes: convertedTrainingMaxes },
       updatedAt: now,
     }, "profile", now);
@@ -1593,6 +1644,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [sessionRpe, setSessionRpe] = useState<number | null>(null);
+  const [warmup, setWarmup] = useState<ConditioningLog | null>(null);
+  const [postCardio, setPostCardio] = useState<ConditioningLog | null>(null);
+  const [loadProfileDrafts, setLoadProfileDrafts] = useState<Record<string, string>>({});
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [activeDate, setActiveDate] = useState(today);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -1614,6 +1668,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const alertedRestEndRef = useRef<number | null>(null);
   const restoredTimerKeyRef = useRef<string | null>(null);
   const restoredSessionStartKeyRef = useRef<string | null>(null);
+  const hydratedSessionKeyRef = useRef<string | null>(null);
   const restTimerAnchorRef = useRef<HTMLDivElement | null>(null);
   const syncAttemptRef = useRef(false);
 
@@ -1628,7 +1683,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setReadiness(null);
     setReadinessOpen(false);
     setSessionRpe(null);
+    setWarmup(null);
+    setPostCardio(null);
     setSessionStartedAt(null);
+    hydratedSessionKeyRef.current = null;
     restoredSessionStartKeyRef.current = null;
     setActiveExerciseIndex(0);
     setDayId(match?.id ?? null);
@@ -1883,6 +1941,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const previousUnit = data.profile?.unit;
     const nextUnit = next.profile?.unit;
     if (previousUnit && nextUnit && previousUnit !== nextUnit) {
+      setLoadProfileDrafts({});
       setDrafts((currentDrafts) => Object.fromEntries(
         Object.entries(currentDrafts).map(([draftDayId, entries]) => [
           draftDayId,
@@ -1976,7 +2035,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const activeDays = !editingSession && data.program.returnPlan
     ? baseActiveDays.map((programDay) => ({
         ...programDay,
-        exercises: programDay.exercises.map((exercise) => ({ ...exercise, sets: Math.max(1, Math.ceil(exercise.sets * data.program.returnPlan!.volumeFactor)) })),
+        exercises: programDay.exercises.map((exercise) => ({ ...exercise, sets: returnPlanSetCount(exercise.sets, data.program.returnPlan!.volumeFactor) })),
       }))
     : baseActiveDays;
   const day = activeDays.find((item) => item.id === dayId) ?? null;
@@ -2041,6 +2100,16 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       )
     : undefined);
   const draftKey = day ? `${workingProgramId}:${workingWeek}:${activeDate}:${day.id}` : null;
+
+  useEffect(() => {
+    const hydrationKey = currentSession?.id ?? draftKey;
+    if (!hydrationKey || hydratedSessionKeyRef.current === hydrationKey) return;
+    hydratedSessionKeyRef.current = hydrationKey;
+    setReadiness(currentSession?.readiness ?? null);
+    setSessionRpe(currentSession?.sessionRpe ?? null);
+    setWarmup(currentSession?.warmup ?? null);
+    setPostCardio(currentSession?.postCardio ?? null);
+  }, [currentSession?.id, currentSession?.postCardio, currentSession?.readiness, currentSession?.sessionRpe, currentSession?.warmup, draftKey]);
   const sessionStartStorageKey = name && draftKey ? `reparc-session-start:${slugify(account.id)}:${slugify(name)}:${draftKey}` : null;
   const shouldKeepScreenAwake = stage === "app" && view === "train" && Boolean(day) && (Boolean(restTimer) || (Boolean(sessionStartedAt) && !currentSession?.completedAt));
 
@@ -2122,23 +2191,27 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const suggestionFor = (exercise: Exercise, key: string): Suggestion | null => {
     if (!profile || !day) return null;
     const prescription = prescriptionFor(exercise);
+    const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit);
     if (prescription) {
       const storedTrainingMax = data.program.trainingMaxes[key];
       const trainingMax = storedTrainingMax || estimatedTrainingMax(exercise, key);
-      const value = roundLoad(trainingMax * prescription.intensity, profile.unit);
+      const theoreticalLoad = trainingMax * prescription.intensity;
+      const value = availableLoads.length ? resolveAvailableLoad(theoreticalLoad, availableLoads, "nearest") : null;
       return {
         value,
         tag: storedTrainingMax ? "hold" : "estimate",
-        reason: prescription.deload
-          ? `Week ${workingWeek} deload · ${Math.round(prescription.intensity * 100)}% TM · no AMRAP`
-          : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · final set ${prescription.repOutTarget}+`,
+        reason: !availableLoads.length
+          ? `Configure this exercise’s available loads to convert the ${Math.round(prescription.intensity * 100)}% training-max target into a load you can actually select.`
+          : prescription.deload
+            ? `Week ${workingWeek} deload · ${Math.round(prescription.intensity * 100)}% TM · nearest available load · no AMRAP`
+            : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · nearest available load · final set ${prescription.repOutTarget}+`,
       };
     }
     const history = historyFor(key);
     const last = history.at(-1);
     if (last) {
       const normalizedEntries = last.entries[key].map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
-      const adjustment = nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness });
+      const adjustment = nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness, availableLoads });
       if (adjustment) return {
         value: adjustment.nextLoad,
         tag: exercise.bodyweight && adjustment.nextLoad === null ? "bodyweight" : adjustment.action === "increase" ? "up" : adjustment.action === "decrease" || adjustment.action === "stop" ? "down" : "hold",
@@ -2256,6 +2329,25 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setNotice("");
   };
 
+  const saveLoadProfile = async (key: string, values: number[]) => {
+    if (!profile) return;
+    const normalized = normalizeLoadValues(values);
+    if (normalized.length < 2) {
+      setNotice("Enter at least two available loads, separated by commas.");
+      return;
+    }
+    const now = new Date().toISOString();
+    await persist({ ...data, loadProfiles: { ...data.loadProfiles, [key]: { unit: profile.unit, values: normalized, updatedAt: now } }, updatedAt: now }, "Available loads saved");
+    setLoadProfileDrafts((current) => ({ ...current, [key]: normalized.join(", ") }));
+  };
+
+  const clearLoadProfile = async (key: string) => {
+    const now = new Date().toISOString();
+    const nextProfiles = { ...data.loadProfiles, [key]: { unit: profile?.unit ?? "kg", values: [], updatedAt: now, deletedAt: now } };
+    await persist({ ...data, loadProfiles: nextProfiles, updatedAt: now }, "Available loads cleared");
+    setLoadProfileDrafts((current) => ({ ...current, [key]: "" }));
+  };
+
   const applySwap = async (exercise: Exercise, alternative: string | null) => {
     if (!day || !draftKey) return;
     if (editingSession) {
@@ -2289,8 +2381,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const saveSession = async () => {
     if (!day || !profile) return;
-    if (readiness === "pain") {
-      setNotice("Saving is paused because Pain / unsafe is selected in the readiness check.");
+    if (readiness === "pain" || readiness === "severe-soreness") {
+      setNotice(readiness === "severe-soreness" ? "Training is paused because movement-limiting soreness is selected." : "Saving is paused because Pain / unsafe is selected in the readiness check.");
       return;
     }
     if (data.program.status === "paused") {
@@ -2354,6 +2446,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       trainingMaxesAfter: workingProgramId === "phase2" ? trainingMaxesAfter : undefined,
       readiness: readiness ?? undefined,
       sessionRpe: sessionRpe ?? undefined,
+      warmup: warmup ?? undefined,
+      postCardio: postCardio ?? undefined,
       startedAt,
       completedAt: now,
       durationSeconds,
@@ -2452,6 +2546,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setDayId(session.dayId);
     setReadiness(session.readiness ?? null);
     setSessionRpe(session.sessionRpe ?? null);
+    setWarmup(session.warmup ?? null);
+    setPostCardio(session.postCardio ?? null);
     setSessionStartedAt(session.startedAt ?? null);
     setReadinessOpen(false);
     setActiveExerciseIndex(0);
@@ -2561,7 +2657,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   setReadiness(null);
                   setReadinessOpen(false);
                   setSessionRpe(null);
+                  setWarmup(null);
+                  setPostCardio(null);
                   setSessionStartedAt(null);
+                  hydratedSessionKeyRef.current = null;
                   restoredSessionStartKeyRef.current = null;
                   setActiveExerciseIndex(0);
                   pendingRestSetsRef.current.clear();
@@ -2613,6 +2712,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 <Button type="button" onClick={() => void resolveTimeAway("continue", "busy")} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><Play className="size-3.5" />Continue next</Button>
                 <Button type="button" variant="outline" onClick={() => void resolveTimeAway("trained-elsewhere", "other")} className="h-10 rounded-xl border-white/10 text-xs"><Check className="size-3.5" />Trained elsewhere</Button>
                 <Button type="button" variant="outline" onClick={() => void resolveTimeAway("skip", "busy")} className="h-10 rounded-xl border-white/10 text-xs">Skip missed</Button>
+                <Button type="button" variant="outline" onClick={() => void resolveTimeAway("skip", "soreness")} className="h-10 rounded-xl border-red-300/20 text-xs text-red-200"><ShieldAlert className="size-3.5" />Severe soreness</Button>
                 <Button type="button" variant="ghost" onClick={() => void resolveTimeAway("pause", "illness")} className="h-9 rounded-xl text-xs text-stone-400 hover:bg-white/10">Sick / injured</Button>
                 <Button type="button" variant="ghost" onClick={() => void resolveTimeAway("pause", "planned")} className="h-9 rounded-xl text-xs text-stone-400 hover:bg-white/10"><Pause className="size-3.5" />Pause program</Button>
               </div>
@@ -2632,13 +2732,15 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             <>
               <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <div><p className="eyebrow text-stone-500">Readiness · optional</p><p className="mt-1 text-sm font-semibold">{readiness === "normal" ? "Ready" : readiness === "low" ? "Low energy" : readiness === "sore" ? "Unusually sore" : readiness === "symptoms" ? "Menstrual symptoms" : readiness === "pain" ? "Pain / unsafe" : "How are you arriving today?"}</p></div>
+                  <div><p className="eyebrow text-stone-500">Readiness · optional</p><p className="mt-1 text-sm font-semibold">{readiness === "normal" ? "Ready" : readiness === "low" ? "Low energy" : readiness === "sore" ? "Unusually sore" : readiness === "severe-soreness" ? "Soreness limits walking" : readiness === "symptoms" ? "Menstrual symptoms" : readiness === "pain" ? "Pain / unsafe" : "How are you arriving today?"}</p></div>
                   <Button type="button" variant="ghost" onClick={() => setReadinessOpen((open) => !open)} aria-expanded={readinessOpen} className="h-10 rounded-xl px-3 text-xs text-amber-300 hover:bg-white/10 hover:text-amber-200">{readinessOpen ? "Done" : readiness ? "Change" : "Check in"}<ChevronDown className={`size-3.5 transition-transform ${readinessOpen ? "rotate-180" : ""}`} /></Button>
                 </div>
-                {readinessOpen && <div className="motion-pop mt-3 flex flex-wrap gap-2">{([['normal','Ready'],['low','Low energy'],['sore','Unusually sore'],...(profile.gender === 'woman' ? [['symptoms','Menstrual symptoms'] as const] : []),['pain','Pain / unsafe']] as Array<readonly [Readiness, string]>).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={readiness === value} data-selected={readiness === value} onClick={() => { setReadiness(value); if (value === "normal") setReadinessOpen(false); }} className="selection-button min-h-10 rounded-xl border-white/10 px-3 text-xs">{label}</Button>)}</div>}
+                {readinessOpen && <div className="motion-pop mt-3 flex flex-wrap gap-2">{([['normal','Ready'],['low','Low energy'],['sore','Unusually sore'],['severe-soreness','Soreness limits walking'],...(profile.gender === 'woman' ? [['symptoms','Menstrual symptoms'] as const] : []),['pain','Pain / unsafe']] as Array<readonly [Readiness, string]>).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={readiness === value} data-selected={readiness === value} onClick={() => { setReadiness(value); if (value === "normal") setReadinessOpen(false); }} className="selection-button min-h-10 rounded-xl border-white/10 px-3 text-xs">{label}</Button>)}</div>}
                 {(readiness === "low" || readiness === "sore" || readiness === "symptoms") && <p className="mt-3 text-xs leading-5 text-amber-200">Consider 5–10% less load, one fewer accessory set, two to three RIR, or postponing.</p>}
+                {readiness === "severe-soreness" && <div className="mt-3 flex gap-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs leading-5 text-red-200"><ShieldAlert className="mt-0.5 size-4 shrink-0" /><p>Do not train while soreness limits normal walking. Seek urgent medical care for dark tea/cola-colored urine, marked swelling, unusual weakness, reduced urination, or pain far beyond expected soreness.</p></div>}
                 {readiness === "pain" && <div className="mt-3 flex gap-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs leading-5 text-red-200"><ShieldAlert className="mt-0.5 size-4 shrink-0" /><p>Do not train through sharp, sudden or worsening pain. Saving is paused until you choose a safe readiness state.</p></div>}
               </div>
+              <div className="mb-4"><ConditioningEditor kind="warmup" value={warmup} onChange={setWarmup} /></div>
               <div className="mb-4 flex items-end justify-between gap-4">
                 <div>
                   <p className="eyebrow text-amber-300">Today&apos;s work</p>
@@ -2667,12 +2769,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   if (exerciseIndex !== activeExerciseIndex) return null;
                   const key = keyForExercise(baseExercise, exerciseIndex);
                   const exercise = resolvedForExercise(baseExercise, exerciseIndex);
+                  const equipmentProfileKey = loadProfileId(exercise);
+                  const availableLoads = loadProfileValues(data.loadProfiles[equipmentProfileKey] ?? data.loadProfiles[key], profile.unit);
                   const sets = log[key] ?? Array.from({ length: exercise.sets }, emptySet);
                   const baseSuggestion = suggestionFor(exercise, key);
                   const suggestion = !editingSession && data.program.returnPlan && baseSuggestion?.value
                     ? {
                         ...baseSuggestion,
-                        value: roundLoad(baseSuggestion.value * data.program.returnPlan.loadFactor, profile.unit),
+                        value: availableLoads.length ? resolveAvailableLoad(baseSuggestion.value * data.program.returnPlan.loadFactor, availableLoads, "nearest") : null,
                         tag: "hold" as const,
                         reason: `Return session ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions} · conservative starting load · target ${data.program.returnPlan.targetRir} RIR`,
                       }
@@ -2683,7 +2787,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const guidance = exerciseGuidance(displayName);
                   const prescription = prescriptionFor(exercise);
                   const TagIcon = suggestion?.tag === "up" ? ArrowUpRight : suggestion?.tag === "down" ? ArrowDownRight : Minus;
-                  const liveAdjustment = data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness }) : null;
+                  const liveAdjustment = data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads }) : null;
                   const nextSetIndex = sets.findIndex((entry) => !isFilledSet(entry, exercise));
 
                   return (
@@ -2745,6 +2849,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                             <p className="mt-3 leading-5 text-red-200"><strong>Stop:</strong> {guidance.stop}</p>
                           </details>
 
+                          {exerciseNeedsLoad(exercise) && <details className="ml-7 mt-3 rounded-xl border border-white/10 bg-white/[0.025] p-3 text-xs text-stone-400">
+                            <summary className="cursor-pointer font-semibold text-stone-300">Available loads {availableLoads.length ? `· ${availableLoads.length} saved` : "· set once for accurate adjustments"}</summary>
+                            <p className="mt-3 leading-5 text-stone-500">Choose the exact dumbbells, plates, or machine-stack values available for this exercise. RepArc will never suggest a value outside this list.</p>
+                            <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">{LOAD_PROFILE_PRESETS.map((preset) => <Button key={preset.label} type="button" variant="outline" onClick={() => void saveLoadProfile(equipmentProfileKey, preset.values.map((value) => preset.unit === profile.unit ? value : convertWeight(value, preset.unit, profile.unit)))} className="selection-button h-auto min-h-9 whitespace-normal rounded-lg px-2 py-1.5 text-[10px]">{preset.label}</Button>)}</div>
+                            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2"><Input value={loadProfileDrafts[equipmentProfileKey] ?? availableLoads.join(", ")} onChange={(event) => setLoadProfileDrafts((current) => ({ ...current, [equipmentProfileKey]: event.target.value }))} placeholder="2.5, 5, 7.5, 10…" aria-label={`Available ${profile.unit} loads for ${displayName}`} className="h-9 rounded-lg border-white/10 bg-black/20 font-mono text-[11px]" /><Button type="button" onClick={() => void saveLoadProfile(equipmentProfileKey, (loadProfileDrafts[equipmentProfileKey] ?? availableLoads.join(",")).split(/[,\s]+/).filter(Boolean).map(Number))} className="h-9 rounded-lg bg-amber-300 px-3 text-[11px] font-bold text-[#0b0d0c] hover:bg-amber-200">Save</Button></div>
+                            {availableLoads.length > 0 && <div className="mt-2 flex items-start justify-between gap-3"><p className="font-mono text-[10px] leading-4 text-stone-600">{availableLoads.join(" · ")} {profile.unit}</p><button type="button" onClick={() => void clearLoadProfile(equipmentProfileKey)} className="shrink-0 text-[10px] text-stone-500 hover:text-red-300">Clear</button></div>}
+                          </details>}
+
                           <div className="mt-5 grid grid-cols-[1.25rem_repeat(3,minmax(0,1fr))] items-center gap-2">
                             <span />
                             <span className="field-label">{exercise.loadingType === "assisted-bodyweight" ? `Assistance ${profile.unit}` : exercise.loadingType === "bodyweight" || exercise.bodyweight ? `Added ${profile.unit}` : exercise.loadingType === "unloaded" ? "Load optional" : profile.unit}</span>
@@ -2798,7 +2910,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                         <div className="space-y-3">
                           <div className="target-panel flex flex-row items-center justify-between rounded-2xl border border-white/10 bg-black/20 p-4 md:flex-col md:items-start">
                             <div>
-                              <p className="eyebrow">Target load</p>
+                              <p className="eyebrow">Next session target</p>
                               <p className="mt-2 font-mono text-3xl font-semibold tracking-tight">
                                 {suggestion?.value === null ? <span className="text-xl">{exercise.loadingType === "bodyweight" ? "Bodyweight" : exercise.loadingType === "assisted-bodyweight" ? "Choose assistance" : exercise.loadingType === "unloaded" ? "No fixed load" : "Choose load"}</span> : <>{suggestion?.value}<span className="ml-1 text-sm text-stone-500">{profile.unit}</span></>}
                               </p>
@@ -2818,7 +2930,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               <div className="flex flex-wrap items-center justify-between gap-2"><p className="flex items-center gap-1.5 text-xs font-semibold"><TrendingUp className="size-3.5" />Next-set adjustment</p><span className="font-mono text-[9px] uppercase text-stone-500">{liveAdjustment.confidence}</span></div>
                               <p className="mt-2 text-[11px] leading-4 text-stone-400">{liveAdjustment.reason}</p>
                               <p className="mt-1 font-mono text-[9px] text-stone-600">{liveAdjustment.evidence.join(" · ")}</p>
-                              {nextSetIndex >= 0 && liveAdjustment.nextLoad !== null && liveAdjustment.action !== "stop" && <Button type="button" variant="ghost" onClick={() => setField(key, nextSetIndex, "w", String(liveAdjustment.nextLoad))} className="mt-2 h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Apply {liveAdjustment.nextLoad} {profile.unit}</Button>}
+                              {nextSetIndex >= 0 && liveAdjustment.nextLoad !== null && liveAdjustment.action !== "stop" && <Button type="button" variant="ghost" onClick={() => setField(key, nextSetIndex, "w", String(liveAdjustment.nextLoad))} className="mt-2 h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">{liveAdjustment.action === "hold" ? "Keep" : "Use"} {liveAdjustment.nextLoad} {profile.unit}</Button>}
                             </div>
                           )}
                         </div>
@@ -2841,12 +2953,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 <div className="mt-3 grid grid-cols-5 gap-1.5 sm:grid-cols-10">{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <Button key={value} type="button" variant="outline" aria-pressed={sessionRpe === value} data-selected={sessionRpe === value} onClick={() => setSessionRpe(value)} className="selection-button h-10 rounded-lg border-white/10 px-0 font-mono text-xs">{value}</Button>)}</div>
               </details>
 
+              <div className="mt-4"><ConditioningEditor kind="post" value={postCardio} onChange={setPostCardio} /></div>
+
               <div className="mt-5 hidden items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#121512] p-4 lg:flex">
                 <div>
                   <p className="text-sm font-semibold">{currentSession ? "Update today’s session" : "Ready to lock it in?"}</p>
                   <p className="mt-1 text-xs text-stone-500">Your entries stay on screen after saving, so you can correct anything without losing the session.</p>
                 </div>
-                <Button onClick={() => void saveSession()} disabled={syncState === "saving" || data.program.status === "paused" || readiness === "pain"} className="h-12 min-w-48 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">
+                <Button onClick={() => void saveSession()} disabled={syncState === "saving" || data.program.status === "paused" || readiness === "pain" || readiness === "severe-soreness"} className="h-12 min-w-48 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">
                   {syncState === "saving" ? "Saving…" : currentSession ? "Update session" : "Save session"}
                 </Button>
               </div>
@@ -2886,7 +3000,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       {view === "train" && day && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0b0d0c]/95 px-4 pb-[calc(.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl lg:hidden">
           {notice && <p className={`motion-notice mb-2 text-center text-xs ${notice.includes("Could not") || notice.includes("at least") ? "text-red-300" : "text-amber-300"}`} role="status">{notice}</p>}
-          <Button onClick={() => void saveSession()} disabled={syncState === "saving" || data.program.status === "paused" || readiness === "pain"} className="h-[3.25rem] w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">
+          <Button onClick={() => void saveSession()} disabled={syncState === "saving" || data.program.status === "paused" || readiness === "pain" || readiness === "severe-soreness"} className="h-[3.25rem] w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">
             {syncState === "saving" ? "Saving…" : currentSession ? "Update session" : `Save session · ${completedSets}/${totalSets}`}
           </Button>
         </div>

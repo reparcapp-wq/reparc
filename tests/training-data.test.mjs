@@ -27,7 +27,7 @@ test("migrates the original profile and stamps legacy session units", () => {
     swaps: {},
   }, "2026-08-27T12:00:00.000Z");
 
-  assert.equal(migrated.version, 7);
+  assert.equal(migrated.version, 8);
   assert.equal(migrated.setupVersion, 2);
   assert.equal(migrated.setupCompletedAt, "2026-08-27T12:00:00.000Z");
   assert.equal(migrated.program.activeId, "phase1");
@@ -91,6 +91,32 @@ test("converts old session loads without changing their meaning", () => {
   const pounds = training.convertWeight(100, "kg", "lb");
   const kilograms = training.convertWeight(pounds, "lb", "kg");
   assert.ok(Math.abs(kilograms - 100) < 0.0001);
+});
+
+test("normalizes, converts and resolves real equipment load ladders", () => {
+  assert.deepEqual(training.normalizeLoadValues([5, "2.5", 5, -1, 7.5]), [2.5, 5, 7.5]);
+  assert.equal(training.resolveAvailableLoad(5, [2.5, 5, 7.5], "lower"), 2.5);
+  assert.equal(training.resolveAvailableLoad(5, [2.5, 5, 7.5], "higher"), 7.5);
+  assert.equal(training.resolveAvailableLoad(6.25, [5, 7.5], "nearest"), 5);
+  const pounds = training.loadProfileValues({ unit: "kg", values: [5, 10], updatedAt: "2026-09-05T00:00:00.000Z" }, "lb");
+  assert.ok(pounds[0] > 11 && pounds[1] > 22);
+});
+
+test("conditioning and load profiles survive migration and merge", () => {
+  const base = training.emptyData();
+  const normalized = training.normalizeTrainingData({
+    ...base,
+    loadProfiles: { press: { unit: "kg", values: [2.5, 5, 7.5], updatedAt: "2026-09-05T01:00:00.000Z" } },
+    sessions: [{ id: "session", date: "2026-09-05", dayId: "UA", unit: "kg", entries: {}, warmup: { mode: "walk", durationMinutes: 5, intensity: "easy" }, postCardio: { mode: "bike", durationMinutes: 12, intensity: "moderate" }, revision: 1, createdAt: "2026-09-05T01:00:00.000Z", updatedAt: "2026-09-05T02:00:00.000Z" }],
+  });
+  assert.equal(normalized.sessions[0].warmup.durationMinutes, 5);
+  assert.equal(normalized.sessions[0].postCardio.mode, "bike");
+  assert.deepEqual(normalized.loadProfiles.press.values, [2.5, 5, 7.5]);
+  const older = { ...normalized, loadProfiles: { press: { unit: "kg", values: [5, 10], updatedAt: "2026-09-04T01:00:00.000Z" } } };
+  assert.deepEqual(training.mergeTrainingData(older, normalized).loadProfiles.press.values, [2.5, 5, 7.5]);
+  const tombstone = { ...normalized, loadProfiles: { press: { unit: "kg", values: [], updatedAt: "2026-09-06T01:00:00.000Z", deletedAt: "2026-09-06T01:00:00.000Z" } } };
+  assert.deepEqual(training.mergeTrainingData(normalized, tombstone).loadProfiles.press.values, []);
+  assert.deepEqual(training.loadProfileValues(training.mergeTrainingData(normalized, tombstone).loadProfiles.press, "kg"), []);
 });
 
 test("counts reps-only bodyweight entries as complete", () => {
@@ -278,6 +304,13 @@ test("calibration and deleted sessions cannot advance a Phase 2 training max", (
   assert.equal(training.recalculatePhase2Progression(data).program.trainingMaxes[key], 100);
   const progressed = training.recalculatePhase2Progression({ ...data, sessions: [{ ...session, affectsProgression: true }] });
   assert.ok(progressed.program.trainingMaxes[key] > 100);
+  const stale = structuredClone(progressed);
+  stale.program.trainingMaxes[key] = 50;
+  stale.sessions[0].trainingMaxesAfter[key] = 50;
+  const normalized = training.normalizeTrainingData(stale);
+  assert.equal(normalized.program.trainingMaxes[key], progressed.program.trainingMaxes[key]);
+  assert.equal(normalized.sessions[0].trainingMaxesAfter[key], progressed.sessions[0].trainingMaxesAfter[key]);
+  assert.deepEqual(normalized.sessions[0].entries, stale.sessions[0].entries);
   const deleted = training.recalculatePhase2Progression({ ...progressed, sessions: [{ ...progressed.sessions[0], deletedAt: "2026-09-03T00:00:00.000Z" }] });
   assert.equal(deleted.program.trainingMaxes[key], 100);
 });
@@ -302,6 +335,9 @@ test("missed training detection credits moved workouts without inventing perform
 
 test("return plans scale conservatively with time away and end after bounded sessions", () => {
   assert.equal(training.buildReturnPlan(13, "busy"), undefined);
+  assert.deepEqual(training.buildReturnPlan(2, "soreness", "now"), { startedAt: "now", gapDays: 2, reason: "soreness", totalSessions: 1, sessionsRemaining: 1, loadFactor: 0.9, volumeFactor: 0.67, targetRir: 3 });
+  assert.equal(training.returnPlanSetCount(3, 0.67), 2);
+  assert.equal(training.returnPlanSetCount(2, 0.67), 1);
   assert.deepEqual(training.buildReturnPlan(14, "busy", "now"), { startedAt: "now", gapDays: 14, reason: "busy", totalSessions: 1, sessionsRemaining: 1, loadFactor: 0.9, volumeFactor: 0.75, targetRir: 3 });
   assert.equal(training.buildReturnPlan(35, "travel").totalSessions, 2);
   assert.equal(training.buildReturnPlan(70, "illness").totalSessions, 3);

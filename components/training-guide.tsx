@@ -123,6 +123,76 @@ const references = [
     limitation: "This guidance was written for organized athletic settings; RepArc uses simpler, user-overridable consumer guardrails.",
     href: "https://www.nsca.com/about-us/position-statements/safe-return-to-training/",
   },
+  {
+    grade: "Clinical safety",
+    title: "CDC rhabdomyolysis signs and symptoms",
+    result: "Muscle pain more severe than expected, dark tea- or cola-colored urine, and unusual weakness or exercise intolerance are warning signs that require immediate medical attention.",
+    limitation: "Symptoms overlap with other conditions; only a healthcare professional using blood testing can confirm or exclude rhabdomyolysis.",
+    href: "https://www.cdc.gov/niosh/rhabdo/signs-symptoms/index.html",
+  },
+  {
+    grade: "Moderate",
+    title: "Pre-conditioning and exercise-induced muscle damage",
+    result: "A systematic review and meta-analysis found that prior lower-impact exposure can reduce damage and recovery time after later unfamiliar strenuous exercise, supporting gradual re-exposure.",
+    limitation: "Most included participants were untrained and the evidence does not validate one exact load or set reduction for every user.",
+    href: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10356650/",
+  },
+  {
+    grade: "Moderate",
+    title: "Muscle temperature and performance after warm-up",
+    result: "A 2025 meta-analysis of 33 studies found that raising muscle temperature can improve fast and dynamic force outcomes, while maximum-force effects were not clear.",
+    limitation: "Protocols and populations varied, and the review does not establish one universal warm-up duration or prove injury prevention.",
+    href: "https://pmc.ncbi.nlm.nih.gov/articles/PMC12357318/",
+  },
+  {
+    grade: "Moderate",
+    title: "Aerobic exercise immediately before strength work",
+    result: "A meta-analysis found acute strength performance was more likely to decline when prior aerobic work was longer or harder, particularly beyond 30 minutes.",
+    limitation: "The included studies were in trained men and tested specific same-session protocols; brief easy movement was not shown to be harmful.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/34878640/",
+  },
+  {
+    grade: "Moderate",
+    title: "Order of concurrent strength and endurance training",
+    result: "Across 19 trials, strength before endurance modestly favored lower-body strength, while aerobic-fitness gains did not meaningfully depend on order.",
+    limitation: "The average effect was small and individual goals, intensity and recovery time still matter.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/36776981/",
+  },
+  {
+    grade: "Public-health guidance",
+    title: "WHO physical activity guidelines",
+    result: "Adults are advised to accumulate 150–300 minutes of moderate aerobic activity or 75–150 minutes of vigorous activity weekly, plus muscle strengthening on at least two days.",
+    limitation: "This is a weekly health target, not a requirement to perform cardio before and after every lifting session.",
+    href: "https://iris.who.int/bitstream/handle/10665/336656/9789240015128-eng.pdf",
+  },
+  {
+    grade: "Evidence caution",
+    title: "Active cool-down review",
+    result: "Active cool-down may speed immediate cardiovascular recovery, but generally did not improve next-day performance, soreness or injury outcomes.",
+    limitation: "Evidence varies by protocol, so RepArc records post-lift cardio without presenting it as mandatory recovery treatment.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/29663142/",
+  },
+  {
+    grade: "2026 expert consensus",
+    title: "Context-specific warm-up framework",
+    result: "An international expert panel supported combining general and task-specific preparation according to the athlete, activity and environment rather than prescribing one universal routine.",
+    limitation: "Expert consensus organizes current practice; it does not prove that one exact warm-up prevents injuries in every lifter.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/42476526/",
+  },
+  {
+    grade: "Controlled trial",
+    title: "Load versus repetition progression",
+    result: "A 2022 trial found that progressing repetitions or load were both viable strategies, supporting repetition progress when an equipment jump is too large.",
+    limitation: "The trial was time-limited and does not establish a universal percentage or equipment increment.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/36199287/",
+  },
+  {
+    grade: "Measurement caution",
+    title: "RIR accuracy in trained adults",
+    result: "A 2024 bench-press study found reasonably close RIR estimates near failure on average, but errors still occurred at the individual-set level.",
+    limitation: "The finding came from a specific exercise and trained sample, so missing RIR remains unknown and recorded RIR is not treated as exact.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/37967832/",
+  },
 ];
 
 const topics = [
@@ -204,6 +274,8 @@ export function TrainingGuide() {
           <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using an exercise-specific training max and final performance set. Weeks 7, 14 and 21 use four sets of five at reduced loading without an AMRAP.</p>
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions. Foundation supports equipment substitutions; Phase 2 currently requires its programmed full-gym lifts because each lift needs its own training max.</p>
           <p><strong className="text-stone-200">Missed time:</strong> RepArc continues with the next unfinished workout instead of compressing sessions into fewer days. You can record a moved workout, a skip, training elsewhere or a planned pause. Breaks of at least two weeks trigger one to three conservative return sessions; these temporary load and volume factors are cautious product guardrails, not individualized medical prescriptions.</p>
+          <p><strong className="text-stone-200">Before lifting:</strong> use brief easy movement to feel warm, then perform one to three progressively heavier rehearsal sets before the first heavy or unfamiliar movement. Rehearsal sets are not working volume and do not affect progression. Walking is practical; a stair climber also raises heart rate but can fatigue the legs, so it is not automatically better.</p>
+          <p><strong className="text-stone-200">Cardio:</strong> if strength is the priority, keep pre-lift cardio brief and easy. Put substantial cardio after lifting or in a separate session. Post-lift easy activity is optional—not a guarantee against soreness or injury. RepArc logs these minutes descriptively and never uses them alone to change strength loads.</p>
           <p className="text-xs text-stone-500">RepArc is independent and is not affiliated with, reviewed by or endorsed by Stronger by Science. It does not redistribute the original spreadsheets; the official free bundle is linked in Evidence.</p>
         </GuideSection>}
 
@@ -228,11 +300,12 @@ export function TrainingGuide() {
         {active === "safety" && <GuideSection eyebrow="06 / Safety" title="Know when the app is not enough">
           <div className="flex gap-3"><ShieldCheck className="mt-1 size-5 shrink-0 text-amber-300" /><p>This is general fitness guidance for adults—not diagnosis, rehabilitation or individualized medical care.</p></div>
           <p>Stop and seek appropriate help for chest pain, fainting, severe shortness of breath, sudden weakness, sharp or worsening pain, unusual swelling, or any symptom that makes training unsafe.</p>
+          <p>Do not train through soreness that limits normal walking. Dark tea- or cola-colored urine, marked swelling, unusual weakness, reduced urination, or muscle pain far beyond expected soreness needs urgent medical assessment.</p>
           <p>Pregnancy, recent postpartum recovery, osteoporosis treatment, eating disorders, repeated missed periods, recurrent stress injuries and active rehabilitation need appropriately qualified professional guidance.</p>
         </GuideSection>}
 
         {active === "evidence" && <section className="rounded-[1.5rem] border border-white/10 bg-[#121512] p-5 sm:p-7">
-          <div className="flex items-start gap-3"><Activity className="mt-1 size-5 shrink-0 text-amber-300" /><div><p className="eyebrow text-amber-300">07 / Evidence</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Evidence library</h2><p className="mt-2 text-xs leading-5 text-stone-500">Last reviewed 2 September 2026. Ratings describe confidence for this app decision, not the quality of every outcome in a paper.</p></div></div>
+          <div className="flex items-start gap-3"><Activity className="mt-1 size-5 shrink-0 text-amber-300" /><div><p className="eyebrow text-amber-300">07 / Evidence</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Evidence library</h2><p className="mt-2 text-xs leading-5 text-stone-500">Last reviewed 5 September 2026. Ratings describe confidence for this app decision, not the quality of every outcome in a paper.</p></div></div>
           <details className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4"><summary className="cursor-pointer text-sm font-semibold text-stone-200">Show all {references.length} reviewed sources</summary><div className="mt-4 grid gap-3 sm:grid-cols-2">{references.map((reference) => <article key={reference.title} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><span className="rounded-full bg-amber-300/10 px-2.5 py-1 font-mono text-[9px] uppercase tracking-wider text-amber-200">{reference.grade}</span><h3 className="mt-3 font-semibold text-stone-100">{reference.title}</h3><p className="mt-2 text-xs leading-5 text-stone-400">{reference.result}</p><p className="mt-2 text-[11px] leading-5 text-stone-600"><strong className="text-stone-500">Limit:</strong> {reference.limitation}</p><a href={reference.href} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-10 items-center gap-2 text-xs font-semibold text-amber-300 hover:text-amber-200">Open source <ExternalLink className="size-3.5" /><span className="sr-only"> for {reference.title}</span></a></article>)}</div></details>
         </section>}
       </div>

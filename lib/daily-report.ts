@@ -10,6 +10,8 @@ import {
   exerciseName,
   isFilledSet,
   isScheduledTrainingDate,
+  loadProfileId,
+  loadProfileValues,
   numeric,
   sessionPlannedSets,
   sessionCountsAsCompletedDay,
@@ -26,12 +28,13 @@ export type ScheduleAdherence = {
   adherencePercent: number | null;
   movedSessions: number;
   skippedSessions: number;
+  sorenessRecoverySessions: number;
   externalSessions: number;
   plannedBreakDays: number;
 };
 
 export function buildScheduleAdherence(data: TrainingData, startDate: string, endDate: string, asOfDate = new Date().toISOString().slice(0, 10)): ScheduleAdherence {
-  const empty = { movedSessions: 0, skippedSessions: 0, externalSessions: 0, plannedBreakDays: 0 };
+  const empty = { movedSessions: 0, skippedSessions: 0, sorenessRecoverySessions: 0, externalSessions: 0, plannedBreakDays: 0 };
   if (!data.profile || startDate > endDate) return { available: false, expectedSessions: 0, completedSessions: 0, loggedSessions: 0, adherencePercent: null, ...empty };
   const effectiveEnd = endDate < asOfDate ? endDate : asOfDate;
   if (startDate > effectiveEnd) return { available: true, expectedSessions: 0, completedSessions: 0, loggedSessions: 0, adherencePercent: null, ...empty };
@@ -59,6 +62,9 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
     return !(plan?.preferredWeekdays ?? data.program.preferredWeekdays).includes(new Date(`${session.date}T12:00:00.000Z`).getUTCDay());
   }).length;
   const skippedSessions = relevantAbsences.filter((record) => record.resolution === "skip").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
+  const sorenessRecoverySessions = relevantAbsences
+    .filter((record) => record.resolution === "skip" && record.reason === "soreness")
+    .reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
   const externalSessions = relevantAbsences
     .filter((record) => record.resolution === "trained-elsewhere")
     .reduce((sum, record) => sum + record.missedDates.filter((date) => date >= startDate && date <= effectiveEnd).length, 0);
@@ -71,6 +77,7 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
     adherencePercent: expectedSessions ? Math.min(100, Math.round((completedSessions / expectedSessions) * 100)) : null,
     movedSessions,
     skippedSessions,
+    sorenessRecoverySessions,
     externalSessions,
     plannedBreakDays: plannedDates.size,
   };
@@ -104,6 +111,8 @@ export type DailyReport = {
   rirCoveragePercent: number;
   averageSessionRpe: number | null;
   totalDurationSeconds: number | null;
+  warmupMinutes: number;
+  postCardioMinutes: number;
   performanceImprovements: number;
   possiblePerformanceImprovements: number;
   confidence: AdjustmentConfidence;
@@ -139,6 +148,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const profile = data.profile!;
   const allSessions = activeSessions(data);
   const sessions = allSessions.filter((session) => session.date === date);
+  const sorenessRecovery = data.absences.some((record) => record.reason === "soreness" && record.resolution === "skip" && record.missedDates.includes(date));
   const earlier = allSessions.filter((session) => session.date < date);
   const keys = [...new Set(sessions.flatMap((session) => Object.keys(session.entries)))].filter((key) => sessions.some((session) => Boolean(exerciseForSession(session, key))));
   const plannedSets = sessions.reduce((sum, session) => sum + plannedSetsFor(data, session), 0);
@@ -175,7 +185,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
       bestEstimatedMax: todayBest,
       priorBestEstimatedMax: priorBest,
       changePercent,
-      recommendation: nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: lastSession?.readiness }),
+      recommendation: nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: lastSession?.readiness, availableLoads: loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit) }),
     };
   });
 
@@ -185,6 +195,8 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const averageSessionRpe = sessionRpes.length ? sessionRpes.reduce((sum, value) => sum + value, 0) / sessionRpes.length : null;
   const durations = sessions.flatMap((session) => typeof session.durationSeconds === "number" && session.durationSeconds >= 0 ? [session.durationSeconds] : []);
   const totalDurationSeconds = durations.length ? durations.reduce((sum, value) => sum + value, 0) : null;
+  const warmupMinutes = sessions.reduce((sum, session) => sum + (session.warmup?.durationMinutes ?? 0), 0);
+  const postCardioMinutes = sessions.reduce((sum, session) => sum + (session.postCardio?.durationMinutes ?? 0), 0);
   const performanceImprovements = exercises.filter((exercise) => exercise.changePercent !== null && exercise.changePercent >= 5).length;
   const possiblePerformanceImprovements = performanceImprovements;
   const establishedPerformanceImprovements = exercises.filter((exercise) => {
@@ -196,16 +208,16 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     return baseline > 0 && previousBest >= baseline * 1.05 && exercise.bestEstimatedMax >= previousBest * 0.99;
   }).length;
   const status: DailyReportStatus = !sessions.length
-    ? isScheduledTrainingDate(data, date) ? "missed" : "recovery"
+    ? sorenessRecovery ? "recovery" : isScheduledTrainingDate(data, date) ? "missed" : "recovery"
     : completionPercent >= 100 ? "completed" : completionPercent >= 70 ? "adjusted" : "partial";
   const confidence: AdjustmentConfidence = completionPercent >= 100 && rirCoveragePercent >= 60
     ? "high"
     : completionPercent >= 70 && (rirCoveragePercent >= 30 || completedSets >= 6)
       ? "moderate"
       : "low";
-  const label = status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "missed" ? "Scheduled workout not recorded" : "Recovery day";
+  const label = status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "missed" ? "Scheduled workout not recorded" : sorenessRecovery ? "Soreness recovery recorded" : "Recovery day";
   const headline = !sessions.length
-    ? status === "missed" ? "A scheduled workout was not recorded." : "No workout was recorded."
+    ? status === "missed" ? "A scheduled workout was not recorded." : sorenessRecovery ? "This planned workout was skipped for recovery." : "No workout was recorded."
     : establishedPerformanceImprovements > 0
       ? `${establishedPerformanceImprovements} exercise${establishedPerformanceImprovements === 1 ? "" : "s"} repeated a positive performance trend.`
       : possiblePerformanceImprovements > 0
@@ -216,7 +228,9 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const summary = !sessions.length
     ? status === "missed"
       ? "This date was on your saved training schedule. Record time away or a workout performed elsewhere to keep adherence context accurate."
-      : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
+      : sorenessRecovery
+        ? "You recorded movement-limiting soreness. No performance was invented; the scheduled session remains visible in adherence context and the next session uses conservative return mode."
+        : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
     : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". RIR was not recorded consistently, so load advice is conservative." : ` at ${averageRir.toFixed(1)} average RIR.`}`;
 
   return {
@@ -233,6 +247,8 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     rirCoveragePercent,
     averageSessionRpe,
     totalDurationSeconds,
+    warmupMinutes,
+    postCardioMinutes,
     performanceImprovements: establishedPerformanceImprovements,
     possiblePerformanceImprovements,
     confidence,

@@ -146,7 +146,7 @@ test("keeps required onboarding, focused training, and the evidence guide access
   assert.match(guide, /role="tablist"/);
   assert.match(guide, /active === "program"/);
   assert.match(guide, /Evidence library/);
-  assert.match(guide, /Last reviewed 2 September 2026/);
+  assert.match(guide, /Last reviewed 5 September 2026/);
   assert.match(guide, /not pregnancy or postpartum prescriptions/i);
 });
 

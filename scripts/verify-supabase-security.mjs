@@ -30,7 +30,7 @@ const createTestAccount = async (email) => {
 try {
   const accountA = await createTestAccount(emails[0]);
   const accountB = await createTestAccount(emails[1]);
-  const profile = { version: 7, updatedAt: new Date().toISOString(), profile: { displayName: "Security test" }, sessions: [], absences: [] };
+  const profile = { version: 8, updatedAt: new Date().toISOString(), profile: { displayName: "Security test" }, sessions: [], absences: [], loadProfiles: {} };
 
   const ownWrite = await accountA.client.from("training_profiles").upsert({
     user_id: accountA.user.id,

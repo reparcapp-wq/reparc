@@ -9,10 +9,10 @@ export type SbsRole = "main" | "auxiliary";
 export type TrainingFrequency = 3 | 4 | 5;
 export type WeightGoal = "cut" | "maintain" | "bulk";
 export type ProgramStatus = "active" | "paused" | "completed";
-export type Readiness = "normal" | "low" | "sore" | "symptoms" | "pain";
+export type Readiness = "normal" | "low" | "sore" | "severe-soreness" | "symptoms" | "pain";
 export type SessionCompletionStatus = "completed" | "partial" | "adjusted" | "skipped";
 export type LoadingType = "external" | "bodyweight" | "assisted-bodyweight" | "unloaded";
-export type AbsenceReason = "busy" | "travel" | "illness" | "injury" | "planned" | "other";
+export type AbsenceReason = "busy" | "travel" | "illness" | "injury" | "soreness" | "planned" | "other";
 export type AbsenceResolution = "continue" | "trained-elsewhere" | "skip" | "pause";
 
 export type ReturnPlan = {
@@ -106,6 +106,21 @@ export type Profile = {
   weightTrackingEnabled: boolean;
 };
 
+export type CardioMode = "walk" | "bike" | "stairs" | "other";
+export type ConditioningIntensity = "easy" | "moderate" | "vigorous";
+export type ConditioningLog = {
+  mode: CardioMode;
+  durationMinutes: number;
+  intensity: ConditioningIntensity;
+};
+
+export type LoadProfile = {
+  unit: Unit;
+  values: number[];
+  updatedAt: string;
+  deletedAt?: string;
+};
+
 export type Session = {
   id: string;
   date: string;
@@ -119,6 +134,8 @@ export type Session = {
   trainingMaxesAfter?: Record<string, number>;
   readiness?: Readiness;
   sessionRpe?: number;
+  warmup?: ConditioningLog;
+  postCardio?: ConditioningLog;
   startedAt?: string;
   completedAt?: string;
   durationSeconds?: number;
@@ -198,7 +215,7 @@ export type ConsentRecord = {
 };
 
 export type TrainingData = {
-  version: 7;
+  version: 8;
   updatedAt: string;
   setupVersion: number;
   setupCompletedAt?: string;
@@ -207,6 +224,7 @@ export type TrainingData = {
   sessionRevisions: SessionRevision[];
   weighIns: WeighIn[];
   swaps: Record<string, string>;
+  loadProfiles: Record<string, LoadProfile>;
   program: ProgramState;
   planHistory: PlanChange[];
   absences: AbsenceRecord[];
@@ -729,7 +747,7 @@ export const PROGRAM = PHASE_TWO_PROGRAM;
 const ALL_EXERCISES = [...PHASE_ONE_PROGRAM, ...PHASE_TWO_EXERCISE_SOURCE, ...WOMENS_PHASE_ONE_SOURCE, ...WOMENS_PHASE_TWO_SOURCE].flatMap((day) => day.exercises);
 
 export const emptyData = (): TrainingData => ({
-  version: 7,
+  version: 8,
   updatedAt: new Date(0).toISOString(),
   setupVersion: 0,
   profile: null,
@@ -737,6 +755,7 @@ export const emptyData = (): TrainingData => ({
   sessionRevisions: [],
   weighIns: [],
   swaps: {},
+  loadProfiles: {},
   planHistory: [],
   absences: [],
   program: {
@@ -787,6 +806,29 @@ export const roundLoad = (value: number, unit: Unit) => {
   return Math.round(value / step) * step;
 };
 
+export const normalizeLoadValues = (values: unknown[], limit = 100) => [...new Set(values
+  .map(Number)
+  .filter((value) => Number.isFinite(value) && value > 0 && value <= 2_000)
+  .map((value) => Math.round(value * 100) / 100))]
+  .sort((left, right) => left - right)
+  .slice(0, limit);
+
+export const loadProfileValues = (profile: LoadProfile | undefined, targetUnit: Unit) => profile && !profile.deletedAt
+  ? normalizeLoadValues(profile.values.map((value) => profile.unit === targetUnit ? value : convertWeight(value, profile.unit, targetUnit)))
+  : [];
+
+export const resolveAvailableLoad = (value: number, availableLoads: number[], direction: "nearest" | "higher" | "lower") => {
+  const values = normalizeLoadValues(availableLoads);
+  if (!values.length || !Number.isFinite(value)) return null;
+  if (direction === "higher") return values.find((candidate) => candidate > value + 0.0001) ?? null;
+  if (direction === "lower") return [...values].reverse().find((candidate) => candidate < value - 0.0001) ?? null;
+  return values.reduce((best, candidate) => {
+    const candidateDistance = Math.abs(candidate - value);
+    const bestDistance = Math.abs(best - value);
+    return candidateDistance < bestDistance || (candidateDistance === bestDistance && candidate < best) ? candidate : best;
+  });
+};
+
 export const bumpBy = (lower: boolean, unit: Unit) =>
   unit === "kg" ? (lower ? 5 : 2.5) : lower ? 10 : 5;
 
@@ -808,6 +850,9 @@ export const exerciseName = (key: string) => {
   if (swapName.length) return swapName.join(":");
   return ALL_EXERCISES.find((exercise) => exercise.id === key)?.name ?? key;
 };
+
+export const loadProfileId = (exercise: Pick<Exercise, "name" | "loadingType" | "perSide">) =>
+  `equipment:${exercise.loadingType ?? "external"}:${exercise.perSide ? "per-side" : "total"}:${slugify(exercise.name)}`;
 
 export const exerciseFromKey = (key: string) => {
   const id = key.split(":")[0];
@@ -975,11 +1020,15 @@ export const detectMissedTraining = (data: TrainingData, asOfDate = isoDate()): 
 };
 
 export const buildReturnPlan = (gapDays: number, reason: AbsenceReason, startedAt = new Date().toISOString()): ReturnPlan | undefined => {
+  if (reason === "soreness" && gapDays < 14) return { startedAt, gapDays, reason, totalSessions: 1, sessionsRemaining: 1, loadFactor: 0.9, volumeFactor: 0.67, targetRir: 3 };
   if (gapDays < 14) return undefined;
   if (gapDays < 28) return { startedAt, gapDays, reason, totalSessions: 1, sessionsRemaining: 1, loadFactor: 0.9, volumeFactor: 0.75, targetRir: 3 };
   if (gapDays < 56) return { startedAt, gapDays, reason, totalSessions: 2, sessionsRemaining: 2, loadFactor: 0.85, volumeFactor: 0.67, targetRir: 4 };
   return { startedAt, gapDays, reason, totalSessions: 3, sessionsRemaining: 3, loadFactor: 0.8, volumeFactor: 0.5, targetRir: 4 };
 };
+
+export const returnPlanSetCount = (sets: number, volumeFactor: number) =>
+  Math.max(1, Math.round(Math.max(1, sets) * Math.max(0.5, Math.min(1, volumeFactor))));
 
 export const nextUnfinishedProgramDay = (data: TrainingData): TrainingDay | null => {
   if (!data.profile) return null;
@@ -1121,7 +1170,10 @@ const normalizePlanSnapshot = (value: unknown): SessionPlanSnapshot | undefined 
 };
 
 const validReadiness = (value: unknown): Readiness | undefined =>
-  value === "normal" || value === "low" || value === "sore" || value === "symptoms" || value === "pain" ? value : undefined;
+  value === "normal" || value === "low" || value === "sore" || value === "severe-soreness" || value === "symptoms" || value === "pain" ? value : undefined;
+
+const validAbsenceReason = (value: unknown): AbsenceReason =>
+  value === "travel" || value === "illness" || value === "injury" || value === "soreness" || value === "planned" || value === "other" ? value : "busy";
 
 const validFrequency = (value: unknown): TrainingFrequency => value === 3 || value === 4 ? value : 5;
 const defaultWeekdays = (frequency: TrainingFrequency) =>
@@ -1204,7 +1256,7 @@ export function trainingDataValidationIssues(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ["Training data must be an object."];
   const source = raw as Record<string, unknown>;
   const sourceVersion = Number(source.version);
-  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 7) issues.push("Unsupported data version.");
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 8) issues.push("Unsupported data version.");
   if (!source.program || typeof source.program !== "object" || Array.isArray(source.program)) issues.push("Program settings are missing.");
   if (!Array.isArray(source.sessions)) {
     issues.push("Session history must be a list.");
@@ -1219,6 +1271,11 @@ export function trainingDataValidationIssues(raw: unknown) {
       if (!isValidDateOnly(session.date)) issues.push(`Session ${sessionIndex + 1} has an invalid date.`);
       if (typeof session.dayId !== "string" || !session.dayId.trim()) issues.push(`Session ${sessionIndex + 1} has no workout day.`);
       if (session.unit !== "kg" && session.unit !== "lb" && !(sourceVersion < 6 && session.unit === undefined)) issues.push(`Session ${sessionIndex + 1} has an invalid unit.`);
+      for (const field of ["warmup", "postCardio"] as const) {
+        if (session[field] === undefined) continue;
+        const conditioning = session[field] && typeof session[field] === "object" && !Array.isArray(session[field]) ? session[field] as Record<string, unknown> : null;
+        if (!conditioning || !["walk", "bike", "stairs", "other"].includes(String(conditioning.mode)) || !["easy", "moderate", "vigorous"].includes(String(conditioning.intensity)) || !Number.isFinite(Number(conditioning.durationMinutes)) || Number(conditioning.durationMinutes) < 1 || Number(conditioning.durationMinutes) > 300) issues.push(`Session ${sessionIndex + 1} has an invalid ${field === "warmup" ? "warm-up" : "post-lift cardio"} log.`);
+      }
       if (!session.entries || typeof session.entries !== "object" || Array.isArray(session.entries)) {
         issues.push(`Session ${sessionIndex + 1} has invalid set data.`);
         return;
@@ -1253,6 +1310,16 @@ export function trainingDataValidationIssues(raw: unknown) {
       const unit = entry?.unit === "lb" ? "lb" : "kg";
       const weight = Number(entry?.weight);
       if (!entry || !isValidDateOnly(entry.date) || !Number.isFinite(weight) || weight < 25 || weight > (unit === "kg" ? 300 : 660)) issues.push(`Weigh-in ${index + 1} is invalid.`);
+    });
+  }
+  if (source.loadProfiles !== undefined && (!source.loadProfiles || typeof source.loadProfiles !== "object" || Array.isArray(source.loadProfiles))) {
+    issues.push("Available-load profiles must be an object.");
+  } else if (source.loadProfiles && typeof source.loadProfiles === "object") {
+    const profiles = Object.entries(source.loadProfiles as Record<string, unknown>);
+    if (profiles.length > 500) issues.push("Available-load profiles exceed 500 entries.");
+    profiles.forEach(([key, value]) => {
+      const profile = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+      if (!key.trim() || !profile || (profile.unit !== "kg" && profile.unit !== "lb") || !Array.isArray(profile.values) || profile.values.length > 100 || normalizeLoadValues(profile.values).length !== profile.values.length || (!profile.values.length && !profile.deletedAt) || typeof profile.updatedAt !== "string" || Number.isNaN(Date.parse(profile.updatedAt)) || (profile.deletedAt !== undefined && (typeof profile.deletedAt !== "string" || Number.isNaN(Date.parse(profile.deletedAt))))) issues.push(`Available-load profile ${key || "(unnamed)"} is invalid.`);
     });
   }
   if (Array.isArray(source.planHistory) && source.planHistory.length > 2_000) issues.push("Plan history exceeds 2,000 changes.");
@@ -1387,6 +1454,14 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
       return [[key, sets.map((set) => normalizeSetEntry(set, exercise))]];
     }),
   );
+  const normalizeConditioning = (value: unknown): ConditioningLog | undefined => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const mode = record.mode === "bike" || record.mode === "stairs" || record.mode === "other" ? record.mode : record.mode === "walk" ? "walk" : null;
+    const intensity = record.intensity === "moderate" || record.intensity === "vigorous" ? record.intensity : record.intensity === "easy" ? "easy" : null;
+    const durationMinutes = Math.trunc(Number(record.durationMinutes));
+    return mode && intensity && Number.isFinite(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 300 ? { mode, intensity, durationMinutes } : undefined;
+  };
   return {
     id: typeof session.id === "string" ? session.id : `${session.date}-${session.dayId}-${index}`,
     date: session.date,
@@ -1410,6 +1485,8 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     sessionRpe: Number.isFinite(Number(session.sessionRpe)) && Number(session.sessionRpe) >= 1 && Number(session.sessionRpe) <= 10
       ? Number(session.sessionRpe)
       : undefined,
+    warmup: normalizeConditioning(session.warmup),
+    postCardio: normalizeConditioning(session.postCardio),
     startedAt: typeof session.startedAt === "string" ? validIso(session.startedAt, fallbackTime) : undefined,
     completedAt: typeof session.completedAt === "string" ? validIso(session.completedAt, fallbackTime) : undefined,
     durationSeconds: Number.isFinite(Number(session.durationSeconds)) && Number(session.durationSeconds) >= 0 && Number(session.durationSeconds) <= 43_200
@@ -1465,6 +1542,17 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
   const updatedAt = validIso(source.updatedAt, remoteUpdatedAt ?? new Date(0).toISOString());
   const swaps = source.swaps && typeof source.swaps === "object"
     ? Object.fromEntries(Object.entries(source.swaps as Record<string, unknown>).filter(([, value]) => typeof value === "string")) as Record<string, string>
+    : {};
+  const loadProfiles: Record<string, LoadProfile> = source.loadProfiles && typeof source.loadProfiles === "object" && !Array.isArray(source.loadProfiles)
+    ? Object.fromEntries(Object.entries(source.loadProfiles as Record<string, unknown>).flatMap(([key, value]) => {
+        if (!key.trim() || !value || typeof value !== "object" || Array.isArray(value)) return [];
+        const record = value as Record<string, unknown>;
+        const unit: Unit = record.unit === "lb" ? "lb" : "kg";
+        const values = Array.isArray(record.values) ? normalizeLoadValues(record.values) : [];
+        const deletedAt = typeof record.deletedAt === "string" ? validIso(record.deletedAt, updatedAt) : undefined;
+        if (!values.length && !deletedAt) return [];
+        return [[key, { unit, values, updatedAt: validIso(record.updatedAt, updatedAt), deletedAt }]];
+      }).slice(0, 500))
     : {};
   const rawProgram = source.program && typeof source.program === "object"
     ? source.program as Record<string, unknown>
@@ -1563,7 +1651,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     if (!item || typeof item !== "object") return [];
     const record = item as Record<string, unknown>;
     if (!isValidDateOnly(record.startDate) || !isValidDateOnly(record.endDate) || record.startDate > record.endDate) return [];
-    const reason: AbsenceReason = record.reason === "travel" || record.reason === "illness" || record.reason === "injury" || record.reason === "planned" || record.reason === "other" ? record.reason : "busy";
+    const reason = validAbsenceReason(record.reason);
     const resolution: AbsenceResolution = record.resolution === "trained-elsewhere" || record.resolution === "skip" || record.resolution === "pause" ? record.resolution : "continue";
     const createdAt = validIso(record.createdAt, `${record.endDate}T12:00:00.000Z`);
     return [{
@@ -1585,8 +1673,8 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
   const returnPlan: ReturnPlan | undefined = rawReturnPlan && Number(rawReturnPlan.sessionsRemaining) > 0
     ? {
         startedAt: validIso(rawReturnPlan.startedAt, updatedAt),
-        gapDays: Math.max(14, Math.min(3_650, Math.trunc(numeric(rawReturnPlan.gapDays) || 14))),
-        reason: rawReturnPlan.reason === "travel" || rawReturnPlan.reason === "illness" || rawReturnPlan.reason === "injury" || rawReturnPlan.reason === "planned" || rawReturnPlan.reason === "other" ? rawReturnPlan.reason : "busy",
+        gapDays: Math.max(0, Math.min(3_650, Math.trunc(numeric(rawReturnPlan.gapDays)))),
+        reason: validAbsenceReason(rawReturnPlan.reason),
         totalSessions: Math.max(1, Math.min(3, Math.trunc(numeric(rawReturnPlan.totalSessions) || 1))),
         sessionsRemaining: Math.max(1, Math.min(3, Math.trunc(numeric(rawReturnPlan.sessionsRemaining) || 1))),
         loadFactor: Math.max(0.5, Math.min(1, numeric(rawReturnPlan.loadFactor) || 0.9)),
@@ -1602,8 +1690,8 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
         safetyAcceptedAt: validIso(rawConsent.safetyAcceptedAt, updatedAt),
       }
     : undefined;
-  return {
-    version: 7,
+  const normalized: TrainingData = {
+    version: 8,
     updatedAt,
     setupVersion: profile ? Math.max(2, Math.trunc(numeric(source.setupVersion) || 2)) : 0,
     setupCompletedAt: profile ? validIso(source.setupCompletedAt, updatedAt) : undefined,
@@ -1612,6 +1700,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     sessionRevisions: sessionRevisions.slice(-5_000),
     weighIns,
     swaps,
+    loadProfiles,
     planHistory,
     absences,
     consent,
@@ -1630,6 +1719,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       returnPlan,
     },
   };
+  return recalculatePhase2Progression(normalized);
 }
 
 export function mergeTrainingData(left: TrainingData, right: TrainingData): TrainingData {
@@ -1656,13 +1746,19 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     const existing = absences.get(record.id);
     if (!existing || record.updatedAt >= existing.updatedAt) absences.set(record.id, record);
   });
-  return {
-    version: 7,
+  const loadProfiles = new Map<string, LoadProfile>();
+  [...Object.entries(left.loadProfiles), ...Object.entries(right.loadProfiles)].forEach(([key, profile]) => {
+    const existing = loadProfiles.get(key);
+    if (!existing || profile.updatedAt >= existing.updatedAt) loadProfiles.set(key, profile);
+  });
+  return recalculatePhase2Progression({
+    version: 8,
     updatedAt: new Date(Math.max(Date.parse(left.updatedAt), Date.parse(right.updatedAt))).toISOString(),
     setupVersion: newer.setupVersion,
     setupCompletedAt: newer.setupCompletedAt,
     profile: newer.profile,
     swaps: newer.swaps,
+    loadProfiles: Object.fromEntries(loadProfiles),
     program: newer.program,
     planHistory: [...planChanges.values()].sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt)).slice(-2_000),
     absences: [...absences.values()].sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(-2_000),
@@ -1670,5 +1766,5 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     sessions: [...sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     sessionRevisions: [...revisions.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-5_000),
     weighIns: [...weighIns.values()].sort((a, b) => a.date.localeCompare(b.date)),
-  };
+  });
 }

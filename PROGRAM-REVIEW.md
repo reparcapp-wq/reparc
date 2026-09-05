@@ -27,3 +27,22 @@ The reviewer must also confirm that RepArc clearly identifies its adaptation of 
 |  |  |  |  |  |  |
 
 Status: **external review not yet recorded**. Automated checks cannot fill or replace this sign-off. Do not describe the program as independently coach-approved until a qualified reviewer completes the row above.
+
+## Warm-up, cardio and equipment audit · 5 September 2026
+
+- A brief, easy general warm-up plus one to three movement-specific rehearsal sets is presented as practical preparation, not a universal performance or injury-prevention guarantee. Rehearsal sets are excluded from working volume and progression.
+- Walking and stair-machine work can both raise heart rate. RepArc does not call either uniquely superior; stair work is flagged as potentially fatiguing before lower-body lifting.
+- Substantial same-session cardio is placed after strength work when strength is the priority, or separated by several hours. Post-lift cardio is optional and is not described as preventing soreness or injury.
+- Warm-up and post-lift cardio logs are descriptive only. They cannot independently increase or decrease strength prescriptions.
+- Exercise-specific load ladders now constrain exact load recommendations. When a ladder is missing, RepArc asks the user to configure the equipment rather than inventing an unavailable number.
+- Blank RIR remains unknown and lowers confidence. It is never converted to zero and cannot by itself trigger a load decrease; zero explicitly means no repetitions remained.
+
+These decisions were checked against the linked systematic reviews, meta-analyses and public-health guidance in the in-app Evidence library. They remain general adult fitness guidance and do not replace individualized coaching or clinical screening.
+
+## Missed-day and severe-soreness audit · 5 September 2026
+
+- Original loads, repetitions, RIR and session snapshots remain immutable. Reports are derived from those records, while Phase 2 training-max state is rebuilt from the session sequence whenever stored data is normalized or merged.
+- A missed workout can now be classified as severe soreness. It remains an honest unlogged scheduled session rather than invented performance data, and it activates one progression-neutral re-entry session.
+- Return-session set counts use actual rounded reductions; a 0.67 volume factor now changes three planned sets to two instead of accidentally retaining all three.
+- Movement-limiting soreness blocks session saving and progression. The app names CDC warning signs for exertional rhabdomyolysis and directs the user to urgent medical assessment rather than attempting a diagnosis.
+- The one-session 0.90 load, 0.67 volume and three-RIR re-entry rule is a conservative product guardrail informed by gradual re-exposure evidence. It is not a clinically validated individualized prescription.
