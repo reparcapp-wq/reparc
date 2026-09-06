@@ -529,7 +529,7 @@ select {
 .selection-button {
   border: 1px solid rgb(255 255 255 / 0.1) !important;
   background: rgb(255 255 255 / 0.035) !important;
-  color: #777d76 !important;
+  color: #b5bcb4 !important;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045), 0 0.6rem 1.4rem rgb(0 0 0 / 0.16) !important;
 }
 
@@ -576,10 +576,10 @@ select {
 
 .field-label {
   text-align: center;
-  font-size: 0.55rem;
+  font-size: 0.875rem;
   font-weight: 700;
-  letter-spacing: 0.13em;
-  color: #6e746d;
+  letter-spacing: 0.02em;
+  color: #b5bcb4;
   text-transform: uppercase;
 }
 
@@ -602,8 +602,39 @@ select {
 }
 
 .set-input::placeholder {
-  color: #555b55;
+  color: #929b92;
 }
+
+/* Keep the working surface readable in both themes without changing its data. */
+.exercise-card .text-stone-500, .exercise-card .text-stone-600,
+.training-notices .text-stone-500, .training-notices .text-stone-600 { color: #a6afa5; }
+.exercise-card .eyebrow { font-size: 0.75rem; letter-spacing: 0.08em; }
+.exercise-card > div { gap: 1rem; }
+.exercise-card details { margin-left: 0; }
+.exercise-card summary { min-height: 2.75rem; align-content: center; font-size: 0.875rem; }
+.exercise-card details > p, .exercise-card details > ul { font-size: 0.875rem; line-height: 1.6; }
+.exercise-heading h3 { overflow-wrap: anywhere; }
+.notice-section { padding: 1rem; border: 1px solid rgb(255 255 255 / 0.12); border-radius: 1rem; }
+.training-notices { height: 100dvh; padding-top: env(safe-area-inset-top); }
+.training-notices p { font-size: 0.875rem; line-height: 1.6; }
+.training-notices button { min-height: 2.75rem; font-size: 0.875rem; }
+.training-notices summary { min-height: 2.75rem; align-content: center; }
+.train-finish[open] > summary svg { transform: rotate(180deg); }
+.train-finish > details { margin-top: 0.5rem; }
+.conditioning-editor:not([open]) { padding-block: 0.4rem; }
+.conditioning-editor summary { min-height: 2.75rem; }
+.conditioning-editor:not([open]) summary p + p { display: none; }
+.conditioning-editor summary span { width: 1.75rem; height: 1.75rem; }
+.conditioning-editor input { font-size: 1rem; }
+.swap-reveal { animation: swap-reveal 180ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes swap-reveal {
+  from { opacity: 0; transform: translateY(-0.3rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+html.light .notice-section { border-color: rgb(28 33 29 / 0.16); }
+html.light .exercise-card .text-stone-500, html.light .exercise-card .text-stone-600,
+html.light .training-notices .text-stone-500, html.light .training-notices .text-stone-600 { color: #566055 !important; }
+html.light .training-notices [data-slot="sheet-title"] { color: #1c211d; }
 
 html.light .brand-lockup { color: #1c211d; }
 html.light .brand-glyph-letter { stroke: #1c211d; }
@@ -648,6 +679,11 @@ html.light .set-input {
 }
 html.light .set-input::placeholder { color: #7a827b; }
 html.light .target-panel { background: #f7f3ea !important; }
+html.light [data-slot="tabs-trigger"][data-state="active"] {
+  border-color: #d99b2b !important;
+  background: #f7c66b !important;
+  color: #0b0d0c !important;
+}
 html.light .legal-copy h2 { color: #1c211d; }
 
 .legal-copy h2 {

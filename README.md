@@ -18,6 +18,8 @@ An offline-first workout log built on published research and an adaptation of th
 - JSON restore preview with merge or authoritative replacement and an automatic rollback download
 - Installable PWA with user-approved updates, persistent rest timers, service-worker notifications where the platform permits, and configurable foreground alert strength
 - Focused exercise sequencing that requires visible load and repetition entries before forward navigation
+- Inline exercise swaps; a top Training notices panel for readiness, recovery, calibration and starting-load guidance, with important warnings kept beside the workout
+- One-time equipment-load setup per exercise, editable from Setup → Available loads; failed saves retain the editor and entered values
 - System, light, and dark appearance modes
 - Keyboard skip navigation, persistent focus indicators, labelled inputs, and enlarged touch controls
 - Opt-in minimal diagnostics and private beta feedback with no workout data attached automatically
