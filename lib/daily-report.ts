@@ -1,4 +1,5 @@
 import { nextSessionAdjustment, type AdjustmentConfidence, type LoadAdjustment } from "@/lib/autoregulation";
+import { constrainCalibrationAdjustment, exerciseCalibration } from "@/lib/exercise-calibration";
 import {
   activeSessions,
   bodyweightForSession,
@@ -192,6 +193,8 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
       if (baseline > 0 && previousBest >= baseline * 1.05 && todayBest >= previousBest * 0.99) establishedImprovementIds.add(identity);
     }
     const recommendationEntries = latest.entries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), latest.session.unit, profile.unit)) });
+    const followingDay = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    const rawRecommendation = nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: latest.session.readiness, availableLoads: loadProfileValues(data.loadProfiles[identity] ?? data.loadProfiles[latest.key], profile.unit) });
     return {
       key: identity,
       name: exercise.name,
@@ -201,7 +204,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
       bestEstimatedMax: todayBest,
       priorBestEstimatedMax: priorBest,
       changePercent,
-      recommendation: nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: latest.session.readiness, availableLoads: loadProfileValues(data.loadProfiles[identity] ?? data.loadProfiles[latest.key], profile.unit) }),
+      recommendation: exercise.sbsRole ? { action: "hold", nextLoad: null, confidence: "low", reason: "Use this lift’s SBS prescription in Train. Calibration and recovery checks control whether its final set can adjust the training max.", evidence: ["exercise-specific SBS progression"] } : latest.session.exerciseExposures?.[latest.key] ? constrainCalibrationAdjustment(rawRecommendation, exerciseCalibration(data, exercise, followingDay)) : rawRecommendation,
     };
   });
 

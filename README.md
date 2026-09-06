@@ -1,6 +1,6 @@
 # RepArc
 
-A secure, offline-first workout log with evidence-aligned progression, account-owned cloud synchronization, validated backups, and a focused mobile training workflow.
+An offline-first workout log built on published research and an adaptation of the SBS program, with account-owned cloud synchronization, tested backup handling, and a focused mobile training workflow. Internal testing does not replace independent security, device or coaching review.
 
 ## Product capabilities
 

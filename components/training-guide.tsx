@@ -5,6 +5,13 @@ import { Activity, BookOpen, ExternalLink, ShieldCheck, WifiOff } from "lucide-r
 
 const references = [
   {
+    grade: "Moderate · mechanism",
+    title: "Repeated exposure and muscle-damage responses",
+    result: "A 2023 review of 20 studies found less soreness and smaller performance disruption after a repeated exercise bout. This supports gradual familiarization with unfamiliar movements.",
+    limitation: "It does not validate RepArc’s exact set counts, recovery thresholds or novelty limit, and cannot guarantee prevention of severe soreness.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/38015738/",
+  },
+  {
     grade: "Program source",
     title: "Stronger by Science Program Bundle",
     result: "The official bundle describes a 21-week hypertrophy template split into three seven-week blocks with performance-based load progression.",
@@ -274,6 +281,8 @@ export function TrainingGuide() {
           <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using an exercise-specific training max and final performance set. Weeks 7, 14 and 21 use four sets of five at reduced loading without an AMRAP.</p>
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions. Foundation supports equipment substitutions; Phase 2 currently requires its programmed full-gym lifts because each lift needs its own training max.</p>
           <p><strong className="text-stone-200">Missed time:</strong> RepArc continues with the next unfinished workout instead of compressing sessions into fewer days. You can record a moved workout, a skip, training elsewhere or a planned pause. Breaks of at least two weeks trigger one to three conservative return sessions; these temporary load and volume factors are cautious product guardrails, not individualized medical prescriptions.</p>
+          <p><strong className="text-stone-200">Unfamiliar exercises:</strong> everyone starts with reduced working volume, usually one set with at least four good reps remaining. Related training may allow two comfortable sets. Each exercise builds up with comparable performance and recovery feedback; an experienced lifter can still be unfamiliar with a movement.</p>
+          <p>RepArc limits unfamiliar work in one session and names any exercises held for later. You can deliberately include their reduced sets. Return mode and familiarization use the smaller set allowance once. Phase 2 lifts without established history skip AMRAPs and cannot change their training maxes.</p>
           <p><strong className="text-stone-200">Before lifting:</strong> use brief easy movement to feel warm, then perform one to three progressively heavier rehearsal sets before the first heavy or unfamiliar movement. Rehearsal sets are not working volume and do not affect progression. Walking is practical; a stair climber also raises heart rate but can fatigue the legs, so it is not automatically better.</p>
           <p><strong className="text-stone-200">Cardio:</strong> if strength is the priority, keep pre-lift cardio brief and easy. Put substantial cardio after lifting or in a separate session. Post-lift easy activity is optional—not a guarantee against soreness or injury. RepArc logs these minutes descriptively and never uses them alone to change strength loads.</p>
           <p className="text-xs text-stone-500">RepArc is independent and is not affiliated with, reviewed by or endorsed by Stronger by Science. It does not redistribute the original spreadsheets; the official free bundle is linked in Evidence.</p>
@@ -282,7 +291,10 @@ export function TrainingGuide() {
         {active === "logging" && <GuideSection eyebrow="03 / Logging" title="Sets, RIR and recommendations">
           <p><strong className="text-stone-200">RIR</strong> means repetitions in reserve: how many technically sound repetitions you believe remained. Most normal sets should finish with roughly one to three RIR.</p>
           <p><strong className="text-stone-200">AMRAP</strong> means as many technically sound repetitions as possible—not repetitions performed after form breaks down. Stop for pain, loss of control or unsafe technique.</p>
-          <p>When the exact exercise has no comparable history, choose a load that should leave about two to three good repetitions after the target range and adjust after set one. RepArc does not transfer a machine, dumbbell or related lift into a different exercise’s training max.</p>
+          <p>For a new exercise, start at the lower end of the rep range with a comfortably light load and the displayed RIR target. Rehearse first. If bodyweight is too demanding, use assistance or an easier variation. You may confirm a comfortable load you already know; the reduced sets and recovery checks still apply.</p>
+          <p>Recovery asks about the effect over the following days. Confirm normal or mild, improving recovery after at least 48 hours. Missing feedback holds increases. A report of movement-limiting or unusual symptoms remains part of that exposure’s history even if you later recover.</p>
+          <p>Your workout plan stays fixed after logging starts so recovery updates cannot hide entered sets. You can swap an exercise before entering its sets; unfamiliar swaps use reduced volume. Saved sessions keep their original prescriptions.</p>
+          <p className="text-sm text-stone-400">These ramp thresholds are conservative RepArc rules informed by research. “Established history” describes the available logs; it is not a clinical assessment or a guarantee that a load is safe.</p>
           <p>Estimated performance max is calculated only from comparable four- to ten-repetition sets on suitable loaded movements. It is a noisy exercise-specific trend, not a true 1RM. External-load volume is descriptive, counts both sides when the field is labeled “each side,” and should not be compared across different exercises or machines.</p>
         </GuideSection>}
 

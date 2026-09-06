@@ -14,6 +14,34 @@ export type SessionCompletionStatus = "completed" | "partial" | "adjusted" | "sk
 export type LoadingType = "external" | "bodyweight" | "assisted-bodyweight" | "unloaded";
 export type AbsenceReason = "busy" | "travel" | "illness" | "injury" | "soreness" | "planned" | "other";
 export type AbsenceResolution = "continue" | "trained-elsewhere" | "skip" | "pause";
+export type ExerciseCalibrationState = "uncalibrated" | "preliminary" | "developing" | "calibrated" | "recalibration";
+export type ExerciseNoveltyRisk = "low" | "moderate" | "high";
+export type ExerciseRecoveryStatus = "recovered" | "mild" | "limiting" | "severe";
+
+export type ExerciseExposureSnapshot = {
+  policyVersion: 1;
+  identity: string;
+  stateAtStart: ExerciseCalibrationState;
+  noveltyRisk: ExerciseNoveltyRisk;
+  prescribedSets: number;
+  originalSets: number;
+  targetRir: number;
+  relatedHistory: boolean;
+  startingLoadSource: "guided" | "user";
+  progressionEligible: boolean;
+  suggestedLoad?: number | null;
+  targetRepLow?: number;
+  targetRepHigh?: number;
+};
+
+export type ExerciseRecoveryCheck = {
+  id: string;
+  sessionId: string;
+  exerciseIdentity: string;
+  status: ExerciseRecoveryStatus;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type ReturnPlan = {
   startedAt: string;
@@ -143,6 +171,7 @@ export type Session = {
   affectsProgression?: boolean;
   bodyweightAtSession?: number;
   planSnapshot?: SessionPlanSnapshot;
+  exerciseExposures?: Record<string, ExerciseExposureSnapshot>;
   logicalKey?: string;
   revision: number;
   deletedAt?: string;
@@ -215,7 +244,7 @@ export type ConsentRecord = {
 };
 
 export type TrainingData = {
-  version: 8;
+  version: 9;
   updatedAt: string;
   setupVersion: number;
   setupCompletedAt?: string;
@@ -228,6 +257,7 @@ export type TrainingData = {
   program: ProgramState;
   planHistory: PlanChange[];
   absences: AbsenceRecord[];
+  exerciseRecovery: ExerciseRecoveryCheck[];
   consent?: ConsentRecord;
 };
 
@@ -747,7 +777,7 @@ export const PROGRAM = PHASE_TWO_PROGRAM;
 const ALL_EXERCISES = [...PHASE_ONE_PROGRAM, ...PHASE_TWO_EXERCISE_SOURCE, ...WOMENS_PHASE_ONE_SOURCE, ...WOMENS_PHASE_TWO_SOURCE].flatMap((day) => day.exercises);
 
 export const emptyData = (): TrainingData => ({
-  version: 8,
+  version: 9,
   updatedAt: new Date(0).toISOString(),
   setupVersion: 0,
   profile: null,
@@ -758,6 +788,7 @@ export const emptyData = (): TrainingData => ({
   loadProfiles: {},
   planHistory: [],
   absences: [],
+  exerciseRecovery: [],
   program: {
     activeId: "phase1",
     week: 1,
@@ -870,6 +901,16 @@ export const blankEntries = (day: TrainingDay, swaps: Record<string, string>) =>
     ]),
   );
 
+export const sessionEntriesForDay = (day: TrainingDay, swaps: Record<string, string>, source?: Record<string, SetEntry[]>, sourceUnit?: Unit, targetUnit?: Unit) =>
+  Object.fromEntries(day.exercises.map((exercise) => {
+    const key = exerciseKey(exercise, swaps);
+    return [key, Array.from({ length: exercise.sets }, (_, index) => {
+      const entry = source?.[key]?.[index] ?? { w: "", r: "", rir: "" };
+      if (!sourceUnit || !targetUnit || sourceUnit === targetUnit || entry.w === "") return entry;
+      return { ...entry, w: String(Math.round(convertWeight(numeric(entry.w), sourceUnit, targetUnit) * 100) / 100) };
+    })];
+  }));
+
 export const sessionLogicalKey = (date: string, programId: ProgramId, week: number | undefined, frequency: TrainingFrequency, dayId: string) =>
   `${date}:${programId}:${programId === "phase2" ? week ?? 1 : 0}:${frequency}:${dayId}`;
 
@@ -893,7 +934,7 @@ export const buildSessionPlanSnapshot = (data: TrainingData, day: TrainingDay, p
         id: resolved.id,
         key,
         name: resolved.name,
-        sets: resolved.sets,
+        sets: exercise.sets,
         repLow: resolved.repLow,
         repHigh: resolved.repHigh,
         restSeconds: resolved.restSeconds,
@@ -1255,6 +1296,7 @@ export function recalculatePhase2Progression(data: TrainingData): TrainingData {
         const finalSet = sets[exercise.sets - 1];
         const prescription = sbsPrescription(exercise.sbsRole, session.programWeek ?? 1);
         const progressionEligible = session.affectsProgression !== false
+          && session.exerciseExposures?.[key]?.progressionEligible !== false
           && session.completionStatus !== "partial"
           && session.completionStatus !== "skipped";
         after[key] = !progressionEligible || !finalSet || !isFilledSet(finalSet, exercise) || prescription.deload
@@ -1280,7 +1322,7 @@ export function trainingDataValidationIssues(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return ["Training data must be an object."];
   const source = raw as Record<string, unknown>;
   const sourceVersion = Number(source.version);
-  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 8) issues.push("Unsupported data version.");
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 2 || sourceVersion > 9) issues.push("Unsupported data version.");
   if (!source.program || typeof source.program !== "object" || Array.isArray(source.program)) issues.push("Program settings are missing.");
   if (!Array.isArray(source.sessions)) {
     issues.push("Session history must be a list.");
@@ -1479,6 +1521,33 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
       return [[key, sets.map((set) => normalizeSetEntry(set, exercise))]];
     }),
   );
+  const exerciseExposures: Record<string, ExerciseExposureSnapshot> | undefined = session.exerciseExposures && typeof session.exerciseExposures === "object" && !Array.isArray(session.exerciseExposures)
+    ? Object.fromEntries(Object.entries(session.exerciseExposures as Record<string, unknown>).flatMap(([key, value]) => {
+        if (!key.trim() || !value || typeof value !== "object" || Array.isArray(value)) return [];
+        const exposure = value as Record<string, unknown>;
+        const stateAtStart: ExerciseCalibrationState = exposure.stateAtStart === "preliminary" || exposure.stateAtStart === "developing" || exposure.stateAtStart === "calibrated" || exposure.stateAtStart === "recalibration"
+          ? exposure.stateAtStart
+          : "uncalibrated";
+        const noveltyRisk: ExerciseNoveltyRisk = exposure.noveltyRisk === "low" || exposure.noveltyRisk === "moderate" ? exposure.noveltyRisk : "high";
+        const prescribedSets = Math.max(1, Math.min(10, Math.trunc(numeric(exposure.prescribedSets) || 1)));
+        const originalSets = Math.max(prescribedSets, Math.min(10, Math.trunc(numeric(exposure.originalSets) || prescribedSets)));
+        return [[key, {
+          policyVersion: 1 as const,
+          identity: typeof exposure.identity === "string" && exposure.identity.trim() ? exposure.identity.slice(0, 160) : key.slice(0, 160),
+          stateAtStart,
+          noveltyRisk,
+          prescribedSets,
+          originalSets,
+          targetRir: Math.max(1, Math.min(5, Math.trunc(numeric(exposure.targetRir) || 3))),
+          relatedHistory: exposure.relatedHistory === true,
+          startingLoadSource: exposure.startingLoadSource === "user" ? "user" as const : "guided" as const,
+          progressionEligible: exposure.progressionEligible === true && stateAtStart === "calibrated",
+          suggestedLoad: typeof exposure.suggestedLoad === "number" && exposure.suggestedLoad >= 0 && exposure.suggestedLoad <= 2_000 ? exposure.suggestedLoad : null,
+          targetRepLow: Math.max(1, Math.min(100, Math.trunc(numeric(exposure.targetRepLow) || 1))),
+          targetRepHigh: Math.max(1, Math.min(100, Math.trunc(numeric(exposure.targetRepHigh) || 100))),
+        } satisfies ExerciseExposureSnapshot]];
+      }).slice(0, 50))
+    : undefined;
   const normalizeConditioning = (value: unknown): ConditioningLog | undefined => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
     const record = value as Record<string, unknown>;
@@ -1521,6 +1590,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     affectsProgression: session.affectsProgression !== false,
     bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= ((session.unit === "lb" ? "lb" : fallbackUnit) === "kg" ? 300 : 660) ? Number(session.bodyweightAtSession) : undefined,
     planSnapshot: normalizePlanSnapshot(session.planSnapshot),
+    exerciseExposures,
     logicalKey: typeof session.logicalKey === "string" ? session.logicalKey : undefined,
     revision: Math.max(1, Math.trunc(numeric(session.revision) || 1)),
     deletedAt: typeof session.deletedAt === "string" ? validIso(session.deletedAt, fallbackTime) : undefined,
@@ -1694,6 +1764,22 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       updatedAt: validIso(record.updatedAt, createdAt),
     }];
   }).slice(-2_000) : [];
+  const exerciseRecovery: ExerciseRecoveryCheck[] = Array.isArray(source.exerciseRecovery) ? source.exerciseRecovery.flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.sessionId !== "string" || !record.sessionId.trim() || typeof record.exerciseIdentity !== "string" || !record.exerciseIdentity.trim()) return [];
+    const status: ExerciseRecoveryStatus | null = record.status === "recovered" || record.status === "mild" || record.status === "limiting" || record.status === "severe" ? record.status : null;
+    if (!status) return [];
+    const createdAt = validIso(record.createdAt, updatedAt);
+    return [{
+      id: typeof record.id === "string" && record.id.trim() ? record.id : `recovery-${index}-${record.sessionId}`,
+      sessionId: record.sessionId,
+      exerciseIdentity: record.exerciseIdentity.slice(0, 160),
+      status,
+      createdAt,
+      updatedAt: validIso(record.updatedAt, createdAt),
+    }];
+  }).slice(-10_000) : [];
   const rawReturnPlan = rawProgram.returnPlan && typeof rawProgram.returnPlan === "object" ? rawProgram.returnPlan as Record<string, unknown> : null;
   const returnPlan: ReturnPlan | undefined = rawReturnPlan && Number(rawReturnPlan.sessionsRemaining) > 0
     ? {
@@ -1716,7 +1802,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       }
     : undefined;
   const normalized: TrainingData = {
-    version: 8,
+    version: 9,
     updatedAt,
     setupVersion: profile ? Math.max(2, Math.trunc(numeric(source.setupVersion) || 2)) : 0,
     setupCompletedAt: profile ? validIso(source.setupCompletedAt, updatedAt) : undefined,
@@ -1728,6 +1814,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     loadProfiles,
     planHistory,
     absences,
+    exerciseRecovery,
     consent,
     program: {
       activeId,
@@ -1776,8 +1863,13 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     const existing = loadProfiles.get(key);
     if (!existing || profile.updatedAt >= existing.updatedAt) loadProfiles.set(key, profile);
   });
+  const exerciseRecovery = new Map<string, ExerciseRecoveryCheck>();
+  [...left.exerciseRecovery, ...right.exerciseRecovery].forEach((record) => {
+    const existing = exerciseRecovery.get(record.id);
+    if (!existing || record.updatedAt >= existing.updatedAt) exerciseRecovery.set(record.id, record);
+  });
   return recalculatePhase2Progression({
-    version: 8,
+    version: 9,
     updatedAt: new Date(Math.max(Date.parse(left.updatedAt), Date.parse(right.updatedAt))).toISOString(),
     setupVersion: newer.setupVersion,
     setupCompletedAt: newer.setupCompletedAt,
@@ -1787,6 +1879,7 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     program: newer.program,
     planHistory: [...planChanges.values()].sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt)).slice(-2_000),
     absences: [...absences.values()].sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(-2_000),
+    exerciseRecovery: [...exerciseRecovery.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-10_000),
     consent: newer.consent,
     sessions: [...sessions.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     sessionRevisions: [...revisions.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-5_000),

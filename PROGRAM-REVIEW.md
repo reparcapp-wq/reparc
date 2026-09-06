@@ -28,6 +28,10 @@ The reviewer must also confirm that RepArc clearly identifies its adaptation of 
 
 Status: **external review not yet recorded**. Automated checks cannot fill or replace this sign-off. Do not describe the program as independently coach-approved until a qualified reviewer completes the row above.
 
+## First-exposure policy · 6 September 2026
+
+Version 10.5.0 adds per-exercise familiarization, reduced sets, recovery-dependent advancement, a visible unfamiliar-work budget and selective Phase 2 progression freezes. The complete deterministic policy, research boundaries and outstanding external-review findings are recorded in [EXPOSURE-REVIEW.md](EXPOSURE-REVIEW.md). These exact thresholds require coach review and prospective user evaluation; this addition does not fill the sign-off above.
+
 ## Warm-up, cardio and equipment audit · 5 September 2026
 
 - A brief, easy general warm-up plus one to three movement-specific rehearsal sets is presented as practical preparation, not a universal performance or injury-prevention guarantee. Rehearsal sets are excluded from working volume and progression.

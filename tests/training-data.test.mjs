@@ -27,7 +27,7 @@ test("migrates the original profile and stamps legacy session units", () => {
     swaps: {},
   }, "2026-08-27T12:00:00.000Z");
 
-  assert.equal(migrated.version, 8);
+  assert.equal(migrated.version, 9);
   assert.equal(migrated.setupVersion, 2);
   assert.equal(migrated.setupCompletedAt, "2026-08-27T12:00:00.000Z");
   assert.equal(migrated.program.activeId, "phase1");
