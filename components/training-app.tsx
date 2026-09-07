@@ -678,7 +678,7 @@ const bucketBounds = (range: HistoryRange, key: string) => {
   return { start: dateOnly(monday), end: dateOnly(sunday) };
 };
 
-function ProgressView({
+export function ProgressView({
   data,
   onUpdate,
   onEditSession,
@@ -689,6 +689,18 @@ function ProgressView({
 }) {
   const [range, setRange] = useState<HistoryRange>("day");
   const [selectedBuckets, setSelectedBuckets] = useState<Partial<Record<HistoryRange, string>>>({});
+  const [calendarToday, setCalendarToday] = useState(today);
+  useEffect(() => {
+    const refreshDate = () => setCalendarToday(today());
+    const interval = window.setInterval(refreshDate, 30_000);
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
   const [weighDate, setWeighDate] = useState(today);
   const [weighValue, setWeighValue] = useState("");
   const [message, setMessage] = useState("");
@@ -809,17 +821,19 @@ function ProgressView({
     return [...groups.entries()];
   }, [range, sortedSessions]);
   const currentBucketKey = range === "day"
-    ? today()
+    ? calendarToday
     : range === "week"
-      ? weekKey(today())
+      ? weekKey(calendarToday)
       : range === "month"
-        ? today().slice(0, 7)
-        : today().slice(0, 4);
+        ? calendarToday.slice(0, 7)
+        : calendarToday.slice(0, 4);
   const reportGroups = useMemo(() => {
     if (range === "day" || grouped.some(([key]) => key === currentBucketKey)) return grouped;
     return [[currentBucketKey, [] as Session[]], ...grouped] as Array<[string, Session[]]>;
   }, [currentBucketKey, grouped, range]);
-  const selectedBucketKey = selectedBuckets[range] ?? reportGroups[0]?.[0] ?? currentBucketKey;
+  // Start on the current period even when the most recent log is weeks old.
+  // Explicitly browsed history stays selected until the user chooses Today.
+  const selectedBucketKey = selectedBuckets[range] ?? currentBucketKey;
   const selectedSessions = range === "day"
     ? sortedSessions.filter((session) => session.date === selectedBucketKey)
     : reportGroups.find(([key]) => key === selectedBucketKey)?.[1] ?? [];
@@ -931,7 +945,7 @@ function ProgressView({
           <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/[0.025] p-3 sm:p-4" aria-label="Choose a report period">
             <div className="flex items-center justify-between gap-3">
               <Button type="button" variant="ghost" size="icon" onClick={() => shiftBucket(-1)} aria-label={`Previous ${range}`} className="size-10 shrink-0 rounded-xl text-stone-400 hover:bg-white/10 hover:text-white"><ChevronLeft className="size-4" /></Button>
-              <div className="min-w-0 text-center"><p className="eyebrow text-stone-600">Selected {range}</p><p className="mt-1 truncate text-sm font-semibold text-stone-200">{bucketLabel(selectedBucketKey)}</p></div>
+              <div className="min-w-0 text-center"><p className="eyebrow text-stone-600">Selected {range}{canMoveNewer && <button type="button" className="ml-2 min-h-10 px-2 text-sm font-semibold text-amber-300" onClick={() => setSelectedBuckets(current => { const next = { ...current }; delete next[range]; return next; })}>{range === "day" ? "Today" : "Current period"}</button>}</p><p className="mt-1 truncate text-sm font-semibold text-stone-200">{bucketLabel(selectedBucketKey)}</p></div>
               <Button type="button" variant="ghost" size="icon" onClick={() => shiftBucket(1)} disabled={!canMoveNewer} aria-label={`Next ${range}`} className="size-10 shrink-0 rounded-xl text-stone-400 hover:bg-white/10 hover:text-white disabled:opacity-25"><ChevronRight className="size-4" /></Button>
             </div>
 
