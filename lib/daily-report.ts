@@ -204,7 +204,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
       bestEstimatedMax: todayBest,
       priorBestEstimatedMax: priorBest,
       changePercent,
-      recommendation: exercise.sbsRole ? { action: "hold", nextLoad: null, confidence: "low", reason: "Use this lift’s SBS prescription in Train. Calibration and recovery checks control whether its final set can adjust the training max.", evidence: ["exercise-specific SBS progression"] } : latest.session.exerciseExposures?.[latest.key] ? constrainCalibrationAdjustment(rawRecommendation, exerciseCalibration(data, exercise, followingDay)) : rawRecommendation,
+      recommendation: latest.session.skippedExerciseKeys?.includes(latest.key) ? { action: "hold", nextLoad: null, confidence: "low", reason: "This exercise was stopped. Check suitability and recovery before resuming; no automatic increase from this session.", evidence: ["exercise stopped / skipped"] } : exercise.sbsRole ? { action: "hold", nextLoad: null, confidence: "low", reason: "Use this lift’s SBS prescription in Train. Calibration and recovery checks control whether its final set can adjust the training max.", evidence: ["exercise-specific SBS progression"] } : latest.session.exerciseExposures?.[latest.key] ? constrainCalibrationAdjustment(rawRecommendation, exerciseCalibration(data, exercise, followingDay)) : rawRecommendation,
     };
   });
 

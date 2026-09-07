@@ -63,6 +63,7 @@ export function exerciseCalibration(data: TrainingData, exercise: Exercise, date
     const filled = item.entries.filter((entry) => isFilledSet(entry, item.exercise));
     const unsafe = ["pain", "severe-soreness", "symptoms"].includes(item.session.readiness ?? "") || checks.some((check) => check.status === "limiting" || check.status === "severe");
     lastSets = filled.length;
+    if (item.session.skippedExerciseKeys?.includes(item.key)) { goodDates = []; continue; }
     if (unsafe) { state = "recalibration"; goodDates = []; reset = true; continue; }
     if (!exposure) {
       // Legacy history is credited as history, without inventing a recovery response.

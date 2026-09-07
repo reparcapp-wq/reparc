@@ -1,4 +1,6 @@
 import { exerciseMetadata, MUSCLES, type Muscle } from "./exercise-metadata";
+import { exerciseSwapOptions } from "./exercise-swaps";
+import { normalizeSkippedExercises } from "./training-navigation";
 export type Unit = "kg" | "lb";
 export type Level = "new" | "beginner" | "intermediate" | "experienced" | "returning";
 export type Gender = "man" | "woman";
@@ -173,6 +175,7 @@ export type Session = {
   completedAt?: string;
   durationSeconds?: number;
   completionStatus?: SessionCompletionStatus;
+  skippedExerciseKeys?: string[];
   affectsProgression?: boolean;
   bodyweightAtSession?: number;
   planSnapshot?: SessionPlanSnapshot;
@@ -719,9 +722,7 @@ const personalizeDays = (days: TrainingDay[], goal: TrainingGoal, equipment: Equ
       const expandedAlternatives = homeFallback && !exercise.alternatives.some((alternative) => equipmentForExerciseName(alternative).includes("home"))
         ? [...exercise.alternatives, homeFallback]
         : [...exercise.alternatives];
-      const alternatives = expandedAlternatives.sort((left, right) => {
-        return Number(equipmentForExerciseName(right).includes(equipment)) - Number(equipmentForExerciseName(left).includes(equipment));
-      });
+      const alternatives = exerciseSwapOptions(exercise.name, expandedAlternatives, equipment);
       const baseEquipment = exercise.equipment ?? equipmentForExerciseName(exercise.name);
       const compatibleDefault = equipment === "full" || baseEquipment.includes(equipment)
         ? undefined
@@ -978,7 +979,7 @@ export const sessionCompletedSets = (session: Session) => Object.entries(session
 }, 0);
 
 export const sessionCountsAsCompletedDay = (session: Session, data?: TrainingData) => {
-  if (session.deletedAt || session.completionStatus === "partial" || session.completionStatus === "skipped") return false;
+  if (session.deletedAt || session.skippedExerciseKeys?.length || session.completionStatus === "partial" || session.completionStatus === "skipped") return false;
   const planned = sessionPlannedSets(session, data);
   return planned > 0 && sessionCompletedSets(session) >= planned;
 };
@@ -1294,6 +1295,7 @@ export function recalculatePhase2Progression(data: TrainingData): TrainingData {
         const finalSet = sets[exercise.sets - 1];
         const prescription = sbsPrescription(exercise.sbsRole, session.programWeek ?? 1);
         const progressionEligible = session.affectsProgression !== false
+          && !session.skippedExerciseKeys?.length
           && session.exerciseExposures?.[key]?.progressionEligible !== false
           && session.completionStatus !== "partial"
           && session.completionStatus !== "skipped";
@@ -1452,7 +1454,7 @@ export const suggestedTrainingMax = (data: TrainingData, exercise: Exercise, uni
   return activeSessions(data).reduce((best, session) => {
     return Object.entries(session.entries).reduce((innerBest, [key, entries]) => {
       const historicalExercise = exerciseForSessionKey(session, key);
-      if (!historicalExercise || loadProfileId(historicalExercise) !== targetIdentity || !supportsEstimatedMax(historicalExercise)) return innerBest;
+      if (session.skippedExerciseKeys?.includes(key) || !historicalExercise || loadProfileId(historicalExercise) !== targetIdentity || !supportsEstimatedMax(historicalExercise)) return innerBest;
       return entries.reduce((setBest, entry) => {
         const reps = numeric(entry.r);
         if (!isFilledSet(entry, historicalExercise) || reps < 4 || reps > 10) return setBest;
@@ -1586,6 +1588,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
       ? Math.trunc(Number(session.durationSeconds))
       : undefined,
     completionStatus: session.completionStatus === "completed" || session.completionStatus === "adjusted" || session.completionStatus === "skipped" || session.completionStatus === "partial" ? session.completionStatus : undefined,
+    skippedExerciseKeys: normalizeSkippedExercises(session.skippedExerciseKeys),
     affectsProgression: session.affectsProgression !== false,
     bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= ((session.unit === "lb" ? "lb" : fallbackUnit) === "kg" ? 300 : 660) ? Number(session.bodyweightAtSession) : undefined,
     planSnapshot: normalizePlanSnapshot(session.planSnapshot),

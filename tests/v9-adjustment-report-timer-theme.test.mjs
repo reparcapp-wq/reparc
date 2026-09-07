@@ -254,8 +254,8 @@ test("timer and theme integration use persistent, non-blocking platform behavior
 test("focused training locks forward navigation and keeps secondary controls compact", async () => {
   const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
   assert.match(source, /lastAccessibleExerciseIndex/);
-  assert.match(source, /Complete every kg and reps field/);
-  assert.match(source, /disabled=\{activeExerciseIndex === day\.exercises\.length - 1 \|\| !exerciseIsComplete/);
+  assert.match(source, /Complete the current exercise, or use Skip \/ stop exercise/);
+  assert.match(source, /!exerciseIsComplete\(activeExerciseIndex\) && !currentExerciseSkipped/);
   assert.match(source, /scrollIntoView/);
   assert.match(source, /reparc-session-start:/);
   assert.match(source, /<details className="mt-4 rounded-2xl[^>]+aria-label="Session effort"/);

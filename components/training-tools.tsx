@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { equipmentChoices, parseAvailableLoads } from "@/lib/load-profile-editor";
 import { type TrainingData, type Unit } from "@/lib/training";
+import { swapExplanation } from "@/lib/exercise-swaps";
 
 export function LoadProfileEditor({ name, unit, values, hint, onSave, onClear }: {
   name: string; unit: Unit; values: number[]; hint: string;
@@ -67,9 +68,10 @@ export function EquipmentSettings({ data, onUpdate }: { data: TrainingData; onUp
   </article>;
 }
 
-export function ExerciseSwap({ name, options, open, disabled, lockedLabel, onToggle, onSelect, id }: {
+export function ExerciseSwap({ name, options, open, disabled, lockedLabel, onToggle, onSelect, id, baseName = name }: {
   name: string; options: string[]; open: boolean; disabled: boolean; lockedLabel?: string;
   onToggle: () => void; onSelect: (name: string) => void; id: string;
+  baseName?: string;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   return <div className="exercise-heading" onKeyDown={(event) => { if (event.key === "Escape" && open) { event.stopPropagation(); onToggle(); triggerRef.current?.focus(); } }}>
@@ -80,7 +82,9 @@ export function ExerciseSwap({ name, options, open, disabled, lockedLabel, onTog
       </Button>
     </div>
     {open && <div id={`swap-options-${id}`} className="swap-reveal mt-2 grid gap-2 sm:grid-cols-2" role="group" aria-label={`Alternatives to ${name}`}>
-      {[...new Set([name, ...options])].map((option) => <Button key={option} type="button" variant="outline" aria-pressed={option === name} data-selected={option === name} onClick={() => { onSelect(option); triggerRef.current?.focus(); }} className="selection-button h-auto min-h-11 justify-start whitespace-normal rounded-xl px-3 py-3 text-left text-sm leading-5">{option === name && <Check className="size-4 shrink-0" />}{option}</Button>)}
+      <p className="text-sm leading-5 text-stone-400 sm:col-span-2">Similar training role does not mean identical results or the same weight. If none suits you, skip this exercise.</p>
+      {[...new Set([name, ...options])].map((option) => <Button key={option} type="button" variant="outline" title={swapExplanation(baseName, option)} aria-pressed={option === name} data-selected={option === name} onClick={() => { onSelect(option); triggerRef.current?.focus(); }} className="selection-button h-auto min-h-11 justify-start whitespace-normal rounded-xl px-3 py-3 text-left text-sm leading-5">{option === name && <Check className="size-4 shrink-0" />}{option}</Button>)}
+      {name !== baseName && <p className="text-sm leading-5 text-stone-400 sm:col-span-2">{swapExplanation(baseName, name)}</p>}
     </div>}
   </div>;
 }

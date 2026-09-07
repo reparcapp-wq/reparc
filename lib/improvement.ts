@@ -1,7 +1,7 @@
 import { loadProfileId, exerciseFromKey, type TrainingData, type Session } from "@/lib/training";
 
 export const IMPROVEMENT_NOTICE_VERSION = "2026-09-07";
-export const RECOMMENDATION_VERSION = "11.0.0-policy1";
+export const RECOMMENDATION_VERSION = "11.0.1-policy2";
 export const IMPROVEMENT_RETENTION_DAYS = 180;
 export type ImprovementStatus = { available: boolean; enabled: boolean; noticeVersion?: string; grantedAt?: string; expiresAt?: string };
 

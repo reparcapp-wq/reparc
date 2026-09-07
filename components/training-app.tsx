@@ -50,6 +50,8 @@ import { SettingsTools } from "@/components/settings-tools";
 import { ExerciseSwap, LoadProfileEditor, EquipmentSettings } from "@/components/training-tools";
 import { loadEntryHint } from "@/lib/load-profile-editor";
 import { RECOMMENDATION_VERSION } from "@/lib/improvement";
+import { exerciseSwapOptions, isDirectSwap } from "@/lib/exercise-swaps";
+import { lastAccessibleExercise, normalizeSkippedExercises } from "@/lib/training-navigation";
 import { FirstSetupOverview } from "@/components/reparc-overview";
 import { ImprovementSettings } from "@/components/improvement-settings";
 import { MuscleVolume } from "@/components/muscle-volume";
@@ -1624,6 +1626,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [data, setData] = useState<TrainingData>(emptyData);
   const [dayId, setDayId] = useState<string | null>(null);
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
+  const [skippedDrafts, setSkippedDrafts] = useState<Record<string, string[]>>({});
   const [noveltyOverrides, setNoveltyOverrides] = useState<Record<string, boolean>>({});
   const [knownLoadOverrides, setKnownLoadOverrides] = useState<Record<string, boolean>>({});
   const [drafts, setDrafts] = useState<Record<string, Record<string, SetEntry[]>>>({});
@@ -1708,7 +1711,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     rememberName(account.id, resolvedName);
     setData(next);
     const loadedDrafts = await loadDrafts(account.id, trainingName);
-    const draftEntries = Object.fromEntries(Object.entries(loadedDrafts).filter(([key]) => !key.startsWith("_plan:"))) as Record<string, Record<string, SetEntry[]>>;
+    const draftEntries = Object.fromEntries(Object.entries(loadedDrafts).filter(([key]) => !key.startsWith("_plan:") && !key.startsWith("_skip:"))) as Record<string, Record<string, SetEntry[]>>;
+    setSkippedDrafts(Object.fromEntries(Object.entries(loadedDrafts).filter(([key]) => key.startsWith("_skip:")).map(([key, value]) => [key.slice(6), normalizeSkippedExercises(value)])));
     const restoredPlans = Object.fromEntries(Object.entries(loadedDrafts).filter(([key, value]) => key.startsWith("_plan:") && value && typeof value === "object" && Array.isArray((value as { snapshot?: SessionPlanSnapshot }).snapshot?.exercises)).map(([key, value]) => [key.slice(6), value])) as typeof draftPlans;
     for (const [key, entries] of Object.entries(draftEntries)) {
       if (!restoredPlans[key]) { const plan = preserveLegacyDraft(next, key, entries); if (plan) restoredPlans[key] = plan; }
@@ -1746,8 +1750,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   useEffect(() => {
     if (!name || stage !== "app") return;
-    void saveDrafts(account.id, { ...drafts, ...Object.fromEntries(Object.entries(draftPlans).map(([key, value]) => [`_plan:${key}`, value])) });
-  }, [account.id, drafts, draftPlans, name, stage]);
+    void saveDrafts(account.id, { ...drafts, ...Object.fromEntries(Object.entries(draftPlans).map(([key, value]) => [`_plan:${key}`, value])), ...Object.fromEntries(Object.entries(skippedDrafts).map(([key, value]) => [`_skip:${key}`, value])) });
+  }, [account.id, drafts, draftPlans, skippedDrafts, name, stage]);
 
   useEffect(() => {
     const synchronizeTimer = () => {
@@ -2119,6 +2123,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       )
     : undefined);
   const draftKey = day ? `${workingProgramId}:${workingWeek}:${activeDate}:${day.id}` : null;
+  const skippedExerciseKeys = (draftKey ? skippedDrafts[draftKey] : undefined) ?? currentSession?.skippedExerciseKeys ?? [];
 
   useEffect(() => {
     const hydrationKey = currentSession?.id ?? draftKey;
@@ -2250,6 +2255,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       };
     }
     const lastHistory = historyFor(exercise).at(-1);
+    if (lastHistory?.session.skippedExerciseKeys?.includes(lastHistory.key)) return { value: null, tag: "hold", reason: "You stopped this exercise last time. Check that it is suitable and comfortable before choosing a load; no automatic increase from that session." };
     if (lastHistory) {
       const { session: last, entries: lastEntries } = lastHistory;
       const normalizedEntries = lastEntries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
@@ -2398,6 +2404,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const applySwap = async (exercise: Exercise, alternative: string | null) => {
     if (!day || !draftKey) return;
+    if (workingProgramId === "phase2" && exercise.sbsRole) {
+      setNotice("SBS programmed lifts keep their exercise-specific training max. You can skip an unsuitable lift instead.");
+      return;
+    }
+    if (alternative && (!isDirectSwap(exercise.name, alternative) || !exerciseSwapOptions(exercise.name, exercise.alternatives, profile?.equipment).includes(alternative))) {
+      setNotice("This is not a reviewed replacement for the exercise's training role. Choose a listed alternative or skip it.");
+      return;
+    }
     if (savedSession) {
       setNotice("Saved workouts keep their exercise variations. Choose a variation in a new workout instead.");
       return;
@@ -2440,6 +2454,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       };
     });
     setOpenSwap(null);
+    setSkippedDrafts((current) => ({ ...current, [draftKey]: skippedExerciseKeys.filter(key => key !== previousKey && key !== nextKey) }));
     const next = { ...data, swaps: nextSwaps, updatedAt: new Date().toISOString() };
     await persist(next, "Exercise variation saved");
   };
@@ -2479,7 +2494,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const exercise = snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
       return sum + sets.filter((entry) => isFilledSet(entry, exercise)).length;
     }, 0);
-    const completionStatus = completedSetCount >= plannedSets ? "completed" as const : "partial" as const;
+    const completionStatus = !skippedExerciseKeys.length && completedSetCount >= plannedSets ? "completed" as const : "partial" as const;
     const calibrationSession = !editingSession && currentSession?.completionStatus !== "completed" && (data.program.calibrationRequired || Boolean(data.program.returnPlan));
     const calibrationCompleted = calibrationSession && completionStatus === "completed";
     const affectsProgression = (currentSession?.affectsProgression ?? !calibrationSession) && completionStatus === "completed" && (!readiness || readiness === "normal");
@@ -2530,6 +2545,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       completedAt: now,
       durationSeconds,
       completionStatus,
+      skippedExerciseKeys: [...skippedExerciseKeys],
       affectsProgression,
       bodyweightAtSession: currentSession?.bodyweightAtSession ?? profile.bodyweight,
       planSnapshot,
@@ -2665,12 +2681,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const entries = log[keyForExercise(exercise, index)] ?? [];
     return entries.length >= resolved.sets && entries.slice(0, resolved.sets).every((entry) => isFilledSet(entry, resolved));
   };
-  const firstIncompleteExerciseIndex = day?.exercises.findIndex((_, index) => !exerciseIsComplete(index)) ?? -1;
-  const lastAccessibleExerciseIndex = firstIncompleteExerciseIndex === -1 ? (day?.exercises.length ?? 1) - 1 : firstIncompleteExerciseIndex;
+  const lastAccessibleExerciseIndex = lastAccessibleExercise(day?.exercises.map((exercise, index) => keyForExercise(exercise, index)) ?? [], day?.exercises.map((_, index) => exerciseIsComplete(index)) ?? [], skippedExerciseKeys);
   const goToExercise = (index: number) => {
     if (!day || index < 0 || index >= day.exercises.length) return;
     if (index > lastAccessibleExerciseIndex) {
-      setNotice("Complete every kg and reps field in the current exercise before continuing.");
+      setNotice("Complete the current exercise, or use Skip / stop exercise if it is unsuitable. Never enter invented sets to continue.");
       return;
     }
     setActiveExerciseIndex(index);
@@ -2678,6 +2693,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setNotice("");
   };
   const currentBaseExercise = day?.exercises[activeExerciseIndex];
+  const currentExerciseSkipped = Boolean(currentBaseExercise && skippedExerciseKeys.includes(keyForExercise(currentBaseExercise, activeExerciseIndex)));
   const currentExercise = currentBaseExercise ? resolvedForExercise(currentBaseExercise, activeExerciseIndex) : null;
   const currentCalibration = currentExercise ? calibrationFor(currentExercise) : null;
   const currentExposure = currentExercise && currentBaseExercise ? exposureFor(currentExercise, keyForExercise(currentBaseExercise, activeExerciseIndex)) : null;
@@ -2882,7 +2898,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                     const resolvedItem = resolvedForExercise(item, index);
                     const complete = (log[itemKey] ?? []).filter((entry) => isFilledSet(entry, resolvedItem)).length >= resolvedItem.sets;
                     const locked = index > lastAccessibleExerciseIndex;
-                    return <Button key={item.id} type="button" role="tab" aria-selected={activeExerciseIndex === index} aria-label={`${index + 1}. ${resolvedItem.name}${complete ? ", complete" : locked ? ", locked until earlier exercises are complete" : ""}`} variant="outline" data-selected={activeExerciseIndex === index} disabled={locked} onClick={() => goToExercise(index)} className="selection-button h-10 rounded-xl px-0 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-35">{complete ? <Check className="size-3.5" /> : locked ? <Lock className="size-3.5" /> : index + 1}</Button>;
+                    const skipped = skippedExerciseKeys.includes(itemKey);
+                    return <Button key={item.id} type="button" role="tab" aria-selected={activeExerciseIndex === index} aria-label={`${index + 1}. ${resolvedItem.name}${skipped ? ", skipped or stopped" : complete ? ", complete" : locked ? ", locked until earlier exercises are completed or skipped" : ""}`} variant="outline" data-selected={activeExerciseIndex === index} disabled={locked} onClick={() => goToExercise(index)} className="selection-button h-10 rounded-xl px-0 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-35">{skipped ? <Minus className="size-3.5" /> : complete ? <Check className="size-3.5" /> : locked ? <Lock className="size-3.5" /> : index + 1}</Button>;
                   })}
                 </div>
               </div>
@@ -2913,7 +2930,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const guidance = exerciseGuidance(displayName);
                   const prescription = prescriptionFor(exercise);
                   const TagIcon = suggestion?.tag === "up" ? ArrowUpRight : suggestion?.tag === "down" ? ArrowDownRight : Minus;
-                  const rawAdjustment = data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads }) : null;
+                  const rawAdjustment = !skippedExerciseKeys.includes(key) && data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads }) : null;
                   const liveAdjustment = rawAdjustment?.action === "increase" && (exposure?.progressionEligible === false || calibration.state !== "calibrated" || calibration.recoveryPending || Boolean(data.program.returnPlan))
                     ? { ...rawAdjustment, action: "hold" as const, nextLoad: null, reason: `Keep this exposure comfortable at ${exposure?.targetRir ?? calibration.targetRir} RIR. Do not increase the load while building familiarity or checking recovery.` }
                     : rawAdjustment;
@@ -2923,7 +2940,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                     <article key={exercise.id} className="exercise-card overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#121512] motion-page" style={{ animationDelay: `${Math.min(exerciseIndex, 5) * 55}ms` }}>
                       <div className="grid gap-5 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_12.5rem]">
                         <div className="min-w-0">
-                          <ExerciseSwap id={exercise.id} name={displayName} options={[swapBaseExercise.name, ...swapBaseExercise.alternatives]}
+                          <ExerciseSwap id={exercise.id} name={displayName} baseName={swapBaseExercise.name} options={[swapBaseExercise.name, ...exerciseSwapOptions(swapBaseExercise.name, swapBaseExercise.alternatives, profile.equipment)]}
                             open={openSwap === exercise.id} disabled={Boolean(savedSession) || (workingProgramId === "phase2" && Boolean(exercise.sbsRole))}
                             lockedLabel={workingProgramId === "phase2" && exercise.sbsRole ? "Fixed lift" : undefined}
                             onToggle={() => setOpenSwap(openSwap === exercise.id ? null : exercise.id)}
@@ -3037,8 +3054,18 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Button type="button" variant="outline" disabled={activeExerciseIndex === 0} onClick={() => goToExercise(activeExerciseIndex - 1)} className="h-11 rounded-xl border-white/10 bg-white/[0.035] text-stone-300">Previous</Button>
-                <Button type="button" disabled={activeExerciseIndex === day.exercises.length - 1 || !exerciseIsComplete(activeExerciseIndex)} onClick={() => goToExercise(activeExerciseIndex + 1)} className="h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{exerciseIsComplete(activeExerciseIndex) ? "Next exercise" : "Complete kg & reps"}</Button>
+                <Button type="button" disabled={!currentBaseExercise || activeExerciseIndex >= day.exercises.length - 1 || (!exerciseIsComplete(activeExerciseIndex) && !currentExerciseSkipped)} onClick={() => goToExercise(activeExerciseIndex + 1)} className="h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{exerciseIsComplete(activeExerciseIndex) || currentExerciseSkipped ? "Next exercise" : "Complete kg & reps"}</Button>
               </div>
+              {currentBaseExercise && draftKey && <div className="mt-2 text-sm leading-5">
+                {skippedExerciseKeys.includes(keyForExercise(currentBaseExercise, activeExerciseIndex)) ? <><p role="status" className="text-stone-400">Skipped / stopped. Existing entries are kept; this workout remains partial.</p><Button type="button" variant="ghost" className="min-h-11 px-0 text-sm" onClick={() => setSkippedDrafts(current => ({ ...current, [draftKey]: skippedExerciseKeys.filter(key => key !== keyForExercise(currentBaseExercise, activeExerciseIndex)) }))}>Undo skip</Button></> : !exerciseIsComplete(activeExerciseIndex) && <Button type="button" variant="ghost" className="min-h-11 px-0 text-sm" onClick={() => {
+                  if (!window.confirm("Skip or stop this exercise because it is uncomfortable, unsuitable or equipment is unavailable? Existing sets stay recorded; missing sets will not count as completed. Do not continue training through pain.")) return;
+                  setSkippedDrafts(current => ({ ...current, [draftKey]: [...new Set([...skippedExerciseKeys, keyForExercise(currentBaseExercise, activeExerciseIndex)])] }));
+                  closeRestTimer();
+                  setOpenSwap(null);
+                  if (activeExerciseIndex < day.exercises.length - 1) setActiveExerciseIndex(activeExerciseIndex + 1);
+                  setNotice("Exercise skipped / stopped. You can save completed sets as a partial workout. Stop the session if continuing is not comfortable.");
+                }}>Skip / stop exercise</Button>}
+              </div>}
 
               <details className="train-finish mt-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span>Finish session <span className="font-normal text-stone-400">· effort & cardio</span></span><ChevronDown className="size-4" /></summary>

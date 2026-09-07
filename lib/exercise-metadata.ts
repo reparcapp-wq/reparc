@@ -53,7 +53,7 @@ group(["Kickstand RDL"], "hinge", "lower", ["hamstrings","glutes"], ["back"], ho
 group(["Seated leg curl","Lying leg curl","Leg curl"], "knee-flexion", "lower", ["hamstrings"], [], full, { homeAlternative: "Slider leg curl" });
 group(["Slider leg curl"], "knee-flexion", "lower", ["hamstrings"], [], home, { loadingType: "unloaded", estimatedMax: false });
 group(["Nordic curl","Nordic hamstring curl"], "eccentric-knee-flexion", "lower", ["hamstrings"], [], home, { loadingType: "bodyweight", estimatedMax: false });
-group(["Leg extension"], "knee-extension", "lower", ["quads"], [], full, { homeAlternative: "Wall sit" });
+group(["Leg extension"], "knee-extension", "lower", ["quads"], [], full, { homeAlternative: "Spanish squat" });
 group(["Spanish squat","Sissy squat"], "knee-extension", "lower", ["quads"], [], home, { loadingType: "bodyweight", identityLoadingType: "external", estimatedMax: false });
 group(["Wall sit"], "knee-extension", "lower", ["quads"], [], home, { loadingType: "unloaded", estimatedMax: false });
 group(["Hip thrust","Barbell hip thrust"], "hip-extension", "lower", ["glutes"], [], gym, { homeAlternative: "Dumbbell glute bridge" });
@@ -87,6 +87,9 @@ group(["Dead bug"], "trunk", "trunk", ["trunk"], [], home, { loadingType: "unloa
 // stable while correcting how future entries describe one dumbbell versus a total.
 for (const name of ["Hammer curl","Concentration curl","Lateral raise","Dumbbell reverse fly","Dumbbell rear-delt fly"]) registry.get(normalize(name))!.identityPerSide = false;
 registry.get(normalize("Band lateral raise"))!.identityLoadingType = "external";
+// Preserve posterior-shoulder and hip-extension intent for equipment fallbacks.
+registry.get(normalize("Cable rear-delt fly"))!.homeAlternative = "Dumbbell rear-delt fly";
+registry.get(normalize("Cable kickback"))!.homeAlternative = "Band kickback";
 export const exerciseMetadata = (name: string) => registry.get(normalize(name));
 export const EXERCISE_METADATA_VERSION = 1;
 export const MUSCLES: Muscle[] = ["chest","back","shoulders","biceps","triceps","quads","hamstrings","glutes","calves","trunk"];
