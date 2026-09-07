@@ -49,6 +49,10 @@ import { Button } from "@/components/ui/button";
 import { SettingsTools } from "@/components/settings-tools";
 import { ExerciseSwap, LoadProfileEditor, EquipmentSettings } from "@/components/training-tools";
 import { loadEntryHint } from "@/lib/load-profile-editor";
+import { RECOMMENDATION_VERSION } from "@/lib/improvement";
+import { FirstSetupOverview } from "@/components/reparc-overview";
+import { ImprovementSettings } from "@/components/improvement-settings";
+import { MuscleVolume } from "@/components/muscle-volume";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { exerciseGuidance } from "@/lib/exercise-guidance";
 import { buildExposurePlan, calibrationSetCount, CALIBRATION_LABELS, constrainCalibrationAdjustment, exerciseCalibration, loadAtOrBelow, preserveLegacyDraft, restrictActiveExposure } from "@/lib/exercise-calibration";
@@ -143,7 +147,7 @@ import { downloadTrainingBackup, type RestoreMode } from "@/lib/backup";
 import type { Account } from "@/lib/account-client";
 import type { PwaLifecycle } from "@/hooks/use-pwa";
 
-type Stage = "loading" | "name" | "profile" | "consent" | "app";
+type Stage = "loading" | "name" | "profile" | "consent" | "improvement" | "app";
 type SyncState = "loading" | "saving" | "synced" | "pending" | "local";
 type View = "train" | "progress" | "settings" | "guide";
 type RestTimer = {
@@ -562,7 +566,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
               </div>
               <fieldset className="mt-7"><legend className="eyebrow">Bodyweight trends in Progress <RequiredMark /></legend><div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-required="true">{([[true,"Track weigh-ins"],[false,"Hide weigh-ins"]] as const).map(([value, label]) => <Button key={label} type="button" role="radio" variant="outline" aria-checked={weightTrackingEnabled === value} data-selected={weightTrackingEnabled === value} onClick={() => setWeightTrackingEnabled(value)} className="selection-button onboarding-choice min-h-14 rounded-xl font-semibold">{label}</Button>)}</div></fieldset>
               {weightTrackingEnabled && <fieldset className="motion-pop mt-5"><legend className="eyebrow">Current goal</legend><RadioGroup value={weightGoal} onValueChange={(value) => setWeightGoal(value as WeightGoal)} className="mt-3 grid grid-cols-3 gap-2" aria-label="Weight goal">{(["cut","maintain","bulk"] as WeightGoal[]).map((value) => <ChoiceRadio key={value} id={`setup-weight-${value}`} value={value} label={value[0].toUpperCase() + value.slice(1)} />)}</RadioGroup></fieldset>}
-              <label className="mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-5 text-stone-400"><input type="checkbox" required aria-required="true" checked={safetyAccepted} onChange={(event) => setSafetyAccepted(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-amber-300" /><span>I understand this is general fitness guidance—not medical care, injury rehabilitation, or a pregnancy/postpartum prescription <RequiredMark />.</span></label>
+              <label className="mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-stone-300"><input type="checkbox" required aria-required="true" checked={safetyAccepted} onChange={(event) => setSafetyAccepted(event.target.checked)} className="mt-1 size-5 shrink-0 accent-amber-300" /><span>I accept the <a href="/terms" target="_blank" rel="noreferrer" className="text-amber-300 underline">Terms &amp; Safety</a> and acknowledge the <a href="/privacy" target="_blank" rel="noreferrer" className="text-amber-300 underline">Privacy Notice</a>. RepArc provides general fitness guidance, not medical care or rehabilitation. Optional improvement sharing is a separate choice <RequiredMark />.</span></label>
             </>}
 
             {step === 5 && gender && level && frequency && equipment && weightTrackingEnabled !== null && <>
@@ -608,9 +612,9 @@ function ConsentUpdate({ onAccept }: { onAccept: () => Promise<boolean> }) {
         <BrandLockup />
         <p className="eyebrow mt-10 text-amber-300">Terms &amp; safety update</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em]">Review before continuing.</h1>
-        <p className="mt-3 text-sm leading-6 text-stone-400">Your training history is unchanged. RepArc records this confirmation because its program and safety terms were updated.</p>
+        <p className="mt-3 text-sm leading-6 text-stone-400">The update adds optional use of future workout data to improve recommendations, withdrawal and export controls, and automatic history archives. Sharing stays off unless you separately opt in.</p>
         <label className="mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-5 text-stone-300"><input type="checkbox" checked={adultConfirmed} onChange={(event) => setAdultConfirmed(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-amber-300" /><span>I confirm that I am 18 or older <RequiredMark />.</span></label>
-        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs leading-5 text-stone-300"><input type="checkbox" checked={safetyAccepted} onChange={(event) => setSafetyAccepted(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-amber-300" /><span>I understand RepArc provides general fitness guidance—not medical care, rehabilitation, or pregnancy/postpartum advice <RequiredMark />.</span></label>
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-stone-300"><input type="checkbox" checked={safetyAccepted} onChange={(event) => setSafetyAccepted(event.target.checked)} className="mt-1 size-5 shrink-0 accent-amber-300" /><span>I accept the updated Terms &amp; Safety and acknowledge the Privacy Notice. RepArc provides general fitness guidance, not medical care or rehabilitation <RequiredMark />.</span></label>
         <p className="mt-4 text-xs leading-5 text-stone-500">Read the <a href="/terms" target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-4">Terms &amp; safety notice</a> and <a href="/privacy" target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-4">Privacy notice</a>.</p>
         {error && <p className="mt-4 text-sm text-red-300" role="alert">{error}</p>}
         <Button type="button" onClick={() => void accept()} disabled={busy} className="mt-6 h-13 w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{busy ? "Saving…" : "Accept and continue"}<ArrowUpRight className="size-4" /></Button>
@@ -905,6 +909,7 @@ function ProgressView({
         </aside>
 
         <div className="min-w-0">
+          {range === "week" && <MuscleVolume data={data} start={bucketBounds("week", selectedBucketKey).start} end={bucketBounds("week", selectedBucketKey).end} />}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="eyebrow text-stone-500">Timeline</p>
@@ -1207,7 +1212,7 @@ function SettingsView({
   const phaseTwoMaxesComplete = phaseTwoExercises.every((exercise) => Number(reviewMaxes[exercise.id]) > 0);
   const confidence = phase2DataConfidence(data, track);
   const storageBytes = trainingDataBytes(data);
-  const storagePercent = Math.min(100, Math.round((storageBytes / 900_000) * 100));
+  const storagePercent = Math.min(100, Math.round((storageBytes / 32_000_000) * 100));
 
   const saveDisplayName = async () => {
     const trimmed = nameDraft.trim();
@@ -1595,7 +1600,7 @@ function SettingsView({
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
               <div className={`h-full rounded-full ${storagePercent >= 75 ? "bg-amber-300" : "bg-emerald-300"}`} style={{ width: `${storagePercent}%` }} />
             </div>
-            <p className="mt-2 text-[10px] leading-4 text-stone-600">{Math.max(1, Math.round(storageBytes / 1024))} KB of the safe 879 KB sync allowance. Export a full backup if this approaches 75%.</p>
+            <p className="mt-2 text-sm leading-5 text-stone-400">{Math.max(1, Math.round(storageBytes / 1024))} KB of 32 MB. Larger histories are archived automatically during sync; reports and JSON backups include the full history. Keep a backup if this approaches 75%.</p>
           </div>
           <div className="mt-5 grid gap-2 sm:grid-cols-2">
             <Button variant="outline" onClick={exportCsv} disabled={!data.sessions.length} className="h-12 rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white"><Download className="size-4" />Export spreadsheet</Button>
@@ -1622,7 +1627,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [noveltyOverrides, setNoveltyOverrides] = useState<Record<string, boolean>>({});
   const [knownLoadOverrides, setKnownLoadOverrides] = useState<Record<string, boolean>>({});
   const [drafts, setDrafts] = useState<Record<string, Record<string, SetEntry[]>>>({});
-  const [draftPlans, setDraftPlans] = useState<Record<string, { snapshot: SessionPlanSnapshot; exposures: Record<string, ExerciseExposureSnapshot> }>>({});
+  const [draftPlans, setDraftPlans] = useState<Record<string, { snapshot: SessionPlanSnapshot; exposures: Record<string, ExerciseExposureSnapshot>; recommendationVersion?: string }>>({});
   const [openSwap, setOpenSwap] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("loading");
   const [lastSyncedAt, setLastSyncedAt] = useState<string | undefined>();
@@ -1995,7 +2000,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       planHistory: [{ id: globalThis.crypto?.randomUUID?.() ?? `plan-${now}`, effectiveAt: now, kind: "setup", programId: data.program.activeId, week: data.program.week, frequency, preferredWeekdays: [...preferredWeekdays], track: profile.programTrack, goal: profile.goal, equipment: profile.equipment, status: "active" }],
     };
     const saved = await persist(next, "Your training plan is ready");
-    if (saved) setStage("app");
+    if (saved) setStage("improvement");
     return saved;
   };
 
@@ -2004,7 +2009,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const accepted = { ...data, updatedAt: now, consent: { termsVersion: CURRENT_TERMS_VERSION, adultConfirmedAt: now, safetyAcceptedAt: now } };
     const next = accepted.planHistory.length ? accepted : recordPlanChange(accepted, "setup", now);
     const saved = await persist(next, "Terms confirmation saved");
-    if (saved) setStage("app");
+    if (saved) setStage("improvement");
     return saved;
   };
 
@@ -2334,7 +2339,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           targetRepLow: prescription?.normalReps ?? item.repLow, targetRepHigh: prescription?.normalReps ?? item.repHigh,
         }];
       }));
-      setDraftPlans((current) => ({ ...current, [draftKey]: { snapshot, exposures } }));
+      setDraftPlans((current) => ({ ...current, [draftKey]: { snapshot, exposures, recommendationVersion: RECOMMENDATION_VERSION } }));
     }
     if (value !== "" && !sessionStartedAt) {
       const startedAt = new Date().toISOString();
@@ -2416,7 +2421,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const exposures = { ...lockedDraftPlan.exposures };
       delete exposures[previousKey];
       exposures[nextKey] = { policyVersion: 1, identity: calibration.identity, stateAtStart: calibration.state, noveltyRisk: calibration.risk, prescribedSets: sets, originalSets: lockedDraftPlan.exposures[previousKey]?.originalSets ?? exercise.sets, targetRir: Math.max(calibration.targetRir, data.program.returnPlan?.targetRir ?? 0), relatedHistory: calibration.relatedHistory, startingLoadSource: "guided", progressionEligible: calibration.state === "calibrated" && !calibration.recoveryPending && !data.program.calibrationRequired && !data.program.returnPlan };
-      setDraftPlans((current) => ({ ...current, [draftKey]: { snapshot: { ...lockedDraftPlan.snapshot, exercises: lockedDraftPlan.snapshot.exercises.map((item) => item.key === previousKey ? revised : item) }, exposures } }));
+      setDraftPlans((current) => ({ ...current, [draftKey]: { ...lockedDraftPlan, snapshot: { ...lockedDraftPlan.snapshot, exercises: lockedDraftPlan.snapshot.exercises.map((item) => item.key === previousKey ? revised : item) }, exposures } }));
     }
     setDrafts((previous) => {
       const dayLog = previous[draftKey] ?? sessionEntriesForDay(
@@ -2506,6 +2511,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       });
     }
     const session: Session = {
+      recommendationVersion: currentSession ? currentSession.recommendationVersion : lockedDraftPlan?.recommendationVersion ?? (lockedDraftPlan ? undefined : RECOMMENDATION_VERSION),
       id: currentSession?.id ?? globalThis.crypto?.randomUUID?.() ?? `${activeDate}-${day.id}-${now}`,
       date: activeDate,
       dayId: day.id,
@@ -2639,8 +2645,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   if (stage === "loading") return <LoadingScreen />;
   if (stage === "name") return <NameSetup onContinue={openForUser} />;
-  if (stage === "profile") return <ProfileSetup accountId={account.id} name={name} onSave={finishProfile} />;
+  if (stage === "profile") return <FirstSetupOverview accountId={account.id}><ProfileSetup accountId={account.id} name={name} onSave={finishProfile} /></FirstSetupOverview>;
   if (stage === "consent") return <ConsentUpdate onAccept={acceptCurrentTerms} />;
+  if (stage === "improvement") return <main id="main-content" className="onboarding-shell min-h-dvh bg-[#0b0d0c] px-5 py-8 text-stone-100"><div className="mx-auto max-w-xl rounded-3xl border border-white/10 bg-white/[0.045] p-6"><ImprovementSettings onContinue={() => setStage("app")} /></div></main>;
   if (!profile) return <LoadingScreen />;
 
   const totalSets = day?.exercises.reduce((sum, exercise) => sum + exercise.sets, 0) ?? 0;

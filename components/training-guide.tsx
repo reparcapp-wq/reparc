@@ -1,4 +1,5 @@
 "use client";
+import { OverviewContent } from "@/components/reparc-overview";
 
 import { useEffect, useRef, useState } from "react";
 import { Activity, BookOpen, ExternalLink, ShieldCheck, WifiOff } from "lucide-react";
@@ -272,6 +273,7 @@ export function TrainingGuide() {
 
       <div id={`guide-panel-${active}`} key={active} className="guide-topic mt-4" role="tabpanel" aria-labelledby={`guide-tab-${active}`}>
         {active === "start" && <GuideSection eyebrow="01 / Start" title="What the app does">
+          <details><summary className="cursor-pointer font-semibold">Replay the welcome overview</summary><div className="mt-5"><OverviewContent /></div></details>
           <p>RepArc records sets, load, repetitions and RIR, then uses comparable history from that exact exercise to suggest the next practical target. When reliable history does not exist, it asks you to calibrate conservatively instead of inventing a demographic load.</p>
           <p>The app is evidence-informed, not a promise of a particular result. Sleep, nutrition, technique, health, equipment and consistency all affect outcomes.</p>
         </GuideSection>}

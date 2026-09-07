@@ -23,7 +23,7 @@ export function createTrainingBackup(data: TrainingData, exportedAt = new Date()
 }
 
 export function parseTrainingBackup(text: string): BackupPreview {
-  if (new TextEncoder().encode(text).byteLength > 1_200_000) throw new Error("This backup is larger than the app can safely restore.");
+  if (new TextEncoder().encode(text).byteLength > 48_000_000) throw new Error("This backup is larger than the app can safely restore.");
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -61,7 +61,7 @@ export function restoredTrainingData(current: TrainingData, imported: TrainingDa
 }
 
 export function downloadTrainingBackup(data: TrainingData, filename = "training-backup.json") {
-  const blob = new Blob([JSON.stringify(createTrainingBackup(data), null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(createTrainingBackup(data))], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

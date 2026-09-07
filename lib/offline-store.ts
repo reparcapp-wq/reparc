@@ -1,6 +1,7 @@
 "use client";
 
-import { mergeTrainingData, type TrainingData } from "@/lib/training";
+import type { TrainingData } from "@/lib/training";
+import { reconcileTrainingData } from "@/lib/sync-merge";
 
 const DATABASE_NAME = "my-progress-offline";
 const DATABASE_VERSION = 1;
@@ -12,6 +13,8 @@ export type OfflineProfileRecord = {
   data: TrainingData;
   revision: number;
   serverRevision?: number;
+  baseData?: TrainingData;
+  conflictBackup?: TrainingData;
   dirty: boolean;
   syncMode?: "merge" | "replace";
   pendingSince?: string;
@@ -31,6 +34,8 @@ export function nextPendingOfflineRecord(
     data,
     revision: (current?.revision ?? 0) + 1,
     serverRevision: current?.serverRevision,
+    baseData: current?.baseData ?? (current && !current.dirty ? current.data : undefined),
+    conflictBackup: current?.conflictBackup,
     dirty: true,
     syncMode: current?.dirty && current.syncMode === "replace" ? "replace" : mode,
     pendingSince: current?.dirty ? current.pendingSince ?? now : now,
@@ -46,14 +51,18 @@ export function resolveOfflineSyncCommit(
   remoteData: TrainingData,
   now = new Date().toISOString(),
   remoteRevision?: number,
+  uploadedData?: TrainingData,
 ): OfflineProfileRecord {
-  const latestData = current ? mergeTrainingData(current.data, remoteData) : remoteData;
   const hasNewerLocalWrite = Boolean(current && current.revision !== uploadedRevision);
+  const reconciliation = current && hasNewerLocalWrite ? reconcileTrainingData(current.data, remoteData, uploadedData ?? current.baseData) : null;
+  const latestData = reconciliation?.data ?? remoteData;
   return {
     key,
     data: latestData,
     revision: current?.revision ?? uploadedRevision,
     serverRevision: remoteRevision ?? current?.serverRevision,
+    baseData: remoteData,
+    conflictBackup: reconciliation?.conflicts.length ? current?.data : current?.conflictBackup,
     dirty: hasNewerLocalWrite,
     syncMode: hasNewerLocalWrite ? current?.syncMode ?? "merge" : undefined,
     pendingSince: hasNewerLocalWrite ? current?.pendingSince ?? now : undefined,
@@ -67,6 +76,26 @@ type DraftRecord = {
   drafts: Record<string, unknown>;
   updatedAt: string;
 };
+
+export type MergedRecordOptions = { dirty: boolean; lastSyncedAt?: string; serverRevision?: number; baseData?: TrainingData; conflictBackup?: TrainingData; expectedRevision?: number; observedData?: TrainingData };
+
+// Run inside the same serialized write as the IndexedDB read. A cloud response
+// must never overwrite a workout edit made while that response was in flight.
+export function resolveMergedOfflineRecord(key: string, current: OfflineProfileRecord | undefined, data: TrainingData, options: MergedRecordOptions, now = new Date().toISOString()): OfflineProfileRecord {
+  const newer = Boolean(current && options.expectedRevision !== undefined && current.revision !== options.expectedRevision);
+  const rebased = newer && current ? reconcileTrainingData(current.data, data, options.observedData) : null;
+  const dirty = options.dirty || newer;
+  return {
+    key, data: rebased?.data ?? data,
+    revision: (current?.revision ?? 0) + 1,
+    serverRevision: options.serverRevision ?? current?.serverRevision,
+    baseData: options.baseData ?? (options.dirty ? current?.baseData : data),
+    conflictBackup: rebased?.conflicts.length ? current?.data : options.conflictBackup ?? current?.conflictBackup,
+    dirty, syncMode: dirty ? current?.syncMode ?? "merge" : undefined,
+    pendingSince: dirty ? current?.pendingSince ?? now : undefined,
+    lastSyncedAt: options.lastSyncedAt ?? current?.lastSyncedAt, updatedAt: now,
+  };
+}
 
 let databasePromise: Promise<IDBDatabase> | null = null;
 let writeQueue: Promise<unknown> = Promise.resolve();
@@ -151,6 +180,7 @@ export function seedOfflineProfile(key: string, data: TrainingData, options: { d
       data,
       revision: 1,
       serverRevision: options.serverRevision,
+      baseData: options.dirty ? undefined : data,
       dirty: options.dirty,
       syncMode: options.dirty ? "merge" : undefined,
       pendingSince: options.dirty ? now : undefined,
@@ -166,7 +196,7 @@ export function seedOfflineProfile(key: string, data: TrainingData, options: { d
 export function storeMergedOfflineProfile(
   key: string,
   data: TrainingData,
-  options: { dirty: boolean; lastSyncedAt?: string; serverRevision?: number },
+  options: MergedRecordOptions,
 ) {
   return queueWrite(async () => {
     const database = await openDatabase();
@@ -174,31 +204,21 @@ export function storeMergedOfflineProfile(
     const store = transaction.objectStore(PROFILE_STORE);
     const current = await requestResult(store.get(key)) as OfflineProfileRecord | undefined;
     const now = new Date().toISOString();
-    const record: OfflineProfileRecord = {
-      key,
-      data,
-      revision: (current?.revision ?? 0) + 1,
-      serverRevision: options.serverRevision ?? current?.serverRevision,
-      dirty: options.dirty,
-      syncMode: options.dirty ? current?.syncMode ?? "merge" : undefined,
-      pendingSince: options.dirty ? current?.pendingSince ?? now : undefined,
-      lastSyncedAt: options.lastSyncedAt ?? current?.lastSyncedAt,
-      updatedAt: now,
-    };
+    const record = resolveMergedOfflineRecord(key, current, data, options, now);
     store.put(record);
     await transactionDone(transaction);
     return record;
   });
 }
 
-export function commitOfflineSync(key: string, uploadedRevision: number, remoteData: TrainingData, remoteRevision?: number) {
+export function commitOfflineSync(key: string, uploadedRevision: number, remoteData: TrainingData, remoteRevision?: number, uploadedData?: TrainingData) {
   return queueWrite(async () => {
     const database = await openDatabase();
     const transaction = database.transaction(PROFILE_STORE, "readwrite");
     const store = transaction.objectStore(PROFILE_STORE);
     const current = await requestResult(store.get(key)) as OfflineProfileRecord | undefined;
     const now = new Date().toISOString();
-    const record = resolveOfflineSyncCommit(key, current, uploadedRevision, remoteData, now, remoteRevision);
+    const record = resolveOfflineSyncCommit(key, current, uploadedRevision, remoteData, now, remoteRevision, uploadedData);
     store.put(record);
     await transactionDone(transaction);
     return record;

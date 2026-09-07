@@ -85,7 +85,7 @@ test("diagnostic sanitization removes direct identifiers, URLs, and token-shaped
 test("cloud routes derive ownership from the verified auth user", async () => {
   const source = await readFile(new URL("../app/api/training/route.ts", import.meta.url), "utf8");
   assert.match(source, /supabase\.auth\.getUser\(\)/);
-  assert.match(source, /user_id:\s*user\.id/);
+  assert.match(source, /\.eq\("user_id", user\.id\)/);
   assert.doesNotMatch(source, /body\.name|searchParams\.get\("name"\)|TRAINING_SYNC_KEY/);
 });
 
@@ -106,7 +106,7 @@ test("auth cookies are HTTP-only and the browser cache never stores session toke
 
 test("deployment headers prevent framing and keep every API response out of shared caches", async () => {
   const source = await readFile(new URL("../next.config.ts", import.meta.url), "utf8");
-  assert.match(source, /frame-ancestors 'none'/);
+  assert.match(await readFile(new URL("../lib/content-security-policy.ts", import.meta.url), "utf8"), /frame-ancestors 'none'/);
   assert.match(source, /X-Frame-Options[\s\S]*DENY/);
   assert.match(source, /Permissions-Policy/);
   assert.match(source, /source:\s*"\/api\/:path\*"[\s\S]*private, no-store/);

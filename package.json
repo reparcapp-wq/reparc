@@ -1,6 +1,6 @@
 {
   "name": "reparc",
-  "version": "10.5.1",
+  "version": "11.0.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -17,6 +17,7 @@
     "test": "npm run build && node --test --test-concurrency=1 tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .netlify",
     "security:static": "node scripts/security-static-check.mjs",
+    "security:database": "node scripts/verify-v11-database.mjs",
     "security:rls": "node scripts/verify-supabase-security.mjs"
   },
   "dependencies": {
@@ -49,6 +50,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.54.2",
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",

@@ -1,27 +1,7 @@
 import type { NextConfig } from "next";
 import packageMetadata from "./package.json";
 
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "connect-src 'self' https://challenges.cloudflare.com",
-  "font-src 'self' data:",
-  "form-action 'self'",
-  "frame-src https://challenges.cloudflare.com",
-  "frame-ancestors 'none'",
-  "img-src 'self' data: blob:",
-  "manifest-src 'self'",
-  "media-src 'self'",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
-  "script-src-attr 'none'",
-  "style-src 'self' 'unsafe-inline'",
-  "upgrade-insecure-requests",
-  "worker-src 'self' blob:",
-].join("; ");
-
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()" },

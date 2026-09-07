@@ -1,3 +1,4 @@
+import { exerciseMetadata, MUSCLES, type Muscle } from "./exercise-metadata";
 export type Unit = "kg" | "lb";
 export type Level = "new" | "beginner" | "intermediate" | "experienced" | "returning";
 export type Gender = "man" | "woman";
@@ -92,11 +93,14 @@ export type Exercise = {
   loadingType?: LoadingType;
   equipment?: Equipment[];
   defaultVariant?: string;
+  metadataVersion?: number;
+  primaryMuscles?: Muscle[];
+  secondaryMuscles?: Muscle[];
 };
 
 export type ExerciseSnapshot = Pick<Exercise,
   "id" | "name" | "sets" | "repLow" | "repHigh" | "restSeconds" | "ratio" | "perSide" | "bodyweight" | "note" | "sbsRole" | "historyIds" | "loadingType" | "equipment"
-> & { key: string };
+> & { key: string; metadataVersion?: number; primaryMuscles?: Muscle[]; secondaryMuscles?: Muscle[] };
 
 export type SessionPlanSnapshot = {
   programId: ProgramId;
@@ -150,6 +154,7 @@ export type LoadProfile = {
 };
 
 export type Session = {
+  recommendationVersion?: string;
   id: string;
   date: string;
   dayId: string;
@@ -261,7 +266,7 @@ export type TrainingData = {
   consent?: ConsentRecord;
 };
 
-export const CURRENT_TERMS_VERSION = "2026-09-02";
+export const CURRENT_TERMS_VERSION = "2026-09-07";
 
 export const LEVELS: Array<{ id: Level; label: string; factor: number }> = [
   { id: "new", label: "Under 6 months", factor: 0.6 },
@@ -577,7 +582,7 @@ const exerciseFromSource = (source: TrainingDay[], id: string) => {
 };
 
 const assembledDay = (source: TrainingDay[], id: string, name: string, focus: string, weekday: number, ids: string[]): TrainingDay => ({
-  id, name, focus, weekday, lower: ids.filter((item) => /squat|thrust|curl|rdl|press|split|abduction|hack|bridge|step|extension|kickback/.test(item)).length >= Math.ceil(ids.length / 2),
+  id, name, focus, weekday, lower: ids.filter((item) => exerciseMetadata(exerciseFromSource(source, item).name)?.region === "lower").length >= Math.ceil(ids.length / 2),
   exercises: ids.map((item) => exerciseFromSource(source, item)),
 });
 
@@ -656,52 +661,28 @@ export const PROGRAMS: Record<ProgramId, { name: string; description: string; da
   phase2: { name: "SBS Hypertrophy", description: "21 weeks · three autoregulated blocks", days: PHASE_TWO_PROGRAM },
 };
 
-const homeKeywords = /band|bodyweight|push-up|pull-up|chin-up|dumbbell|goblet|split squat|step-up|glute bridge|floor press|single-leg|reverse crunch|dead bug|wall sit|slider|nordic|pike/i;
-const limitedKeywords = /dumbbell|barbell|ez-bar|band|bodyweight|goblet|split squat|step-up|push-up|pull-up|chin-up|glute bridge|floor press|lunge|nordic|pike/i;
-const upperKeywords = /press|row|pulldown|pull-up|delt|lateral|curl|triceps|fly|pec/i;
-const lowerKeywords = /squat|deadlift|leg|hip|glute|lunge|step-up|calf|abduction|kickback/i;
-export const isLowerBodyExercise = (exercise: Pick<Exercise, "name">) => lowerKeywords.test(exercise.name);
+export const isLowerBodyExercise = (exercise: Pick<Exercise, "name">) => exerciseMetadata(exercise.name)?.region === "lower";
 
-const bodyweightKeywords = /pull-up|chin-up|push-up|\bdips?\b|hanging|captain'?s chair|reverse crunch|dead bug|wall sit|nordic|pike push-up|bodyweight|side-lying leg raise/i;
-const assistedKeywords = /assisted/i;
-const unloadedKeywords = /band pull-apart|band row|band pulldown|band pushdown|band curl|dead bug|wall sit|slider leg curl/i;
-const perSideKeywords = /single-arm|one-arm|single-leg|split squat|lunge|step-up|kickback|abduction|dumbbell (press|curl|fly|row|rdl)|dumbbell lateral|dumbbell overhead|incline dumbbell|flat dumbbell|seated dumbbell|standing dumbbell/i;
-
-const homeAlternativeFor = (name: string) => {
-  if (/squat|leg press/i.test(name)) return "Goblet squat";
-  if (/block pull|deadlift/i.test(name)) return "Dumbbell RDL";
-  if (/row/i.test(name)) return "One-arm dumbbell row";
-  if (/lateral raise/i.test(name)) return "Dumbbell lateral raise";
-  if (/reverse pec|rear delt/i.test(name)) return "Dumbbell reverse fly";
-  if (/calf/i.test(name)) return "Single-leg calf raise";
-  if (/triceps|pushdown/i.test(name)) return "Band pushdown";
-  if (/curl/i.test(name)) return "Dumbbell curl";
-  if (/overhead press/i.test(name)) return "Dumbbell overhead press";
-  return undefined;
-};
+const homeAlternativeFor = (name: string) => exerciseMetadata(name)?.homeAlternative;
 
 export const equipmentForExerciseName = (name: string): Equipment[] => {
-  if (homeKeywords.test(name) || bodyweightKeywords.test(name) || unloadedKeywords.test(name)) return ["home", "limited", "full"];
-  if (limitedKeywords.test(name)) return ["limited", "full"];
-  return ["full"];
+  return [...(exerciseMetadata(name)?.equipment ?? ["full"])];
 };
 
 export const resolveExerciseVariant = (exercise: Exercise, variantName = exercise.name): Exercise => {
-  const loadingType: LoadingType = unloadedKeywords.test(variantName)
-    ? "unloaded"
-    : assistedKeywords.test(variantName) && bodyweightKeywords.test(variantName)
-      ? "assisted-bodyweight"
-      : bodyweightKeywords.test(variantName)
-        ? "bodyweight"
-        : "external";
+  const metadata = exerciseMetadata(variantName);
+  const loadingType: LoadingType = metadata?.loadingType ?? (variantName === exercise.name ? exercise.loadingType : undefined) ?? "external";
   return {
     ...exercise,
     name: variantName,
     ratio: variantName === exercise.name ? exercise.ratio : undefined,
     bodyweight: loadingType === "bodyweight" || loadingType === "assisted-bodyweight",
     loadingType,
-    perSide: perSideKeywords.test(variantName),
+    perSide: metadata?.perSide ?? (variantName === exercise.name ? exercise.perSide : false),
     equipment: equipmentForExerciseName(variantName),
+    metadataVersion: metadata?.version,
+    primaryMuscles: metadata ? [...metadata.primary] : undefined,
+    secondaryMuscles: metadata ? [...metadata.secondary] : undefined,
   };
 };
 
@@ -713,14 +694,12 @@ export const effectiveExerciseLoad = (exercise: Exercise, externalLoad: number, 
   return externalLoad;
 };
 
-const bodyweightEstimatedMaxPattern = /\b(pull-?up|chin-?up|dip)s?\b/i;
-
 export const supportsEstimatedMax = (exercise?: Exercise | null) => {
   if (!exercise) return false;
   const loadingType = exercise.loadingType ?? (exercise.bodyweight ? "bodyweight" : "external");
-  if (loadingType === "external") return true;
+  if (loadingType === "external") return exerciseMetadata(exercise.name)?.estimatedMax ?? false;
   return (loadingType === "bodyweight" || loadingType === "assisted-bodyweight")
-    && bodyweightEstimatedMaxPattern.test(exercise.name);
+    && exerciseMetadata(exercise.name)?.estimatedMax === true;
 };
 
 export const externalLoadVolume = (exercise: Exercise | null | undefined, externalLoad: number, reps: number) =>
@@ -731,8 +710,8 @@ export const exerciseNeedsLoad = (exercise?: Exercise | null) => {
   return loadingType === "external" || loadingType === "assisted-bodyweight";
 };
 
-const personalizeDays = (days: TrainingDay[], goal: TrainingGoal, equipment: Equipment) => days.map((day) => {
-  let emphasized = false;
+const personalizeDays = (days: TrainingDay[], goal: TrainingGoal, equipment: Equipment) => {
+ const personalized = days.map((day) => {
   return {
     ...day,
     exercises: day.exercises.map((exercise) => {
@@ -741,25 +720,36 @@ const personalizeDays = (days: TrainingDay[], goal: TrainingGoal, equipment: Equ
         ? [...exercise.alternatives, homeFallback]
         : [...exercise.alternatives];
       const alternatives = expandedAlternatives.sort((left, right) => {
-        const matcher = equipment === "home" ? homeKeywords : equipment === "limited" ? limitedKeywords : null;
-        return matcher ? Number(matcher.test(right)) - Number(matcher.test(left)) : 0;
+        return Number(equipmentForExerciseName(right).includes(equipment)) - Number(equipmentForExerciseName(left).includes(equipment));
       });
       const baseEquipment = exercise.equipment ?? equipmentForExerciseName(exercise.name);
       const compatibleDefault = equipment === "full" || baseEquipment.includes(equipment)
         ? undefined
         : alternatives.find((alternative) => equipmentForExerciseName(alternative).includes(equipment));
-      const goalMatcher = goal === "upper" ? upperKeywords : goal === "lower" ? lowerKeywords : null;
-      const addSet = Boolean(goalMatcher && !emphasized && !exercise.sbsRole && goalMatcher.test(exercise.name));
-      if (addSet) emphasized = true;
       return {
         ...resolveExerciseVariant(exercise),
-        sets: addSet ? Math.min(5, exercise.sets + 1) : exercise.sets,
+        sets: exercise.sets,
         alternatives,
         defaultVariant: compatibleDefault,
       };
     }),
   };
-});
+ });
+ if (goal !== "upper" && goal !== "lower") return personalized;
+ const volume = new Map<Muscle, number>();
+ const muscles = (exercise: Exercise) => exerciseMetadata(exercise.defaultVariant ?? exercise.name)?.primary ?? [];
+ personalized.flatMap((day) => day.exercises).forEach((exercise) => muscles(exercise).forEach((muscle) => volume.set(muscle, (volume.get(muscle) ?? 0) + exercise.sets)));
+ for (const day of personalized) {
+   const candidate = day.exercises.filter((exercise) => !exercise.sbsRole && exercise.sets < 5 && exerciseMetadata(exercise.defaultVariant ?? exercise.name)?.region === goal)
+     .sort((left, right) => Math.max(...muscles(left).map((muscle) => volume.get(muscle) ?? 0)) - Math.max(...muscles(right).map((muscle) => volume.get(muscle) ?? 0)))[0];
+   // Optional emphasis is held when all candidate muscles already have 18 direct
+   // planned sets. This is a product cap, not a universal safe/optimal threshold.
+   if (candidate && muscles(candidate).every((muscle) => (volume.get(muscle) ?? 0) < 18)) {
+     candidate.sets += 1; muscles(candidate).forEach((muscle) => volume.set(muscle, (volume.get(muscle) ?? 0) + 1));
+   }
+ }
+ return personalized;
+};
 
 export const programDays = (
   programId: ProgramId,
@@ -882,8 +872,10 @@ export const exerciseName = (key: string) => {
   return ALL_EXERCISES.find((exercise) => exercise.id === key)?.name ?? key;
 };
 
-export const loadProfileId = (exercise: Pick<Exercise, "name" | "loadingType" | "perSide">) =>
-  `equipment:${exercise.loadingType ?? "external"}:${exercise.perSide ? "per-side" : "total"}:${slugify(exercise.name)}`;
+export const loadProfileId = (exercise: Pick<Exercise, "name" | "loadingType" | "perSide">) => {
+  const metadata = exerciseMetadata(exercise.name);
+  return `equipment:${metadata?.identityLoadingType ?? exercise.loadingType ?? "external"}:${(metadata?.identityPerSide ?? exercise.perSide) ? "per-side" : "total"}:${slugify(exercise.name)}`;
+};
 
 export const exerciseFromKey = (key: string) => {
   const id = key.split(":")[0];
@@ -946,6 +938,9 @@ export const buildSessionPlanSnapshot = (data: TrainingData, day: TrainingDay, p
         historyIds: resolved.historyIds ? [...resolved.historyIds] : undefined,
         loadingType: resolved.loadingType,
         equipment: resolved.equipment ? [...resolved.equipment] : undefined,
+        metadataVersion: resolved.metadataVersion,
+        primaryMuscles: resolved.primaryMuscles,
+        secondaryMuscles: resolved.secondaryMuscles,
       };
     }),
   };
@@ -1189,6 +1184,9 @@ const normalizePlanSnapshot = (value: unknown): SessionPlanSnapshot | undefined 
       historyIds: Array.isArray(exercise.historyIds) ? exercise.historyIds.filter((id): id is string => typeof id === "string") : undefined,
       loadingType,
       equipment: Array.isArray(exercise.equipment) ? exercise.equipment.filter((item): item is Equipment => item === "home" || item === "limited" || item === "full") : undefined,
+      metadataVersion: exercise.metadataVersion === 1 ? 1 : undefined,
+      primaryMuscles: Array.isArray(exercise.primaryMuscles) ? exercise.primaryMuscles.filter((item): item is Muscle => MUSCLES.includes(item as Muscle)) : undefined,
+      secondaryMuscles: Array.isArray(exercise.secondaryMuscles) ? exercise.secondaryMuscles.filter((item): item is Muscle => MUSCLES.includes(item as Muscle)) : undefined,
     }];
   });
   if (!exercises.length) return undefined;
@@ -1557,6 +1555,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     return mode && intensity && Number.isFinite(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 300 ? { mode, intensity, durationMinutes } : undefined;
   };
   return {
+    recommendationVersion: typeof session.recommendationVersion === "string" ? session.recommendationVersion.slice(0, 60) : undefined,
     id: typeof session.id === "string" ? session.id : `${session.date}-${session.dayId}-${index}`,
     date: session.date,
     dayId: session.dayId,

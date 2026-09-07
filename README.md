@@ -23,6 +23,12 @@ An offline-first workout log built on published research and an adaptation of th
 - System, light, and dark appearance modes
 - Keyboard skip navigation, persistent focus indicators, labelled inputs, and enlarged touch controls
 - Opt-in minimal diagnostics and private beta feedback with no workout data attached automatically
+- One-time introduction before setup, replayable in Guide
+- Separate, default-off recommendation evaluation consent, withdrawal and data export
+- Structured exercise metadata and a collapsed weekly direct/indirect muscle-set audit
+- Three-way cloud reconciliation without device-clock precedence and an exportable latest conflict copy
+- Verified account-owned history chunks beyond the single-row limit (32 MB total; existing record-count limits still apply)
+- Per-response script nonces in the production Next.js runtime
 
 ## Security model
 
@@ -30,7 +36,7 @@ Cloud ownership comes exclusively from the server-verified Supabase user and `au
 
 ## Deployment
 
-Complete `AUTH-SETUP.md`, then follow `NETLIFY.md`. The required runtime values are `SUPABASE_URL` and `SUPABASE_ANON_KEY`; never commit their values.
+Complete `AUTH-SETUP.md`, then follow `NETLIFY.md`. For version 11, follow `RELEASE-11.md` **before deploying**. The required runtime values are `SUPABASE_URL` and `SUPABASE_ANON_KEY`; never commit their values.
 
 ## Local verification
 
@@ -41,6 +47,7 @@ npm ci
 npm run lint
 npm run build:netlify
 npm test
+npm run security:database
 npm audit --omit=dev
 ```
 
@@ -48,4 +55,4 @@ The `npm run dev`, `npm run build`, and `npm run lint` scripts are cross-platfor
 
 ## Data compatibility
 
-Training data uses schema version 8. It adds exercise-specific available-load profiles plus optional warm-up and post-lift cardio logs to the existing immutable workout snapshots, completion/progression state, plan history, versioned consent, time-away decisions and bounded return plans. Versions 2–7 remain migratable, and raw v2–v8 or versioned account-era JSON backups are accepted after strict validation. The first authenticated load on an existing device migrates its earlier profile into an account-scoped IndexedDB record and uploads it to the authenticated cloud row.
+Training data uses schema version 9. Version 11 adds optional recommendation/muscle-metadata provenance without relabeling historical sessions. Versions 2–8 remain migratable, and raw v2–v9 or versioned account-era JSON backups are accepted after validation. Larger records use SHA-256-verified archive chunks. Limits remain 32 MB of serialized history, 5,000 sessions, 5,000 session revisions, 10,000 recovery checks and 2,000 time-away/plan records. This is a bounded archive path, not unlimited storage. The first authenticated load on an existing device migrates its earlier profile into an account-scoped IndexedDB record.

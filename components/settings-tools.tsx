@@ -14,6 +14,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ImprovementSettings } from "@/components/improvement-settings";
+import { readSyncConflictBackup } from "@/lib/training-storage";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -144,6 +146,7 @@ export function SettingsTools({ account, data, pwa, onRestore, onSignOut, onDele
         ] as const).map(([value, label, summary, Icon], index) => <button key={value} type="button" aria-expanded={toolSection === value} onClick={() => setToolSection((current) => current === value ? null : value)} style={{ order: index * 2 }} className={`flex min-h-[4rem] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04] ${index ? "border-t border-white/[0.07]" : ""}`}><span className={`grid size-9 shrink-0 place-items-center rounded-xl ${value === "danger" ? "bg-red-300/10 text-red-300" : "bg-white/[0.06] text-stone-300"}`}><Icon className="size-4" /></span><span className="min-w-0 flex-1"><strong className={`block text-sm ${value === "danger" ? "text-red-200" : "text-stone-200"}`}>{label}</strong><span className="mt-0.5 block truncate text-[11px] text-stone-500">{summary}</span></span><ChevronDown className={`size-4 shrink-0 text-stone-600 transition-transform ${toolSection === value ? "rotate-180" : ""}`} /></button>)}
 
       {toolSection === "account" && <article style={{ order: 1 }} className="border-t border-white/10 bg-black/10 p-5 sm:p-6">
+        <details className="mb-6 rounded-xl border border-white/10 p-4"><summary className="cursor-pointer text-base font-semibold">Help improve RepArc · privacy choices</summary><div className="mt-5"><ImprovementSettings /></div></details>
         <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-emerald-300/10 text-emerald-300"><ShieldCheck className="size-5" /></div><div><p className="eyebrow text-stone-500">Secure account</p><h2 className="mt-1 font-semibold">{account.email}</h2></div></div>
         <p className="mt-4 text-xs leading-5 text-stone-400">Cloud records are isolated to this verified account. Signing out leaves an encrypted-session-free offline copy scoped to this account on the device.</p>
         <AlertDialog>
@@ -169,6 +172,7 @@ export function SettingsTools({ account, data, pwa, onRestore, onSignOut, onDele
       </article>}
 
       {toolSection === "restore" && <article style={{ order: 5 }} className="border-t border-white/10 bg-black/10 p-5 sm:p-6">
+        <details className="mb-5 text-sm leading-6"><summary className="cursor-pointer font-semibold">Recover a device sync conflict</summary><p className="mt-3 text-stone-400">If two devices changed the same item, the cloud value was kept. This device retains its most recent conflicting copy; a later conflict can replace it. Export promptly to review the values before restoring anything.</p><Button type="button" variant="outline" className="mt-3 min-h-11" onClick={() => void readSyncConflictBackup(account.id).then((backup) => { if (backup) downloadTrainingBackup(backup, "reparc-sync-conflict.json"); else onMessage("No sync conflict backup on this device."); }).catch(() => onMessage("Could not read the device backup."))}>Export conflict copy</Button></details>
         <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-white/[0.07] text-stone-300"><FileUp className="size-5" /></div><div><p className="eyebrow text-stone-500">Restore backup</p><h2 className="mt-1 font-semibold">Validate before changing anything</h2></div></div>
         <p className="mt-4 max-w-2xl text-xs leading-5 text-stone-400">The app previews session counts and dates first. Restoring automatically downloads your current data as a rollback copy.</p>
         <input ref={fileRef} type="file" accept="application/json,.json" onChange={(event) => void chooseBackup(event.target.files?.[0])} className="sr-only" aria-label="Choose RepArc JSON backup" />

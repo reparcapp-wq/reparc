@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.SUPABASE_URL;
@@ -30,7 +30,7 @@ const createTestAccount = async (email) => {
 try {
   const accountA = await createTestAccount(emails[0]);
   const accountB = await createTestAccount(emails[1]);
-  const profile = { version: 8, updatedAt: new Date().toISOString(), profile: { displayName: "Security test" }, sessions: [], absences: [], loadProfiles: {} };
+  const profile = { version: 9, updatedAt: new Date().toISOString(), profile: { displayName: "Security test" }, consent: { termsVersion: "2026-09-07" }, program: {}, sessions: [], absences: [], loadProfiles: {} };
 
   const ownWrite = await accountA.client.from("training_profiles").upsert({
     user_id: accountA.user.id,
@@ -87,7 +87,30 @@ try {
   const anonymousLimit = await anonymous.rpc("consume_api_rate_limit", { request_action: "feedback_write" });
   assert.ok(anonymousLimit.error, "anonymous callers must not execute the limiter");
 
-  console.log("Supabase ownership, atomic revisions, grants, and durable rate-limit checks passed.");
+  const consent = await accountA.client.rpc("set_improvement_consent", {participate:true,accepted_version:"2026-09-07"});
+  assert.equal(consent.error,null,"v11 consent migration must be available");
+  const permission = Array.isArray(consent.data) ? consent.data[0] : consent.data;
+  const sample = {recommendationVersion:"11.0.0-policy1",unit:"kg",experience:"new",track:"current",exercises:[]};
+  const recorded = await accountA.client.rpc("record_improvement_sample",{sample_session_id:"security-sample",sample,session_started_at:permission.granted_at});
+  assert.equal(recorded.error,null); assert.equal(recorded.data,true);
+  const content = JSON.stringify(changedProfile), digest = createHash("sha256").update(content).digest("hex");
+  const manifest = {format:"reparc-chunks-v1",chunks:[digest],bytes:Buffer.byteLength(content)};
+  assert.equal((await accountA.client.rpc("stage_training_chunk",{chunk_digest:digest,chunk_content:content})).error,null);
+  const archived = await accountA.client.rpc("commit_training_archive",{expected_revision:expectedRevision+1,profile_metadata:{},archive_manifest:manifest});
+  assert.equal(archived.error,null); assert.equal(archived.data?.[0]?.conflict,false);
+  for(const table of ["improvement_consent","improvement_records","improvement_audit","training_archive_chunks"]) {
+    const foreign = await accountB.client.from(table).select("user_id").eq("user_id",accountA.user.id);
+    assert.equal(foreign.error,null,`${table} is installed`); assert.equal(foreign.data?.length,0,`${table} isolates accounts`);
+    assert.ok((await anonymous.from(table).select("user_id")).error,`${table} rejects anonymous reads`);
+  }
+  assert.ok((await accountB.client.rpc("commit_training_archive",{expected_revision:0,profile_metadata:{},archive_manifest:manifest})).error,"foreign chunks cannot be attached");
+  assert.ok((await accountA.client.rpc("review_improvement_records",{review_reference:"security check",maximum_records:1})).error,"maintainer export is not user-accessible");
+  assert.ok((await anonymous.rpc("set_improvement_consent",{participate:true,accepted_version:"2026-09-07"})).error);
+  assert.equal((await accountA.client.rpc("set_improvement_consent",{participate:false,accepted_version:"2026-09-07"})).error,null);
+  assert.equal((await accountA.client.from("improvement_records").select("session_id")).data?.length,0,"withdrawal removes evaluation data");
+  assert.equal((await accountA.client.from("training_archive_chunks").select("digest")).data?.length,1,"withdrawal preserves workout data");
+  console.log("Live Supabase ownership, revisions, v11 archives, consent withdrawal, grants, and durable rate-limit checks passed.");
 } finally {
-  await Promise.all(createdIds.map((id) => admin.auth.admin.deleteUser(id)));
+  const cleanup = await Promise.all(createdIds.map((id) => admin.auth.admin.deleteUser(id)));
+  assert.equal(cleanup.some(result=>result.error),false,"temporary security-test account cleanup failed; inspect the test account IDs");
 }

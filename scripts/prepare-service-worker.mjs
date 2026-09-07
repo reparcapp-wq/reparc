@@ -5,7 +5,7 @@ import path from "node:path";
 const root = process.cwd();
 const serviceWorkerPath = path.join(root, "public", "sw.js");
 const sourceRoots = ["app", "components", "hooks", "lib", "public", "scripts"];
-const sourceFiles = ["next.config.ts", "package.json", "package-lock.json"];
+const sourceFiles = ["next.config.ts", "proxy.ts", "package.json", "package-lock.json"];
 const ignoredDirectories = new Set([".next", ".netlify", "dist", "node_modules"]);
 
 async function walk(relativeDirectory) {

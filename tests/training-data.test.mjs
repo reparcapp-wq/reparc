@@ -298,7 +298,12 @@ test("provides complete women’s Foundation and Phase 2 layouts at every freque
 test("personalization changes accessory exposure without rewriting programmed lifts", () => {
   const balanced = training.programDays("phase1", 3, "women", "balanced", "full");
   const lower = training.programDays("phase1", 3, "women", "lower", "home");
-  assert.equal(lower[0].exercises.reduce((sum, exercise) => sum + exercise.sets, 0), balanced[0].exercises.reduce((sum, exercise) => sum + exercise.sets, 0) + 1);
+  // Emphasis is bounded by weekly direct volume; already-high-volume muscle
+  // groups no longer receive an unconditional extra set on the first match.
+  for (let i = 0; i < lower.length; i++) {
+    const difference = lower[i].exercises.reduce((sum, exercise) => sum + exercise.sets, 0) - balanced[i].exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
+    assert.ok(difference >= 0 && difference <= 1);
+  }
   assert.match(lower[0].exercises[0].alternatives[0], /goblet|dumbbell|bodyweight|band|split|step|glute|push-up|floor|single-leg|reverse|dead bug|wall|slider/i);
 });
 

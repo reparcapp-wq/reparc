@@ -72,7 +72,7 @@ test("repository security automation and hardened headers are configured", async
   assert.match(dependabot, /package-ecosystem: npm/);
   assert.match(config, /Strict-Transport-Security/);
   assert.match(config, /Cross-Origin-Opener-Policy/);
-  assert.match(config, /script-src-attr 'none'/);
+  assert.match(await read("lib/content-security-policy.ts"), /script-src-attr 'none'/);
   assert.match(operations, /quarterly restore result/);
   assert.match(liveTest, /another account must not see the row/);
   assert.match(staticScan, /PRIVATE KEY/);

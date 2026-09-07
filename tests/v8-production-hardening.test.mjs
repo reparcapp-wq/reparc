@@ -19,7 +19,7 @@ test("support data has fixed retention and an automatic cleanup job", async () =
 
 test("email OTP flow is ready for optional Turnstile enforcement", async () => {
   const [route, gate, challenge, config] = await Promise.all([
-    read("app/api/auth/request/route.ts"), read("components/account-gate.tsx"), read("components/turnstile-challenge.tsx"), read("next.config.ts"),
+    read("app/api/auth/request/route.ts"), read("components/account-gate.tsx"), read("components/turnstile-challenge.tsx"), read("lib/content-security-policy.ts"),
   ]);
   assert.match(route, /captchaToken/);
   assert.match(route, /NEXT_PUBLIC_TURNSTILE_SITE_KEY/);
