@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDownRight,
   ArrowUpRight,
   BarChart3,
   BellRing,
@@ -40,7 +39,6 @@ import {
   Venus,
   ShieldAlert,
   Sun,
-  TrendingUp,
   X,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -55,6 +53,7 @@ import { lastAccessibleExercise, normalizeSkippedExercises } from "@/lib/trainin
 import { FirstSetupOverview } from "@/components/reparc-overview";
 import { ImprovementSettings } from "@/components/improvement-settings";
 import { MuscleVolume } from "@/components/muscle-volume";
+import { ExerciseActionCard } from "@/components/exercise-action-card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { exerciseGuidance } from "@/lib/exercise-guidance";
 import { buildExposurePlan, calibrationSetCount, CALIBRATION_LABELS, constrainCalibrationAdjustment, exerciseCalibration, loadAtOrBelow, preserveLegacyDraft, restrictActiveExposure } from "@/lib/exercise-calibration";
@@ -2943,16 +2942,18 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const displayName = exercise.name;
                   const guidance = exerciseGuidance(displayName);
                   const prescription = prescriptionFor(exercise);
-                  const TagIcon = suggestion?.tag === "up" ? ArrowUpRight : suggestion?.tag === "down" ? ArrowDownRight : Minus;
                   const rawAdjustment = !skippedExerciseKeys.includes(key) && data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads }) : null;
                   const liveAdjustment = rawAdjustment?.action === "increase" && (exposure?.progressionEligible === false || calibration.state !== "calibrated" || calibration.recoveryPending || Boolean(data.program.returnPlan))
                     ? { ...rawAdjustment, action: "hold" as const, nextLoad: null, reason: `Keep this exposure comfortable at ${exposure?.targetRir ?? calibration.targetRir} RIR. Do not increase the load while building familiarity or checking recovery.` }
                     : rawAdjustment;
                   const nextSetIndex = sets.findIndex((entry) => !isFilledSet(entry, exercise));
+                  const sessionRecovery = currentSession ? data.exerciseRecovery.filter((check) => check.sessionId === currentSession.id && check.exerciseIdentity === calibration.identity) : [];
+                  const recoveryConfirmed = sessionRecovery.some((check) => (check.status === "recovered" || check.status === "mild") && Date.parse(check.createdAt) - Date.parse(currentSession!.completedAt ?? currentSession!.createdAt) >= 48 * 3_600_000)
+                    && !sessionRecovery.some((check) => check.status === "limiting" || check.status === "severe");
 
                   return (
                     <article key={exercise.id} className="exercise-card overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#121512] motion-page" style={{ animationDelay: `${Math.min(exerciseIndex, 5) * 55}ms` }}>
-                      <div className="grid gap-5 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_12.5rem]">
+                      <div className="grid gap-5 p-4 sm:p-5">
                         <div className="min-w-0">
                           <ExerciseSwap id={exercise.id} name={displayName} baseName={swapBaseExercise.name} options={[swapBaseExercise.name, ...exerciseSwapOptions(swapBaseExercise.name, swapBaseExercise.alternatives, profile.equipment)]}
                             open={openSwap === exercise.id} disabled={Boolean(savedSession) || (workingProgramId === "phase2" && Boolean(exercise.sbsRole))}
@@ -3033,33 +3034,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                           )}
                         </div>
 
-                        <div className="space-y-3">
-                          <div className="target-panel flex flex-row items-center justify-between rounded-2xl border border-white/10 bg-black/20 p-4 md:flex-col md:items-start">
-                            <div>
-                              <p className="eyebrow">{currentSession ? "Next session target" : "Starting-load guidance"}</p>
-                              <p className="mt-2 font-mono text-3xl font-semibold tracking-tight">
-                                {suggestion?.value === null ? <span className="text-xl">{exercise.loadingType === "bodyweight" ? "Bodyweight" : exercise.loadingType === "assisted-bodyweight" ? "Choose assistance" : exercise.loadingType === "unloaded" ? "No fixed load" : "Choose load"}</span> : <>{suggestion?.value}<span className="ml-1 text-sm text-stone-500">{profile.unit}</span></>}
-                              </p>
-                            </div>
-                            <div className="max-w-[12rem] text-right md:mt-5 md:text-left">
-                              {suggestion && (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${suggestion.tag === "up" ? "bg-amber-300 text-[#0b0d0c]" : suggestion.tag === "down" ? "bg-red-300 text-[#0b0d0c]" : "bg-white/10 text-stone-400"}`}>
-                                  <TagIcon className="size-3" />{suggestion.tag === "estimate" ? "Starting point" : suggestion.tag}
-                                </span>
-                              )}
-                              {suggestion?.reason && <details className="mt-1 text-left text-sm"><summary className="cursor-pointer text-stone-400">Why this guidance?</summary><p className="mt-2 leading-6 text-stone-400">{suggestion.reason}</p></details>}
-                              {suggestion?.confidence && <p className="mt-1 font-mono text-[9px] uppercase text-stone-600">{suggestion.confidence} confidence</p>}
-                            </div>
-                          </div>
-                          {liveAdjustment && (
-                            <div className={`rounded-2xl border p-4 ${liveAdjustment.action === "stop" ? "border-red-300/25 bg-red-300/[0.06]" : "border-amber-300/20 bg-amber-300/[0.04]"}`}>
-                              <div className="flex flex-wrap items-center justify-between gap-2"><p className="flex items-center gap-1.5 text-xs font-semibold"><TrendingUp className="size-3.5" />Next-set adjustment</p><span className="font-mono text-[9px] uppercase text-stone-500">{liveAdjustment.confidence}</span></div>
-                              <p className="mt-2 text-[11px] leading-4 text-stone-400">{liveAdjustment.reason}</p>
-                              <p className="mt-1 font-mono text-[9px] text-stone-600">{liveAdjustment.evidence.join(" · ")}</p>
-                              {nextSetIndex >= 0 && liveAdjustment.nextLoad !== null && liveAdjustment.action !== "stop" && <Button type="button" variant="ghost" onClick={() => setField(key, nextSetIndex, "w", String(liveAdjustment.nextLoad))} className="mt-2 h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">{liveAdjustment.action === "hold" ? "Keep" : "Use"} {liveAdjustment.nextLoad} {profile.unit}</Button>}
-                            </div>
-                          )}
-                        </div>
+                        <ExerciseActionCard exercise={exercise} entries={sets} unit={profile.unit} adjustment={liveAdjustment} suggestion={suggestion}
+                          targetRir={exposure?.targetRir ?? calibration.targetRir} readiness={readiness}
+                          skipped={skippedExerciseKeys.includes(key)} recoveryPending={!recoveryConfirmed}
+                          recovering={calibration.state === "recalibration"} prescribed={Boolean(prescription)}
+                          onApply={(load) => { if (nextSetIndex >= 0) setField(key, nextSetIndex, "w", String(load)); }} />
                       </div>
                     </article>
                   );

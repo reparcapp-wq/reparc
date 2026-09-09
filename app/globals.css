@@ -679,6 +679,10 @@ html.light .set-input {
 }
 html.light .set-input::placeholder { color: #7a827b; }
 html.light .target-panel { background: #f7f3ea !important; }
+html.light .target-panel h3 { color: #1c211d; }
+html.light .target-panel p,
+html.light .target-panel summary { color: #454f47; }
+.target-panel { overflow-wrap: anywhere; }
 html.light [data-slot="tabs-trigger"][data-state="active"] {
   border-color: #d99b2b !important;
   background: #f7c66b !important;
@@ -694,12 +698,6 @@ html.light .legal-copy h2 { color: #1c211d; }
 
 .legal-copy p {
   margin-top: 0.55rem;
-}
-
-@media (max-width: 480px) {
-  .target-panel {
-    margin-inline: -0.2rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
