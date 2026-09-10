@@ -34,7 +34,7 @@ test("blank RIR remains unknown and cannot trigger an invented decrease", () => 
   assert.equal(result.action, "hold");
   assert.equal(result.nextLoad, 5);
   assert.equal(result.confidence, "low");
-  assert.match(result.evidence.join(" "), /RIR not recorded/i);
+  assert.match(result.evidence.join(" "), /reps left not recorded/i);
 });
 
 test("blank RIR cannot trigger a next-session increase", () => {
@@ -93,7 +93,7 @@ test("movement-limiting soreness blocks training and progression", () => {
   assert.equal(result.action, "stop");
   assert.equal(result.nextLoad, null);
   assert.equal(result.confidence, "high");
-  assert.match(result.reason, /do not prescribe/i);
+  assert.match(result.reason, /do not increase/i);
 });
 
 test("daily report measures adherence and reduces confidence when effort data is missing", () => {
@@ -258,7 +258,7 @@ test("focused training locks forward navigation and keeps secondary controls com
   assert.match(source, /!exerciseIsComplete\(activeExerciseIndex\) && !currentExerciseSkipped/);
   assert.match(source, /scrollIntoView/);
   assert.match(source, /reparc-session-start:/);
-  assert.match(source, /<details className="mt-4 rounded-2xl[^>]+aria-label="Session effort"/);
+  assert.match(source, /<details className="mt-4 rounded-2xl[^>]+aria-label="Workout difficulty"/);
   assert.doesNotMatch(source, /<Scale className=/);
 });
 
@@ -268,7 +268,7 @@ test("progress shows one navigable report and the light theme covers custom cont
   assert.match(source, /selectedBuckets/);
   assert.match(source, /selectedWeekDates/);
   assert.match(source, /Jump to date/);
-  assert.match(source, /Analysis and next-session guidance/);
+  assert.match(source, /More details and next-workout guidance/);
   assert.doesNotMatch(source, /Show older/);
   assert.match(source, /Under 1 min/);
   assert.match(source, /In progress/);
@@ -300,7 +300,7 @@ test("workout alarm mode keeps visible sessions awake and recovers overdue timer
   assert.match(source, /document\.visibilityState === "visible"/);
   assert.match(source, /Math\.max\(-599, Math\.ceil/);
   assert.match(source, /Rest completed \$\{displaySeconds\} seconds ago/);
-  assert.match(source, /Alarm readiness/);
+  assert.match(source, /Check alarm setup/);
   assert.match(source, /Exact offline alarm/);
   assert.match(source, /Native app only/);
   assert.match(source, /Run alert test/);

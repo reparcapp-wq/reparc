@@ -1,6 +1,6 @@
 {
   "name": "reparc",
-  "version": "11.0.3",
+  "version": "11.0.4",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -66,6 +66,9 @@
     "vinext": "^1.0.0-beta.8",
     "vite": "^8.2.2",
     "wrangler": "^4.127.1"
+  },
+  "overrides": {
+    "sharp": "0.35.4"
   },
   "type": "module",
   "displayName": "RepArc"

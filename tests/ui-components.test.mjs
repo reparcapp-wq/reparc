@@ -139,7 +139,7 @@ test("keeps required onboarding, focused training, and the evidence guide access
   assert.match(app, /Exercise \{activeExerciseIndex \+ 1\} of/);
   assert.match(app, /exerciseIndex !== activeExerciseIndex/);
   assert.match(app, /settingsCategory === "overview"/);
-  assert.match(app, /Phase 2 currently requires the programmed full-gym lifts/);
+  assert.match(app, /Phase 2 currently requires its programmed full-gym lifts/);
   assert.match(app, /phaseTwoMaxesComplete/);
   assert.match(app, /placeholder="Required"/);
   assert.doesNotMatch(app, /aria-label="Setup sections"[\s\S]*overflow-x-auto/);

@@ -60,14 +60,14 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness, availabl
   const lowerLoad = availableLoads?.length ? resolveAvailableLoad(load, availableLoads, "lower") : null;
   const higherLoad = availableLoads?.length ? resolveAvailableLoad(load, availableLoads, "higher") : null;
   const practicalIncrease = load > 0 && (higherLoad !== null ? higherLoad / load <= 1.1 : !hasAvailableLoads && (load + increment) / load <= 1.1);
-  const evidence = [`${reps} reps`, rir === null ? "RIR not recorded" : `${rir} RIR`, availableLoads?.length ? "equipment loads configured" : "equipment loads not configured"];
+  const evidence = [`${reps} reps`, rir === null ? "reps left not recorded" : `${rir} reps left`, availableLoads?.length ? "equipment weights saved" : "equipment weights not saved"];
 
   if (readiness === "pain" || readiness === "severe-soreness") {
     return {
       action: "stop",
       nextLoad: null,
       confidence: "high",
-      reason: readiness === "severe-soreness" ? "Do not train while soreness limits normal movement or walking." : "Stop this exercise. Pain overrides load progression.",
+      reason: readiness === "severe-soreness" ? "Do not train while soreness limits normal movement or walking." : "Stop this exercise. Do not increase weight while pain is present.",
       evidence: [...evidence, readiness === "severe-soreness" ? "movement-limiting soreness selected" : "pain / unsafe selected"],
     };
   }
@@ -116,10 +116,10 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness, availabl
     nextLoad: exercise.bodyweight ? null : load,
     confidence: rir === null ? "low" : "moderate",
     reason: conservativeReadiness(readiness)
-      ? "Keep the load stable while readiness is reduced. Do not chase an increase today."
+      ? "Keep the weight the same because you reported low energy, unusual soreness, or symptoms today."
       : rir === null
-        ? "Keep the load stable. Record RIR if you want a higher-confidence adjustment."
-        : "Effort and repetitions are close enough to target. Keep the load stable.",
+        ? "Keep the weight the same. If you can, record how many good reps were left so the next suggestion has more information."
+        : "Your reps and effort were close to the target. Keep the weight the same.",
     evidence,
   };
 }
@@ -148,9 +148,9 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
   const evidence = [
     `${completed.length}/${exercise.sets} sets`,
     `${Math.min(...reps)}–${Math.max(...reps)} reps`,
-    averageRir === null ? "RIR not recorded" : `${averageRir.toFixed(1)} average RIR`,
+    averageRir === null ? "reps left not recorded" : `${averageRir.toFixed(1)} average reps left`,
     ...(loadSpread > comparisonIncrement ? ["loads varied by more than one increment"] : []),
-    availableLoads?.length ? "equipment loads configured" : "equipment loads not configured",
+    availableLoads?.length ? "equipment weights saved" : "equipment weights not saved",
   ];
 
   if (readiness === "pain" || readiness === "severe-soreness") {
@@ -158,7 +158,7 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
       action: "stop",
       nextLoad: null,
       confidence: "high",
-      reason: readiness === "severe-soreness" ? "Do not prescribe a next-session increase while soreness limits normal movement or walking." : "Do not progress this exercise until the pain concern has been resolved.",
+      reason: readiness === "severe-soreness" ? "Do not increase this exercise while soreness limits normal movement or walking." : "Do not increase this exercise until the pain concern has been resolved.",
       evidence: [...evidence, readiness === "severe-soreness" ? "movement-limiting soreness selected" : "pain / unsafe selected"],
     };
   }
@@ -178,7 +178,7 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
       action: "hold",
       nextLoad: exercise.bodyweight ? null : representativeLoad,
       confidence,
-      reason: !allPlannedSets ? "The session was incomplete, so there is not enough evidence to progress the load." : "Build all sets into the target range before increasing the load.",
+      reason: !allPlannedSets ? "Not all planned sets were completed, so keep the weight the same next time." : "Bring every set into the target rep range before increasing the weight.",
       evidence,
     };
   }
@@ -188,7 +188,7 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
       action: "hold",
       nextLoad: exercise.bodyweight ? null : representativeLoad,
       confidence,
-      reason: "Performance was adequate, but reduced readiness makes holding the load the conservative next step.",
+      reason: "Your performance was on target, but you reported low energy, unusual soreness, or symptoms. Keep the weight the same next time.",
       evidence,
     };
   }
@@ -236,8 +236,8 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
     nextLoad: exercise.bodyweight ? null : representativeLoad,
     confidence,
     reason: averageRir !== null && averageRir < 1
-      ? "The target repetitions were completed too close to failure. Repeat the load before progressing."
-      : "Repeat the load and build repetitions while staying near one to three RIR.",
+      ? "You completed the target reps too close to failure. Repeat the same weight next time."
+      : "Repeat the same weight and build reps while keeping about one to three good reps left.",
     evidence,
   };
 }

@@ -274,13 +274,13 @@ export function TrainingGuide() {
       <div id={`guide-panel-${active}`} key={active} className="guide-topic mt-4" role="tabpanel" aria-labelledby={`guide-tab-${active}`}>
         {active === "start" && <GuideSection eyebrow="01 / Start" title="What the app does">
           <details><summary className="cursor-pointer font-semibold">Replay the welcome overview</summary><div className="mt-5"><OverviewContent /></div></details>
-          <p>RepArc records sets, load, repetitions and RIR, then uses comparable history from that exact exercise to suggest the next practical target. When reliable history does not exist, it asks you to calibrate conservatively instead of inventing a demographic load.</p>
+          <p>RepArc records your weights, reps and how many good reps you had left. It uses past results from the same exercise to suggest a practical next step. When there is not enough useful history, it helps you find a comfortable starting level instead of guessing from age, bodyweight or gender.</p>
           <p>The app is evidence-informed, not a promise of a particular result. Sleep, nutrition, technique, health, equipment and consistency all affect outcomes.</p>
         </GuideSection>}
 
-        {active === "program" && <GuideSection eyebrow="02 / Program" title="Foundation, then autoregulation">
+        {active === "program" && <GuideSection eyebrow="02 / Program" title="Foundation, then personalized adjustments">
           <p><strong className="text-stone-200">Phase 1 · Foundation:</strong> build consistent technique and usable performance history. You can move to Phase 2 after reviewing the transition; there is no arbitrary calendar lock.</p>
-          <p><strong className="text-stone-200">Phase 2 · Autoregulated hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks, with programmed lifts using an exercise-specific training max and final performance set. Weeks 7, 14 and 21 use four sets of five at reduced loading without an AMRAP.</p>
+          <p><strong className="text-stone-200">Phase 2 · Personalized hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks. Each programmed lift uses its own conservative planning number, called a training max, and a final performance set. Weeks 7, 14 and 21 use four sets of five at a lighter weight without a final effort set.</p>
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions. Foundation supports equipment substitutions; Phase 2 currently requires its programmed full-gym lifts because each lift needs its own training max.</p>
           <p><strong className="text-stone-200">Missed time:</strong> RepArc continues with the next unfinished workout instead of compressing sessions into fewer days. You can record a moved workout, a skip, training elsewhere or a planned pause. Breaks of at least two weeks trigger one to three conservative return sessions; these temporary load and volume factors are cautious product guardrails, not individualized medical prescriptions.</p>
           <p><strong className="text-stone-200">Unfamiliar exercises:</strong> everyone starts with reduced working volume, usually one set with at least four good reps remaining. Related training may allow two comfortable sets. Each exercise builds up with comparable performance and recovery feedback; an experienced lifter can still be unfamiliar with a movement.</p>
@@ -290,20 +290,20 @@ export function TrainingGuide() {
           <p className="text-xs text-stone-500">RepArc is independent and is not affiliated with, reviewed by or endorsed by Stronger by Science. It does not redistribute the original spreadsheets; the official free bundle is linked in Evidence.</p>
         </GuideSection>}
 
-        {active === "logging" && <GuideSection eyebrow="03 / Logging" title="Sets, RIR and recommendations">
-          <p><strong className="text-stone-200">RIR</strong> means repetitions in reserve: how many technically sound repetitions you believe remained. Most normal sets should finish with roughly one to three RIR.</p>
-          <p><strong className="text-stone-200">AMRAP</strong> means as many technically sound repetitions as possible—not repetitions performed after form breaks down. Stop for pain, loss of control or unsafe technique.</p>
-          <p>For a new exercise, start at the lower end of the rep range with a comfortably light load and the displayed RIR target. Rehearse first. If bodyweight is too demanding, use assistance or an easier variation. You may confirm a comfortable load you already know; the reduced sets and recovery checks still apply.</p>
+        {active === "logging" && <GuideSection eyebrow="03 / Logging" title="Log sets and understand your next step">
+          <p><strong className="text-stone-200">Reps left (RIR)</strong> means how many more clean reps you think you could have done. For example, 2 means you stopped with about two good reps remaining. Most normal sets should finish with roughly one to three reps left.</p>
+          <p><strong className="text-stone-200">Final effort set (AMRAP)</strong> means do as many clean reps as you safely can. Stop when form breaks down, control is lost, or pain appears.</p>
+          <p>For a new exercise, start at the lower end of the rep range with a comfortably light weight and the displayed reps-left target. Rehearse first. If bodyweight is too demanding, use assistance or an easier variation. You may enter a comfortable weight you already know; the reduced sets and recovery checks still apply.</p>
           <p>Recovery asks about the effect over the following days. Confirm normal or mild, improving recovery after at least 48 hours. Missing feedback holds increases. A report of movement-limiting or unusual symptoms remains part of that exposure’s history even if you later recover.</p>
           <p>Your workout plan stays fixed after logging starts so recovery updates cannot hide entered sets. You can swap an exercise before entering its sets; unfamiliar swaps use reduced volume. Saved sessions keep their original prescriptions.</p>
           <p className="text-sm text-stone-400">These ramp thresholds are conservative RepArc rules informed by research. “Established history” describes the available logs; it is not a clinical assessment or a guarantee that a load is safe.</p>
-          <p>Estimated performance max is calculated only from comparable four- to ten-repetition sets on suitable loaded movements. It is a noisy exercise-specific trend, not a true 1RM. External-load volume is descriptive, counts both sides when the field is labeled “each side,” and should not be compared across different exercises or machines.</p>
+          <p>The estimated strength trend uses only comparable sets of four to ten reps on suitable weighted exercises. It is a rough trend for that exercise, not your true one-rep maximum. The weight × reps total is also descriptive, counts both sides when the field says “each side,” and should not be compared across different exercises or machines.</p>
         </GuideSection>}
 
         {active === "women" && <GuideSection eyebrow="04 / Women’s track" title="What changes—and what does not">
           <p>The women’s track keeps the same movement fundamentals and progression rules. It distributes lower-body exposure across the week, retains meaningful upper-body training and lets the user choose balanced, upper- or lower-body emphasis.</p>
           <p>It does not assume that every woman recovers faster, needs lighter effort or should train only glutes. It also does not automatically change workouts from menstrual-cycle dates.</p>
-          <p>Menstrual symptoms can be selected in the readiness check. The app responds with conservative session options without storing cycle dates or reproductive-health history.</p>
+          <p>Menstrual symptoms can be selected in the optional “How do you feel?” check before training. The app responds with conservative session options without storing cycle dates or reproductive-health history.</p>
         </GuideSection>}
 
         {active === "offline" && <GuideSection eyebrow="05 / Data" title="Offline, cloud and backups">

@@ -41,7 +41,7 @@ test("completion replaces advice with logged results, never relabels an old targ
 });
 
 test("first-set fallback explains absence of a number without inventing one", () => {
-  assert.match(render({ suggestion: null }), /numerical starting load is not available/);
+  assert.match(render({ suggestion: null }), /does not have enough useful history/);
   assert.match(render({ recovering: true }), /Rebuild with a comfortable load/);
   assert.match(render({ suggestion: { value: 20, reason: "Existing recommendation" } }), /Start with 20 kg/);
 });
@@ -68,14 +68,14 @@ test("bodyweight, assistance, units and Phase 2 retain their distinct meaning", 
   assert.match(render({ exercise: { ...exercise, bodyweight: true, loadingType: "bodyweight" }, suggestion: { value: 0, reason: "Existing guidance" } }), /bodyweight only/);
   assert.match(render({ exercise: { ...exercise, loadingType: "unloaded" } }), /No external load required/);
   const html = render({ prescribed: true, entries: [entry()] });
-  assert.match(html, /set-specific reps and AMRAP/);
+  assert.match(html, /final-effort or starting-level instructions/);
   assert.doesNotMatch(html, /Aim for 8–12/);
 });
 
-test("recovery already checked is not called pending and missing RIR is explained", () => {
+test("recovery already checked is not called pending and missing reps-left data is explained", () => {
   const html = render({ recoveryPending: false, entries: [entry(), entry(), entry("43", "8", "")] });
   assert.match(html, /All working sets logged/);
-  assert.match(html, /Some RIR values are missing/);
+  assert.match(html, /Some reps-left estimates are missing/);
   assert.doesNotMatch(html, /Recovery check pending/);
 });
 

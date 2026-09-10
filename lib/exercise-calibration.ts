@@ -171,10 +171,10 @@ export function restrictActiveExposure(exposure: ExerciseExposureSnapshot | unde
 export function constrainCalibrationAdjustment(adjustment: LoadAdjustment | null, calibration: Calibration): LoadAdjustment | null {
   if (!adjustment || adjustment.action === "stop") return adjustment;
   if (calibration.state === "calibrated" && !calibration.recoveryPending) return adjustment;
-  if (adjustment.action === "decrease") return { ...adjustment, reason: `${adjustment.reason} Keep at least ${calibration.targetRir} good reps in reserve.` };
+  if (adjustment.action === "decrease") return { ...adjustment, reason: `${adjustment.reason} Stop with at least ${calibration.targetRir} good reps left.` };
   return { ...adjustment, action: "hold", nextLoad: null, confidence: "low", reason: calibration.recoveryPending
-    ? "Recovery feedback is still needed. Repeat a comfortable load or reduce it; increases are on hold."
-    : `Build familiarity at ${calibration.targetRir} RIR with a comfortable load. Automatic increases wait until this exercise has established history.` };
+    ? "RepArc still needs your recovery answer. Repeat a comfortable weight or reduce it; no increase will be suggested yet."
+    : `Use a comfortable weight and stop with about ${calibration.targetRir} good reps left. RepArc will wait for enough successful history before suggesting an increase.` };
 }
 
 // Upgrade an unfinished pre-policy draft without discarding any entered set.

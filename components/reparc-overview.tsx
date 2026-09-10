@@ -7,7 +7,7 @@ import { BrandLockup } from "@/components/brand-lockup";
 export function OverviewContent() {
   return <div className="space-y-5 text-base leading-7">
     <h1 className="text-3xl font-semibold tracking-tight">Your training, one session at a time.</h1>
-    {[[ClipboardCheck, "Set up your week", "Choose your schedule, equipment and starting point."], [TrendingUp, "Log and build", "Record sets, reps and effort. Guidance uses comparable exercise history and your recovery."], [ShieldCheck, "Ease into new exercises", "Start with comfortable loads and reduced sets, even if you have trained for years."]].map(([Icon, title, copy]) => {
+    {[[ClipboardCheck, "Set up your week", "Choose your schedule, equipment and starting point."], [TrendingUp, "Log and build", "Record sets, reps and effort. Guidance uses past results from the same exercise and your recovery."], [ShieldCheck, "Ease into new exercises", "Start with comfortable weights and fewer sets, even if you have trained for years."]].map(([Icon, title, copy]) => {
       const IconComponent = Icon as typeof ClipboardCheck;
       return <div key={String(title)} className="flex gap-3"><IconComponent aria-hidden="true" className="mt-1 size-5 shrink-0 text-amber-300" /><div><h2 className="font-semibold">{String(title)}</h2><p className="text-stone-400">{String(copy)}</p></div></div>;
     })}

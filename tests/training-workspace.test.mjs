@@ -85,7 +85,7 @@ test("training notice closure is independent of readiness and load persistence w
   const app = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
   assert.match(app, /open=\{noticesOpen && view === "train"\} onOpenChange=\{setNoticesOpen\}/);
   assert.match(app, /if \(optimistic \|\| result.saved\) setData\(result.data\)/);
-  assert.match(app, /"Available loads saved", "merge", false/);
+  assert.match(app, /"Equipment weights saved", "merge", false/);
   assert.match(app, /onEquipmentUpdate=\{\(next, message\) => persist\(next, message, "merge", false\)\}/);
   assert.match(app, /opener\?\.isConnected/);
   assert.match(app, /role="alert" className="train-safety/);

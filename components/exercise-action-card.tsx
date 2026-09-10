@@ -40,7 +40,7 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
   if (unsafe) {
     label = "Safety first";
     title = "Stop this exercise";
-    message = adjustment?.action === "stop" ? adjustment.reason : "Do not continue while pain or soreness affects normal movement. Review your readiness before resuming.";
+    message = adjustment?.action === "stop" ? adjustment.reason : "Do not continue while pain or soreness affects normal movement. Review how you feel before resuming.";
   } else if (skipped) {
     label = "Exercise skipped or stopped";
     title = "No further sets planned";
@@ -49,9 +49,9 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
     label = "Exercise complete";
     title = recoveryPending ? "Recovery check pending" : "All working sets logged";
     message = recoveryPending
-      ? "Record recovery at least 48 hours after this session. Next-workout guidance depends on recovery and calibration; an increase is not guaranteed."
+      ? "After at least 48 hours, tell RepArc how you recovered. The next recommendation needs that answer and enough useful history; an increase is not guaranteed."
       : "Review your guidance when you next train this exercise. Completing these sets alone does not mean the load should increase.";
-    if (completed.some((entry) => entry.rir === "")) detail = "Some RIR values are missing. Add them only if you can reasonably estimate them; missing effort data can hold calibration progress.";
+    if (completed.some((entry) => entry.rir === "")) detail = "Some reps-left estimates are missing. Add them only if you can reasonably estimate them; missing effort data may delay a weight increase.";
   } else if (adjustment) {
     title = numericLoad(adjustment.nextLoad)
       ? `${adjustment.action === "hold" ? "Keep" : "Use"} ${weightLabel(adjustment.nextLoad)}`
@@ -61,8 +61,8 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
     confidence = adjustment.confidence;
     if (numericLoad(adjustment.nextLoad)) applyLoad = adjustment.nextLoad;
   } else if (completed.length) {
-    title = prescribed ? "Follow this set’s prescription" : "Complete the remaining sets";
-    message = prescribed ? "Use the load and rep prescription for this workout shown above; this is not a next-workout target."
+    title = prescribed ? "Follow today’s set instructions" : "Complete the remaining sets";
+    message = prescribed ? "Use the weight and reps shown for this workout. This is not a recommendation for your next workout."
       : "Follow the displayed reps and effort target. There is not enough guidance to recommend a different weight yet.";
   } else {
     title = numericLoad(suggestion?.value) ? `Start with ${weightLabel(suggestion.value)}`
@@ -71,7 +71,7 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
       : exercise.loadingType === "unloaded" ? "No external load required"
       : exercise.loadingType === "bodyweight" || exercise.bodyweight ? "Start with a manageable variation"
       : "Start light · rehearse first";
-    message = suggestion?.reason ?? "A numerical starting load is not available. Rehearse with an easy load or variation and follow the displayed effort target.";
+    message = suggestion?.reason ?? "RepArc does not have enough useful history to choose a number. Rehearse with an easy weight or variation and leave the displayed number of good reps.";
     confidence = suggestion?.confidence;
     if (numericLoad(suggestion?.value)) applyLoad = suggestion.value;
   }
@@ -82,8 +82,8 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
     <h3 className="mt-2 text-xl font-semibold leading-snug text-stone-100">{title}</h3>
     {lastLogged && finished && <p className="mt-2 text-sm leading-6 text-stone-300">{completed.length} working sets logged · last set: {exercise.loadingType === "unloaded" ? "" : `${weightLabel(Number(lastLogged.w || 0))} × `}{lastLogged.r} reps. Logged result, not a new prescription.</p>}
     <p className="mt-2 text-sm leading-6 text-stone-300" role={unsafe ? "alert" : undefined}>{message}</p>
-    {!unsafe && !skipped && !finished && <p className="mt-2 text-sm leading-6 text-stone-300">{prescribed ? "Follow the set-specific reps and AMRAP / calibration instructions above." : `Aim for ${exercise.repLow}–${exercise.repHigh} reps with at least ${targetRir} reps left in reserve.`}</p>}
+    {!unsafe && !skipped && !finished && <p className="mt-2 text-sm leading-6 text-stone-300">{prescribed ? "Follow the reps and any final-effort or starting-level instructions shown above." : `Aim for ${exercise.repLow}–${exercise.repHigh} reps and stop with at least ${targetRir} good reps left.`}</p>}
     {applyLoad !== undefined && <Button type="button" variant="outline" className="mt-3 min-h-11 w-full whitespace-normal text-sm" onClick={() => onApply(applyLoad)}>Fill {completed.length ? "next" : "first"} set · {weightLabel(applyLoad)}</Button>}
-    {(detail || confidence) && <details className="mt-3 text-sm text-stone-400"><summary className="min-h-6 cursor-pointer">Why?</summary>{detail && <p className="mt-2 leading-6">{detail}</p>}{confidence && <p className="mt-2">Guidance confidence: {confidence}. This is an estimate, not a guarantee.</p>}</details>}
+    {(detail || confidence) && <details className="mt-3 text-sm text-stone-400"><summary className="min-h-6 cursor-pointer">Why this guidance?</summary>{detail && <p className="mt-2 leading-6">{detail}</p>}{confidence && <p className="mt-2">This is based on {confidence === "high" ? "more" : confidence === "moderate" ? "some" : "limited"} usable data. It is an estimate, not a guarantee.</p>}</details>}
   </section>;
 }

@@ -194,7 +194,7 @@ function ConditioningEditor({ kind, value, onChange }: { kind: "warmup" | "post"
         <ChevronDown className="size-4 text-stone-500" />
       </summary>
       <div className="mt-4 space-y-3">
-        <p className="text-xs leading-5 text-stone-500">{isWarmup ? "Aim to feel warm without tiring yourself. Before the first heavy or unfamiliar movement, add 1–3 progressively heavier rehearsal sets; do not log those as working sets. Stairs can fatigue the legs, so keep them easy on lower-body days." : "This is not required for recovery. If strength is the priority, place substantial cardio after lifting or separate it by several hours."}</p>
+        <p className="text-xs leading-5 text-stone-500">{isWarmup ? "Aim to feel warm without tiring yourself. Before the first heavy or unfamiliar movement, do 1–3 warm-up sets that gradually get heavier; do not log them as working sets. Stairs can tire the legs, so keep them easy on lower-body days." : "This is optional and is not guaranteed to improve recovery. If strength is the priority, do harder cardio after lifting or in a separate session."}</p>
         <div className="grid grid-cols-4 gap-1.5">{modes.map(([mode, label]) => <Button key={mode} type="button" variant="outline" data-selected={value?.mode === mode} aria-pressed={value?.mode === mode} onClick={() => update("mode", mode)} className="selection-button h-9 rounded-lg px-1 text-[11px]">{label}</Button>)}</div>
         <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
           <div className="grid grid-cols-3 gap-1.5">{intensities.map(([intensity, label]) => <Button key={intensity} type="button" variant="outline" data-selected={value?.intensity === intensity} aria-pressed={value?.intensity === intensity} onClick={() => update("intensity", intensity)} className="selection-button h-9 rounded-lg px-1 text-[10px]">{label}</Button>)}</div>
@@ -531,9 +531,9 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
 
           <div key={step} className="onboarding-step mt-8">
             {step === 1 && <>
-              <p className="eyebrow text-amber-300">Automatic program assignment</p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Choose your training track.</h1>
-              <p className="mt-3 text-sm leading-6 text-stone-400">Your selection assigns the matching Foundation program automatically. Completed workouts become the stronger signal after training begins.</p>
+              <p className="eyebrow text-amber-300">Your starting program</p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Which program should RepArc start?</h1>
+              <p className="mt-3 text-sm leading-6 text-stone-400">Choose Man or Woman. RepArc uses this only to select your first Foundation program. Your completed workouts guide later recommendations.</p>
               <p className="mt-6 text-xs font-semibold text-stone-300">Gender <RequiredMark /><span className="sr-only"> required</span></p>
               <div className="mt-2 grid grid-cols-2 gap-3" role="radiogroup" aria-label="Gender" aria-required="true">
                 {([['man', 'Man', Mars], ['woman', 'Woman', Venus]] as const).map(([value, label, Icon]) => <Button key={value} type="button" role="radio" aria-checked={gender === value} variant="outline" data-selected={gender === value} onClick={() => setGender(value)} className="selection-button onboarding-choice h-24 flex-col gap-2 rounded-2xl border-white/10 text-base font-bold"><Icon className="size-7" aria-hidden="true" /><span>{label}</span></Button>)}
@@ -542,31 +542,31 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
             </>}
 
             {step === 2 && <>
-              <p className="eyebrow text-amber-300">Baseline</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Set your starting point.</h1>
+              <p className="eyebrow text-amber-300">Your starting details</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Tell us where you’re starting.</h1>
               <div className="mt-7 grid gap-6 sm:grid-cols-2 sm:items-end">
-                <fieldset><legend className="eyebrow">Units <RequiredMark /></legend><RadioGroup value={unit} onValueChange={(value) => setUnit(value as Unit)} className="mt-3 grid grid-cols-2 gap-2" aria-label="Weight unit" aria-required="true">{(["kg", "lb"] as Unit[]).map((value) => <ChoiceRadio key={value} id={`calibrate-unit-${value}`} value={value} label={value.toUpperCase()} />)}</RadioGroup></fieldset>
-                <label><span className="eyebrow">Bodyweight ({unit}) <RequiredMark /></span><Input required aria-required="true" inputMode="decimal" value={bodyweight} onChange={(event) => /^\d*\.?\d*$/.test(event.target.value) && setBodyweight(event.target.value)} placeholder={unit === "kg" ? "75" : "165"} className="mt-3 h-12 rounded-xl border-white/10 bg-white/[0.055] px-4 font-mono text-lg text-white" /></label>
+                <fieldset><legend className="eyebrow">Which weight unit do you use? <RequiredMark /></legend><RadioGroup value={unit} onValueChange={(value) => setUnit(value as Unit)} className="mt-3 grid grid-cols-2 gap-2" aria-label="Weight unit" aria-required="true">{(["kg", "lb"] as Unit[]).map((value) => <ChoiceRadio key={value} id={`calibrate-unit-${value}`} value={value} label={value.toUpperCase()} />)}</RadioGroup></fieldset>
+                <label><span className="eyebrow">Your current bodyweight ({unit}) <RequiredMark /></span><Input required aria-required="true" inputMode="decimal" value={bodyweight} onChange={(event) => /^\d*\.?\d*$/.test(event.target.value) && setBodyweight(event.target.value)} placeholder={unit === "kg" ? "75" : "165"} className="mt-3 h-12 rounded-xl border-white/10 bg-white/[0.055] px-4 font-mono text-lg text-white" /></label>
               </div>
-              <fieldset className="mt-7"><legend className="eyebrow">Time spent lifting <RequiredMark /></legend><RadioGroup value={level ?? ""} onValueChange={(value) => setLevel(value as Level)} className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Time spent lifting" aria-required="true">{LEVELS.map((option) => <ChoiceRadio key={option.id} id={`calibrate-level-${option.id}`} value={option.id} label={option.label} />)}</RadioGroup></fieldset>
+              <fieldset className="mt-7"><legend className="eyebrow">How long have you lifted regularly? <RequiredMark /></legend><RadioGroup value={level ?? ""} onValueChange={(value) => setLevel(value as Level)} className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Time spent lifting" aria-required="true">{LEVELS.map((option) => <ChoiceRadio key={option.id} id={`calibrate-level-${option.id}`} value={option.id} label={option.label} />)}</RadioGroup></fieldset>
             </>}
 
             {step === 3 && <>
-              <p className="eyebrow text-amber-300">Weekly cadence</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Make the plan fit your week.</h1>
+              <p className="eyebrow text-amber-300">Your training week</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">How many days will you train?</h1>
               <p className="mt-3 text-sm leading-6 text-stone-400">Choose the number of workouts first, then confirm the exact days you prefer. You can still open any session manually.</p>
-              <p className="mt-6 text-xs font-semibold text-stone-300">Training days <RequiredMark /></p><div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Training days per week" aria-required="true">{([3, 4, 5] as TrainingFrequency[]).map((value) => <Button key={value} type="button" role="radio" variant="outline" aria-checked={frequency === value} data-selected={frequency === value} onClick={() => selectFrequency(value)} className="selection-button onboarding-choice h-14 rounded-xl font-bold">{value} days</Button>)}</div>
-              <p className="mt-7 text-xs font-semibold text-stone-300">Preferred days <RequiredMark /></p>
+              <p className="mt-6 text-xs font-semibold text-stone-300">Workouts per week <RequiredMark /></p><div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Training days per week" aria-required="true">{([3, 4, 5] as TrainingFrequency[]).map((value) => <Button key={value} type="button" role="radio" variant="outline" aria-checked={frequency === value} data-selected={frequency === value} onClick={() => selectFrequency(value)} className="selection-button onboarding-choice h-14 rounded-xl font-bold">{value} days</Button>)}</div>
+              <p className="mt-7 text-xs font-semibold text-stone-300">Which days work best? <RequiredMark /></p>
               <div className="mt-2 grid grid-cols-7 gap-1">{weekdayLabels.map((label, weekday) => <Button key={label} type="button" variant="outline" disabled={!frequency} aria-pressed={preferredWeekdays.includes(weekday)} data-selected={preferredWeekdays.includes(weekday)} onClick={() => togglePreferredDay(weekday)} className="selection-button h-12 rounded-lg px-1 text-[10px]">{label}</Button>)}</div>
               <p className="mt-3 text-xs text-stone-500">{preferredWeekdays.length} / {frequency ?? 0} selected</p>
             </>}
 
             {step === 4 && <>
-              <p className="eyebrow text-amber-300">Personalization</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">Choose what is practical.</h1>
+              <p className="eyebrow text-amber-300">Equipment and goals</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">What can you train with?</h1>
               <div className="mt-7 grid gap-6 sm:grid-cols-2">
-                <fieldset><legend className="eyebrow">Equipment <RequiredMark /></legend><RadioGroup value={equipment ?? ""} onValueChange={(value) => setEquipment(value as Equipment)} className="mt-3 grid gap-2" aria-label="Available equipment" aria-required="true">{([['full','Full gym'],['limited','Limited gym'],['home','Home']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`equipment-${value}`} value={value} label={label} />)}</RadioGroup></fieldset>
-                <fieldset><legend className="eyebrow">Training emphasis</legend><RadioGroup value={goal} onValueChange={(value) => setGoal(value as TrainingGoal)} className="mt-3 grid gap-2" aria-label="Training emphasis">{([['balanced','Balanced'],['upper','Upper body'],['lower','Lower body / glutes']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`goal-${value}`} value={value} label={label} />)}</RadioGroup><p className="mt-2 text-[11px] leading-4 text-stone-500">Emphasis adds a small amount of accessory work; it does not replace the main progression.</p></fieldset>
+                <fieldset><legend className="eyebrow">Where will you usually train? <RequiredMark /></legend><RadioGroup value={equipment ?? ""} onValueChange={(value) => setEquipment(value as Equipment)} className="mt-3 grid gap-2" aria-label="Available equipment" aria-required="true">{([['full','Full gym'],['limited','Limited gym'],['home','Home']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`equipment-${value}`} value={value} label={label} />)}</RadioGroup></fieldset>
+                <fieldset><legend className="eyebrow">What would you like to emphasize? <span className="normal-case tracking-normal text-stone-500">(optional)</span></legend><RadioGroup value={goal} onValueChange={(value) => setGoal(value as TrainingGoal)} className="mt-3 grid gap-2" aria-label="Training emphasis">{([['balanced','Balanced'],['upper','Upper body'],['lower','Lower body / glutes']] as const).map(([value, label]) => <ChoiceRadio key={value} id={`goal-${value}`} value={value} label={label} />)}</RadioGroup><p className="mt-2 text-xs leading-5 text-stone-500">This adds a small amount of accessory work. It does not replace the main program.</p></fieldset>
               </div>
-              <fieldset className="mt-7"><legend className="eyebrow">Bodyweight trends in Progress <RequiredMark /></legend><div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-required="true">{([[true,"Track weigh-ins"],[false,"Hide weigh-ins"]] as const).map(([value, label]) => <Button key={label} type="button" role="radio" variant="outline" aria-checked={weightTrackingEnabled === value} data-selected={weightTrackingEnabled === value} onClick={() => setWeightTrackingEnabled(value)} className="selection-button onboarding-choice min-h-14 rounded-xl font-semibold">{label}</Button>)}</div></fieldset>
-              {weightTrackingEnabled && <fieldset className="motion-pop mt-5"><legend className="eyebrow">Current goal</legend><RadioGroup value={weightGoal} onValueChange={(value) => setWeightGoal(value as WeightGoal)} className="mt-3 grid grid-cols-3 gap-2" aria-label="Weight goal">{(["cut","maintain","bulk"] as WeightGoal[]).map((value) => <ChoiceRadio key={value} id={`setup-weight-${value}`} value={value} label={value[0].toUpperCase() + value.slice(1)} />)}</RadioGroup></fieldset>}
+              <fieldset className="mt-7"><legend className="eyebrow">Show bodyweight progress? <RequiredMark /></legend><div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-required="true">{([[true,"Track weigh-ins"],[false,"Do not track"]] as const).map(([value, label]) => <Button key={label} type="button" role="radio" variant="outline" aria-checked={weightTrackingEnabled === value} data-selected={weightTrackingEnabled === value} onClick={() => setWeightTrackingEnabled(value)} className="selection-button onboarding-choice min-h-14 rounded-xl font-semibold">{label}</Button>)}</div></fieldset>
+              {weightTrackingEnabled && <fieldset className="motion-pop mt-5"><legend className="eyebrow">What is your current weight goal?</legend><RadioGroup value={weightGoal} onValueChange={(value) => setWeightGoal(value as WeightGoal)} className="mt-3 grid grid-cols-3 gap-2" aria-label="Weight goal">{(["cut","maintain","bulk"] as WeightGoal[]).map((value) => <ChoiceRadio key={value} id={`setup-weight-${value}`} value={value} label={value[0].toUpperCase() + value.slice(1)} />)}</RadioGroup></fieldset>}
               <label className="mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-stone-300"><input type="checkbox" required aria-required="true" checked={safetyAccepted} onChange={(event) => setSafetyAccepted(event.target.checked)} className="mt-1 size-5 shrink-0 accent-amber-300" /><span>I accept the <a href="/terms" target="_blank" rel="noreferrer" className="text-amber-300 underline">Terms &amp; Safety</a> and acknowledge the <a href="/privacy" target="_blank" rel="noreferrer" className="text-amber-300 underline">Privacy Notice</a>. RepArc provides general fitness guidance, not medical care or rehabilitation. Optional improvement sharing is a separate choice <RequiredMark />.</span></label>
             </>}
 
@@ -1057,19 +1057,19 @@ export function ProgressView({
                             <h4 className="mt-3 text-lg font-semibold">{dailyReport.headline}</h4>
                             <p className="mt-1 text-xs leading-5 text-stone-500">{dailyReport.summary}</p>
                           </div>
-                          <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 font-mono text-[10px] uppercase text-stone-500">{dailyReport.confidence} confidence</span>
+                          <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-stone-500">{dailyReport.confidence === "high" ? "Based on more data" : dailyReport.confidence === "moderate" ? "Based on some data" : "Based on limited data"}</span>
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                           {[
-                            ["Completion", `${dailyReport.completionPercent}%`],
-                            ["Avg RIR", dailyReport.averageRir === null ? "Not logged" : dailyReport.averageRir.toFixed(1)],
-                            ["Session effort", dailyReport.averageSessionRpe === null ? "Not logged" : `${dailyReport.averageSessionRpe.toFixed(1)} / 10`],
+                            ["Sets completed", `${dailyReport.completionPercent}%`],
+                            ["Average reps left", dailyReport.averageRir === null ? "Not logged" : dailyReport.averageRir.toFixed(1)],
+                            ["Workout difficulty", dailyReport.averageSessionRpe === null ? "Not logged" : `${dailyReport.averageSessionRpe.toFixed(1)} / 10`],
                             ["Duration", dailyReport.totalDurationSeconds === null ? "Not measured" : dailyReport.totalDurationSeconds < 60 ? "Under 1 min" : `${Math.round(dailyReport.totalDurationSeconds / 60)} min`],
                           ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
                         </div>
                         <details className="mt-3 rounded-xl border border-white/[0.07] bg-black/10 p-3">
-                          <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-stone-300">Analysis and next-session guidance<ChevronDown className="size-4 text-stone-500" /></summary>
-                          <div className="mt-3 grid grid-cols-3 gap-2"><div><p className="font-mono text-sm text-stone-200">{dailyReport.totalReps}</p><p className="text-[9px] uppercase text-stone-600">Total reps</p></div><div><p className="font-mono text-sm text-stone-200">{Math.round(dailyReport.loadedVolume).toLocaleString()} {profile.unit}-reps</p><p className="text-[9px] uppercase text-stone-600">External volume</p></div><div><p className="font-mono text-sm text-stone-200">{dailyReport.rirCoveragePercent}%</p><p className="text-[9px] uppercase text-stone-600">RIR coverage</p></div></div>
+                          <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-stone-300">More details and next-workout guidance<ChevronDown className="size-4 text-stone-500" /></summary>
+                          <div className="mt-3 grid grid-cols-3 gap-2"><div><p className="font-mono text-sm text-stone-200">{dailyReport.totalReps}</p><p className="text-[9px] uppercase text-stone-600">Total reps</p></div><div><p className="font-mono text-sm text-stone-200">{Math.round(dailyReport.loadedVolume).toLocaleString()} {profile.unit}-reps</p><p className="text-[9px] uppercase text-stone-600">Weight × reps</p></div><div><p className="font-mono text-sm text-stone-200">{dailyReport.rirCoveragePercent}%</p><p className="text-[9px] uppercase text-stone-600">Effort logged</p></div></div>
                           {(dailyReport.warmupMinutes > 0 || dailyReport.postCardioMinutes > 0) && <p className="mt-3 text-[10px] text-stone-600">Conditioning logged: {dailyReport.warmupMinutes} min warm-up · {dailyReport.postCardioMinutes} min post-lift. These minutes are descriptive and do not change load progression.</p>}
                           {!!dailyReport.exercises.length && <div className="mt-3 space-y-2">{dailyReport.exercises.map((exercise) => exercise.recommendation && (
                             <div key={exercise.key} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
@@ -1077,7 +1077,7 @@ export function ProgressView({
                               <p className="mt-1 text-[11px] leading-4 text-stone-500">{exercise.recommendation.reason}</p>
                             </div>
                           ))}</div>}
-                          <p className="mt-3 text-[10px] leading-4 text-stone-600">Descriptive only—not a readiness score or medical assessment. Missing sets or RIR reduce confidence.</p>
+                          <p className="mt-3 text-[10px] leading-4 text-stone-600">This report describes what you logged; it is not a medical or recovery assessment. Missing sets or reps-left estimates make the report less certain.</p>
                         </details>
                       </section>
                     )}
@@ -1090,14 +1090,14 @@ export function ProgressView({
                     {!dailyReport && !!sessions.length && <section className="px-4 py-4 sm:px-5" aria-label={`${bucketLabel(key)} report summary`}>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {[
-                          ["Workout completion", `${completionPercent}%`],
-                          ["Schedule fulfillment", !scheduleAdherence?.available ? "Not available" : scheduleAdherence.adherencePercent === null ? "No sessions due" : `${scheduleAdherence.completedSessions}/${scheduleAdherence.expectedSessions} · ${scheduleAdherence.adherencePercent}%`],
+                          ["Planned sets completed", `${completionPercent}%`],
+                          ["Planned workouts completed", !scheduleAdherence?.available ? "Not available" : scheduleAdherence.adherencePercent === null ? "No sessions due" : `${scheduleAdherence.completedSessions}/${scheduleAdherence.expectedSessions} · ${scheduleAdherence.adherencePercent}%`],
                           ["Duration", measuredDurations.length ? totalDurationSeconds < 60 ? "Under 1 min" : `${Math.round(totalDurationSeconds / 60)} min` : "Not measured"],
-                          ["Avg effort", averageEffort === null ? "Not logged" : `${averageEffort.toFixed(1)} / 10`],
+                          ["Average workout difficulty", averageEffort === null ? "Not logged" : `${averageEffort.toFixed(1)} / 10`],
                         ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/[0.07] bg-black/15 p-3"><p className="font-mono text-sm font-semibold text-stone-200">{value}</p><p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-stone-600">{label}</p></div>)}
                       </div>
                       {scheduleAdherence && (scheduleAdherence.movedSessions > 0 || scheduleAdherence.skippedSessions > 0 || scheduleAdherence.externalSessions > 0 || scheduleAdherence.plannedBreakDays > 0) && <p className="mt-3 text-[10px] leading-4 text-stone-600">Schedule context: {[scheduleAdherence.movedSessions ? `${scheduleAdherence.movedSessions} moved` : "", scheduleAdherence.externalSessions ? `${scheduleAdherence.externalSessions} elsewhere` : "", scheduleAdherence.sorenessRecoverySessions ? `${scheduleAdherence.sorenessRecoverySessions} soreness recovery` : "", scheduleAdherence.skippedSessions - scheduleAdherence.sorenessRecoverySessions ? `${scheduleAdherence.skippedSessions - scheduleAdherence.sorenessRecoverySessions} skipped` : "", scheduleAdherence.plannedBreakDays ? `${scheduleAdherence.plannedBreakDays} planned-break day${scheduleAdherence.plannedBreakDays === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}.</p>}
-                      <p className="mt-3 text-[10px] text-stone-600">External-load volume: {Math.round(loadedVolume).toLocaleString()} {profile.unit}-reps. Per-side loads count both sides; compare only the same exercise and setup. Bodyweight is excluded.</p>
+                      <p className="mt-3 text-[10px] text-stone-600">Weight × reps total: {Math.round(loadedVolume).toLocaleString()} {profile.unit}-reps. This is a rough workload total. Compare only the same exercise and equipment; bodyweight is excluded.</p>
                     </section>}
                     {!dailyReport && !!sessions.length && !isCurrentPeriod && <details className="border-t border-white/10">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-xs font-semibold text-stone-300 sm:px-5">
@@ -1115,7 +1115,7 @@ export function ProgressView({
                           <div key={identity} className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-3 border-t border-white/[0.07] px-4 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_6rem_4.5rem] sm:px-5">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium">{name}</p>
-                              <p className="mt-1 font-mono text-[9px] uppercase tracking-wider text-stone-600">Estimated max trend</p>
+                              <p className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-stone-600">Estimated strength trend</p>
                             </div>
                             <div className="hidden sm:block"><Sparkline points={points} /></div>
                             <span className={`text-right font-mono text-[11px] ${deltaPercent >= 5 ? "text-amber-300" : deltaPercent <= -5 ? "text-red-300" : "text-stone-600"}`}>
@@ -1241,7 +1241,7 @@ function SettingsView({
 
   const updateProfile = async (changes: Partial<typeof profile>, success: string) => {
     if (changes.equipment && changes.equipment !== "full" && data.program.activeId === "phase2") {
-      setMessage("Switch to Foundation before changing away from Full gym; Phase 2 training maxes are tied to its programmed lifts.");
+      setMessage("Switch to Foundation before leaving Full gym. Phase 2 uses a separate planning number for each programmed lift.");
       return;
     }
     const now = new Date().toISOString();
@@ -1281,7 +1281,7 @@ function SettingsView({
   const changeProgram = async (activeId: ProgramId) => {
     if (activeId === data.program.activeId) return;
     if (activeId === "phase2" && profile.equipment !== "full") {
-      setMessage("Phase 2 currently requires the programmed full-gym lifts so every training max remains exercise-specific. Update Equipment to Full gym or continue Foundation.");
+      setMessage("Phase 2 currently requires its programmed full-gym lifts. Choose Full gym under Equipment or continue Foundation.");
       return;
     }
     if (activeId === "phase2" && !data.program.phase2UnlockedAt) {
@@ -1300,7 +1300,7 @@ function SettingsView({
 
   const unlockPhaseTwo = async () => {
     if (!phaseTwoMaxesComplete) {
-      setMessage("Enter a positive, exercise-specific training max for every programmed lift.");
+      setMessage("Enter a planning number greater than zero for every Phase 2 lift.");
       return;
     }
     const trainingMaxes = { ...data.program.trainingMaxes };
@@ -1348,7 +1348,7 @@ function SettingsView({
       ...data,
       program: { ...data.program, status: paused ? "active" : "paused", pausedAt: paused ? undefined : now, calibrationRequired: paused ? true : data.program.calibrationRequired, returnPlan },
       updatedAt: now,
-    }, paused ? "resume" : "pause", now), paused ? "Program resumed — first session is a calibration session" : "Program paused");
+    }, paused ? "resume" : "pause", now), paused ? "Program resumed — your first workout back will be easier" : "Program paused");
   };
 
   const changeWeek = async (week: number) => {
@@ -1409,13 +1409,13 @@ function SettingsView({
         </div>
       </div>
 
-      {settingsCategory !== "overview" && <div className="mt-5 flex items-center justify-between gap-3"><Button type="button" variant="ghost" onClick={() => setSettingsCategory("overview")} className="h-9 rounded-lg px-2 text-xs text-stone-400 hover:bg-white/10 hover:text-white"><ChevronDown className="size-3.5 rotate-90" />Back to Setup</Button><span className="font-mono text-[10px] uppercase tracking-wider text-stone-600">{settingsCategory === "training" ? "Training plan" : settingsCategory === "profile" ? "Profile" : settingsCategory === "equipment" ? "Available loads" : settingsCategory === "experience" ? "App preferences" : "Data & account"}</span></div>}
+      {settingsCategory !== "overview" && <div className="mt-5 flex items-center justify-between gap-3"><Button type="button" variant="ghost" onClick={() => setSettingsCategory("overview")} className="h-9 rounded-lg px-2 text-xs text-stone-400 hover:bg-white/10 hover:text-white"><ChevronDown className="size-3.5 rotate-90" />Back to Setup</Button><span className="font-mono text-[10px] uppercase tracking-wider text-stone-600">{settingsCategory === "training" ? "Training plan" : settingsCategory === "profile" ? "Profile" : settingsCategory === "equipment" ? "Equipment weights" : settingsCategory === "experience" ? "App preferences" : "Data & account"}</span></div>}
 
       {settingsCategory === "overview" && <div className="settings-topic mt-5 overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#121512]">
         {([
           ["training", "Training plan", `${track === "women" ? "Women’s" : "Current"} · ${PROGRAMS[data.program.activeId].name} · ${data.program.frequency} days`, Dumbbell],
           ["profile", "Profile", `${name} · ${profile.bodyweight} ${profile.unit} · ${LEVELS.find((option) => option.id === profile.level)?.label}`, UserRound],
-          ["equipment", "Available loads", "Saved equipment values for each exercise", Settings],
+          ["equipment", "Equipment weights", "Tell RepArc which weights you can actually select", Settings],
           ["experience", "App preferences", `${theme === "system" ? "System theme" : theme ? `${theme[0].toUpperCase()}${theme.slice(1)} theme` : "Theme"} · ${restAlertLevel} alert`, Monitor],
           ["data", "Data & account", "Updates, backups, feedback and privacy", ShieldAlert],
         ] as const).map(([value, label, summary, Icon], index) => <button key={value} type="button" onClick={() => setSettingsCategory(value)} className={`flex min-h-[4.4rem] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04] ${index ? "border-t border-white/[0.07]" : ""}`}><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-stone-300"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><strong className="block text-sm text-stone-200">{label}</strong><span className="mt-0.5 block truncate text-[11px] text-stone-500">{summary}</span></span><ChevronDown className="size-4 -rotate-90 text-stone-600" /></button>)}
@@ -1446,22 +1446,22 @@ function SettingsView({
               <ChoiceRadio key={id} id={`program-${id}`} value={id} label={program.name} />
             ))}
           </RadioGroup>
-          {data.program.phase2UnlockedAt && !showPhaseReview && <Button type="button" variant="ghost" onClick={() => { setReviewMaxes(Object.fromEntries(phaseTwoExercises.map((exercise) => [exercise.id, String(roundLoad(data.program.trainingMaxes[exercise.id] || suggestedTrainingMax(data, exercise, profile.unit), profile.unit) || "")] ))); setShowPhaseReview(true); }} className="mt-3 rounded-xl text-xs text-amber-300 hover:bg-white/10 hover:text-amber-200">Review Phase 2 training maxes</Button>}
+          {data.program.phase2UnlockedAt && !showPhaseReview && <Button type="button" variant="ghost" onClick={() => { setReviewMaxes(Object.fromEntries(phaseTwoExercises.map((exercise) => [exercise.id, String(roundLoad(data.program.trainingMaxes[exercise.id] || suggestedTrainingMax(data, exercise, profile.unit), profile.unit) || "")] ))); setShowPhaseReview(true); }} className="mt-3 rounded-xl text-xs text-amber-300 hover:bg-white/10 hover:text-amber-200">Review Phase 2 starting numbers</Button>}
           {showPhaseReview && (
             <div className="mt-5 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4 sm:p-5">
               <div className="flex items-start gap-3">
                 <LockOpen className="mt-0.5 size-5 shrink-0 text-amber-300" />
-                <div><h3 className="font-semibold">Phase 2 transition review</h3><p className="mt-1 text-xs leading-5 text-stone-400">You have usable performance data for {confidence.covered} of {confidence.total} programmed lifts ({confidence.level} confidence). There is no arbitrary time lock: review the starting training maxes and confirm when you are ready.</p></div>
+                <div><h3 className="font-semibold">Review your Phase 2 starting numbers</h3><p className="mt-1 text-xs leading-5 text-stone-400">RepArc has usable results for {confidence.covered} of {confidence.total} programmed lifts. Review each number before continuing. A training max is a conservative planning number—not the weight you must lift today.</p></div>
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 {phaseTwoExercises.map((exercise) => <label key={exercise.id} className="rounded-xl bg-black/20 p-3"><span className="text-xs text-stone-400">{exercise.name} <RequiredMark /></span><div className="mt-2 flex items-center gap-2"><Input inputMode="decimal" required aria-required="true" aria-label={`${exercise.name} training max in ${profile.unit}`} value={reviewMaxes[exercise.id] ?? ""} onChange={(event) => /^\d*\.?\d*$/.test(event.target.value) && setReviewMaxes((current) => ({ ...current, [exercise.id]: event.target.value }))} placeholder="Required" className="h-11 border-white/10 bg-white/[0.04] font-mono text-white" /><span className="text-xs text-stone-400">{profile.unit}</span></div></label>)}
               </div>
-              <p className="mt-4 text-[11px] leading-5 text-stone-500">Training maxes are exercise-specific. If exact history is unavailable, enter a conservative estimate you could confidently lift; the first Phase 2 session is calibration and cannot change progression.</p>
-              <div className="mt-4 flex flex-wrap gap-2"><Button disabled={!phaseTwoMaxesComplete} onClick={() => void unlockPhaseTwo()} className="rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{data.program.phase2UnlockedAt ? "Save training maxes" : "Confirm and unlock Phase 2"}</Button><Button variant="ghost" onClick={() => setShowPhaseReview(false)} className="rounded-xl text-stone-400 hover:bg-white/10 hover:text-white">Not yet</Button></div>
+              <p className="mt-4 text-xs leading-5 text-stone-500">Use a conservative number you could lift with confidence. The first Phase 2 workout checks your starting level and will not increase these numbers.</p>
+              <div className="mt-4 flex flex-wrap gap-2"><Button disabled={!phaseTwoMaxesComplete} onClick={() => void unlockPhaseTwo()} className="rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{data.program.phase2UnlockedAt ? "Save starting numbers" : "Confirm and unlock Phase 2"}</Button><Button variant="ghost" onClick={() => setShowPhaseReview(false)} className="rounded-xl text-stone-400 hover:bg-white/10 hover:text-white">Not yet</Button></div>
             </div>
           )}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
-            <div><p className="text-sm font-semibold">{data.program.status === "paused" ? "Program paused" : "Need time away?"}</p><p className="mt-1 text-xs text-stone-500">Resuming marks the first workout as calibration; it will not change training maxes.</p></div>
+            <div><p className="text-sm font-semibold">{data.program.status === "paused" ? "Program paused" : "Need time away?"}</p><p className="mt-1 text-xs text-stone-500">Your first workout back will be easier and will not increase Phase 2 planning numbers.</p></div>
             <Button variant="outline" onClick={() => void togglePause()} className="rounded-xl border-white/10 bg-white/[0.035] text-stone-300 hover:bg-white/10 hover:text-white">{data.program.status === "paused" ? <Play className="size-4" /> : <Pause className="size-4" />}{data.program.status === "paused" ? "Resume" : "Pause"}</Button>
           </div>
         </article>
@@ -1582,7 +1582,7 @@ function SettingsView({
             </div>
             {restAlertLevel === "maximum" && <p className="mt-3 text-[10px] leading-4 text-amber-200">Maximum uses a sharper, limited alarm pattern. Check your device volume and lower it before testing with headphones.</p>}
             <details className="mt-4 rounded-xl border border-white/10 bg-black/15 p-3">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-stone-300"><span className="flex items-center gap-2"><BellRing className="size-3.5 text-amber-300" />Alarm readiness</span><ChevronDown className="size-4 text-stone-500" /></summary>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-stone-300"><span className="flex items-center gap-2"><BellRing className="size-3.5 text-amber-300" />Check alarm setup</span><ChevronDown className="size-4 text-stone-500" /></summary>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {[
                   ["App mode", isStandalone ? "Installed" : "Browser tab", isStandalone],
@@ -2252,7 +2252,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const prescription = prescriptionFor(exercise);
     const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit);
     if (prescription) {
-      if (prescription.calibration) return { value: null, tag: "estimate", reason: `Calibration: choose a comfortable load for these reps with at least ${calibration.targetRir} RIR. The training max stays unchanged; no AMRAP.` };
+      if (prescription.calibration) return { value: null, tag: "estimate", reason: `Choose a comfortable weight and finish with at least ${calibration.targetRir} good reps left. This workout is finding your starting level, so it will not increase your Phase 2 planning number.` };
       const storedTrainingMax = data.program.trainingMaxes[key];
       const trainingMax = storedTrainingMax || estimatedTrainingMax(exercise, key);
       const theoreticalLoad = trainingMax * prescription.intensity;
@@ -2261,9 +2261,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         value,
         tag: storedTrainingMax ? "hold" : "estimate",
         reason: !availableLoads.length
-          ? `Configure this exercise’s available loads to convert the ${Math.round(prescription.intensity * 100)}% training-max target into a load you can actually select.`
+          ? `Add this equipment’s weight choices so RepArc can turn the ${Math.round(prescription.intensity * 100)}% Phase 2 target into a weight you can actually select.`
           : prescription.deload
-            ? `Week ${workingWeek} deload · ${Math.round(prescription.intensity * 100)}% TM · nearest available load · no AMRAP`
+            ? `Easier week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% of the planning number · nearest equipment weight · no final effort set`
             : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · nearest available load · final set ${prescription.repOutTarget}+`,
       };
     }
@@ -2273,7 +2273,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const { session: last, entries: lastEntries } = lastHistory;
       const normalizedEntries = lastEntries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
       const adjustment = constrainCalibrationAdjustment(nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness, availableLoads }), calibration);
-      if (calibration.state === "recalibration") return { value: null, tag: "hold", reason: `Rebuild with a comfortable load and at least ${calibration.targetRir} RIR. Do not train this area while soreness limits normal movement.` };
+      if (calibration.state === "recalibration") return { value: null, tag: "hold", reason: `Rebuild with a comfortable weight and at least ${calibration.targetRir} good reps left. Do not train this area while soreness limits normal movement.` };
       if (adjustment) return {
         value: adjustment.nextLoad,
         tag: exercise.bodyweight && adjustment.nextLoad === null ? "bodyweight" : adjustment.action === "increase" ? "up" : adjustment.action === "decrease" || adjustment.action === "stop" ? "down" : "hold",
@@ -2337,8 +2337,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       permission = await Notification.requestPermission();
       setAlertPermission(permission);
     }
-    triggerRestAlert("Alarm readiness test", undefined, true);
-    if (permission === "granted") await showRestNotification("Alarm readiness test", `rest-readiness-${Date.now()}`).catch(() => undefined);
+    triggerRestAlert("RepArc alarm test", undefined, true);
+    if (permission === "granted") await showRestNotification("RepArc alarm test", `rest-readiness-${Date.now()}`).catch(() => undefined);
     setNotice(permission === "granted" ? "Alert test sent — confirm that you heard or saw it" : "Foreground alert tested — system notifications are not enabled on this device");
   };
 
@@ -2408,17 +2408,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (!profile) return false;
     const normalized = normalizeLoadValues(values);
     if (normalized.length < 2) {
-      setNotice("Enter at least two available loads, separated by commas.");
+      setNotice("Enter at least two equipment weights, separated by commas.");
       return false;
     }
     const now = new Date().toISOString();
-    return persist({ ...data, loadProfiles: { ...data.loadProfiles, [key]: { unit: profile.unit, values: normalized, updatedAt: now } }, updatedAt: now }, "Available loads saved", "merge", false);
+    return persist({ ...data, loadProfiles: { ...data.loadProfiles, [key]: { unit: profile.unit, values: normalized, updatedAt: now } }, updatedAt: now }, "Equipment weights saved", "merge", false);
   };
 
   const applySwap = async (exercise: Exercise, alternative: string | null) => {
     if (!day || !draftKey) return;
     if (workingProgramId === "phase2" && exercise.sbsRole) {
-      setNotice("SBS programmed lifts keep their exercise-specific training max. You can skip an unsuitable lift instead.");
+      setNotice("Phase 2 programmed lifts keep their own planning number. You can skip an unsuitable lift instead.");
       return;
     }
     if (alternative && (!isDirectSwap(exercise.name, alternative) || !exerciseSwapOptions(exercise.name, exercise.alternatives, profile?.equipment).includes(alternative))) {
@@ -2475,7 +2475,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const saveSession = async () => {
     if (!day || !profile) return;
     if (readiness === "pain" || readiness === "severe-soreness") {
-      setNotice(readiness === "severe-soreness" ? "Training is paused because movement-limiting soreness is selected." : "Saving is paused because Pain / unsafe is selected in the readiness check.");
+      setNotice(readiness === "severe-soreness" ? "Training is paused because you reported soreness that limits normal movement." : "Saving is paused because you reported pain or an unsafe condition.");
       return;
     }
     if (data.program.status === "paused") {
@@ -2594,7 +2594,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (workingProgramId === "phase2") next = recalculatePhase2Progression(next);
     const saved = await persist(
       next,
-      currentSession ? "Session updated — previous version kept in history" : calibrationCompleted && nextReturnPlan ? `Return session saved — ${nextReturnPlan.sessionsRemaining} conservative sessions remaining` : calibrationCompleted ? "Calibration saved — each exercise keeps its own recovery and progression checks" : calibrationSession ? "Partial return session saved — complete it before progression resumes" : "Session saved — strong work",
+      currentSession ? "Session updated — previous version kept in history" : calibrationCompleted && nextReturnPlan ? `Return workout saved — ${nextReturnPlan.sessionsRemaining} easier workout${nextReturnPlan.sessionsRemaining === 1 ? "" : "s"} remaining` : calibrationCompleted ? "Starting-level workout saved — recovery checks still apply to each exercise" : calibrationSession ? "Partial return workout saved — complete it before increases resume" : "Session saved — strong work",
     );
     if (saved) {
       if (sessionStartStorageKey) window.localStorage.removeItem(sessionStartStorageKey);
@@ -2724,11 +2724,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const availableLoads = loadProfileValues(data.loadProfiles[equipmentProfileKey] ?? data.loadProfiles[key], profile.unit);
     return <section className="notice-section">
       <h3 className="text-base font-semibold">{exercise.name}</h3>
-                          {exposure && exposure.stateAtStart !== "calibrated" && <div className="mt-3 rounded-xl bg-amber-300/[0.05] p-3 text-sm leading-5 text-stone-300"><p>Leave at least {exposure.targetRir} good reps in reserve. {exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} today; rehearsal sets do not count.</p>{exposure.relatedHistory && <p className="mt-2 text-stone-400">Related training counts toward familiarity. Choose a fresh load for this exact equipment.</p>}{!currentSession && <Button type="button" variant="ghost" className="mt-2 h-auto min-h-11 whitespace-normal px-0 text-amber-200" disabled={Boolean(knownLoadOverrides[`${draftKey}:${key}`])} onClick={() => { if (window.confirm("Use a starting load you already know is comfortable on this exact exercise? The reduced sets and recovery checks still apply.")) setKnownLoadOverrides((value) => ({ ...value, [`${draftKey}:${key}`]: true })); }}>{knownLoadOverrides[`${draftKey}:${key}`] ? "Starting load confirmed — close notices and enter it in the exercise fields" : "I know a comfortable starting load"}</Button>}</div>}
+                          {exposure && exposure.stateAtStart !== "calibrated" && <div className="mt-3 rounded-xl bg-amber-300/[0.05] p-3 text-sm leading-5 text-stone-300"><p>Stop with at least {exposure.targetRir} good reps left. Do {exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} today; warm-up sets do not count.</p>{exposure.relatedHistory && <p className="mt-2 text-stone-400">Experience with a similar exercise helps, but choose a fresh weight for this exact equipment.</p>}{!currentSession && <Button type="button" variant="ghost" className="mt-2 h-auto min-h-11 whitespace-normal px-0 text-amber-200" disabled={Boolean(knownLoadOverrides[`${draftKey}:${key}`])} onClick={() => { if (window.confirm("Use a starting weight you already know is comfortable on this exact exercise? The reduced sets and recovery checks still apply.")) setKnownLoadOverrides((value) => ({ ...value, [`${draftKey}:${key}`]: true })); }}>{knownLoadOverrides[`${draftKey}:${key}`] ? "Starting weight confirmed — close notices and enter it in the exercise fields" : "I know a comfortable starting weight"}</Button>}</div>}
                           {!savedSession && calibration.latest && <details open={calibration.recoveryPending} className="mt-3 rounded-xl border border-white/10 p-3 text-sm leading-5"><summary className="cursor-pointer font-semibold">Recovery from {prettyDate(calibration.latest.session.date)}{calibration.recoveryPending ? " · needed before increases" : " · review"}</summary><p className="mt-2 text-stone-400">Over the following days, how did this exercise affect you? Confirm normal or mild recovery after at least 48 hours. Missing feedback holds increases.</p><div className="mt-3 grid grid-cols-2 gap-2">{([{ id: "recovered", label: "Normal movement" }, { id: "mild", label: "Mild and improving" }, { id: "limiting", label: "Limited daily movement" }, { id: "severe", label: "Severe / unusual symptoms" }] as const).map((option) => <Button key={option.id} type="button" variant="outline" data-selected={calibration.latestRecovery?.status === option.id} disabled={syncState === "saving" || ((option.id === "recovered" || option.id === "mild") && recoveryClock - Date.parse(calibration.latest!.session.completedAt ?? calibration.latest!.session.createdAt) < 48 * 3_600_000)} className="selection-button h-auto min-h-11 whitespace-normal rounded-lg px-2 py-2 text-xs" onClick={() => void recordRecovery(exercise, option.id)}>{option.label}</Button>)}</div>{(calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p className="mt-3 text-red-200">Wait until normal movement returns. Dark urine, marked swelling, unusual weakness or severe pain needs urgent medical assessment.</p>}</details>}
       {exerciseNeedsLoad(exercise) && <div className="mt-4">
-        {!availableLoads.length ? <details className="rounded-xl border border-white/10 p-3"><summary className="min-h-11 cursor-pointer text-sm font-semibold">Set available loads · once per exercise</summary><LoadProfileEditor key={`${equipmentProfileKey}:${profile.unit}`} name={exercise.name} unit={profile.unit} values={availableLoads} hint={loadEntryHint(exercise)} onSave={(values) => saveLoadProfile(equipmentProfileKey, values)} /></details>
-          : <p className="flex items-center gap-2 text-sm text-stone-400"><Check className="size-4" />{availableLoads.length} equipment loads saved · edit in Setup → Available loads</p>}
+        {!availableLoads.length ? <details className="rounded-xl border border-white/10 p-3"><summary className="min-h-11 cursor-pointer text-sm font-semibold">Tell RepArc your equipment’s weight choices</summary><LoadProfileEditor key={`${equipmentProfileKey}:${profile.unit}`} name={exercise.name} unit={profile.unit} values={availableLoads} hint={loadEntryHint(exercise)} onSave={(values) => saveLoadProfile(equipmentProfileKey, values)} /></details>
+          : <p className="flex items-center gap-2 text-sm text-stone-400"><Check className="size-4" />{availableLoads.length} equipment weights saved · edit in Setup → Equipment weights</p>}
       </div>}
     </section>;
   })();
@@ -2759,17 +2759,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         <SheetContent className="training-notices w-full max-w-full gap-0 border-white/10 bg-[#121512] text-stone-100 sm:max-w-lg" showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); const opener = noticeOpenerRef.current; const fallback = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-training-notices="true"]')).find((button) => button.getClientRects().length > 0); (opener?.isConnected ? opener : fallback)?.focus(); }}>
           <SheetHeader className="shrink-0 border-b border-white/10 p-4">
             <div className="flex items-center justify-between gap-3"><SheetTitle className="text-lg text-stone-100">Training notices</SheetTitle><Button type="button" variant="ghost" onClick={() => setNoticesOpen(false)} aria-label="Close training notices" className="size-11 rounded-xl"><X className="size-5" /></Button></div>
-            <SheetDescription className="text-sm leading-5 text-stone-400">Readiness, recovery and session guidance. Closing this panel does not change your plan.</SheetDescription>
+            <SheetDescription className="text-sm leading-5 text-stone-400">Check how you feel before training, report recovery from earlier workouts, and review today’s special instructions. Closing this panel does not change your plan.</SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
             {day && <>
               <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <div><p className="eyebrow text-stone-500">Readiness · optional</p><p className="mt-1 text-sm font-semibold">{readiness === "normal" ? "Ready" : readiness === "low" ? "Low energy" : readiness === "sore" ? "Unusually sore" : readiness === "severe-soreness" ? "Soreness limits walking" : readiness === "symptoms" ? "Menstrual symptoms" : readiness === "pain" ? "Pain / unsafe" : "How are you arriving today?"}</p></div>
+                  <div><p className="eyebrow text-stone-500">Before training · optional</p><p className="mt-1 text-sm font-semibold">{readiness === "normal" ? "Ready" : readiness === "low" ? "Low energy" : readiness === "sore" ? "Unusually sore" : readiness === "severe-soreness" ? "Soreness limits walking" : readiness === "symptoms" ? "Menstrual symptoms" : readiness === "pain" ? "Pain / unsafe" : "How do you feel right now?"}</p></div>
                   <Button type="button" variant="ghost" onClick={() => setReadinessOpen((open) => !open)} aria-expanded={readinessOpen} className="h-10 rounded-xl px-3 text-xs text-amber-300 hover:bg-white/10 hover:text-amber-200">{readinessOpen ? "Done" : readiness ? "Change" : "Check in"}<ChevronDown className={`size-3.5 transition-transform ${readinessOpen ? "rotate-180" : ""}`} /></Button>
                 </div>
                 {readinessOpen && <div className="motion-pop mt-3 flex flex-wrap gap-2">{([['normal','Ready'],['low','Low energy'],['sore','Unusually sore'],['severe-soreness','Soreness limits walking'],...(profile.gender === 'woman' ? [['symptoms','Menstrual symptoms'] as const] : []),['pain','Pain / unsafe']] as Array<readonly [Readiness, string]>).map(([value, label]) => <Button key={value} type="button" variant="outline" aria-pressed={readiness === value} data-selected={readiness === value} onClick={() => { setReadiness(value); if (value === "normal") setReadinessOpen(false); }} className="selection-button min-h-10 rounded-xl border-white/10 px-3 text-xs">{label}</Button>)}</div>}
-                {(readiness === "low" || readiness === "sore" || readiness === "symptoms") && <p className="mt-3 text-xs leading-5 text-amber-200">Use a lighter load if needed, keep at least the displayed RIR target, or postpone. This check-in does not automatically remove sets.</p>}
+                {(readiness === "low" || readiness === "sore" || readiness === "symptoms") && <p className="mt-3 text-xs leading-5 text-amber-200">Use a lighter weight if needed, keep at least the displayed number of reps left, or postpone. This check-in does not automatically remove sets.</p>}
                 {readiness === "severe-soreness" && <div className="mt-3 flex gap-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs leading-5 text-red-200"><ShieldAlert className="mt-0.5 size-4 shrink-0" /><p>Do not train while soreness limits normal walking. Seek urgent medical care for dark tea/cola-colored urine, marked swelling, unusual weakness, reduced urination, or pain far beyond expected soreness.</p></div>}
                 {readiness === "pain" && <div className="mt-3 flex gap-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs leading-5 text-red-200"><ShieldAlert className="mt-0.5 size-4 shrink-0" /><p>Do not train through sharp, sudden or worsening pain. Saving is paused until you choose a safe readiness state.</p></div>}
               </div>
@@ -2777,7 +2777,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             </>}
           {!editingSession && missedTraining && data.program.status === "active" && (
             <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4">
-              <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-amber-200">Welcome back</p><p className="mt-1 text-xs leading-5 text-stone-400">{missedTraining.missedDates.length} planned session{missedTraining.missedDates.length === 1 ? " needs" : "s need"} a decision. RepArc will not invent sets or reduce your training maxes.</p></div><span className="shrink-0 rounded-full bg-black/20 px-2 py-1 font-mono text-[10px] text-stone-400">{missedTraining.gapDays} days</span></div>
+              <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-amber-200">Welcome back</p><p className="mt-1 text-xs leading-5 text-stone-400">{missedTraining.missedDates.length} planned workout{missedTraining.missedDates.length === 1 ? " needs" : "s need"} an answer. Tell RepArc what happened so your schedule stays accurate; it will not invent completed sets.</p></div><span className="shrink-0 rounded-full bg-black/20 px-2 py-1 font-mono text-[10px] text-stone-400">{missedTraining.gapDays} days</span></div>
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <Button type="button" onClick={() => void resolveTimeAway("continue", "busy")} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><Play className="size-3.5" />Continue next</Button>
                 <Button type="button" variant="outline" onClick={() => void resolveTimeAway("trained-elsewhere", "other")} className="h-10 rounded-xl border-white/10 text-xs"><Check className="size-3.5" />Trained elsewhere</Button>
@@ -2788,13 +2788,13 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>
             </div>
           )}
-          {!editingSession && data.program.calibrationRequired && data.program.status !== "paused" && <div className="mb-4 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><p className="font-semibold text-sky-200">{data.program.returnPlan ? `Return session ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions}` : "Return calibration session"}</p><p className="mt-1 text-xs text-stone-400">{data.program.returnPlan ? `Volume and starting loads are temporarily reduced. Aim for about ${data.program.returnPlan.targetRir} RIR. Progression stays frozen until return mode ends.` : "Use conservative loads. This workout will not adjust SBS training maxes; exercise-specific recovery checks still apply afterward."}</p></div>}
+          {!editingSession && data.program.calibrationRequired && data.program.status !== "paused" && <div className="mb-4 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><p className="font-semibold text-sky-200">{data.program.returnPlan ? `Easier return workout ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions}` : "First workout back"}</p><p className="mt-1 text-xs text-stone-400">{data.program.returnPlan ? `Sets and starting weights are temporarily reduced. Finish with about ${data.program.returnPlan.targetRir} good reps left. RepArc will not increase programmed weights until the return period ends.` : "Use conservative weights. This workout will not increase Phase 2 planning numbers; recovery checks still apply afterward."}</p></div>}
           {exposurePlan && Object.values(exposurePlan.exposures).some((item) => item.prescribedSets < item.originalSets) && <div className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.04] p-4 text-sm leading-6"><p className="font-semibold text-amber-200">Ease into unfamiliar exercises</p><p className="mt-1 text-stone-400">Today has fewer working sets. Start comfortably light, keep the displayed reps in reserve, and record recovery before building up. This applies at every experience level.</p></div>}
           {exposurePlan && exposurePlan.deferred.length > 0 && <details className="mb-4 rounded-2xl border border-white/10 p-4 text-sm leading-6"><summary className="cursor-pointer font-semibold">{noveltyOverrides[draftKey ?? ""] ? "Extra exercises included" : `${exposurePlan.deferred.length} exercises held for a later exposure`}</summary><p className="mt-2 text-stone-400">{exposurePlan.deferred.join(" · ")}. RepArc limits unfamiliar work in one session; these remain in your program. You can include their reduced sets if you already tolerate similar training.</p>{!noveltyOverrides[draftKey ?? ""] && <Button type="button" variant="outline" className="mt-3 h-auto min-h-11 whitespace-normal" onClick={() => { if (draftKey && window.confirm("Include the extra exercises with reduced sets? This exceeds the first-exposure limit. Keep effort comfortable and stop if technique or normal movement is affected.")) setNoveltyOverrides((value) => ({ ...value, [draftKey]: true })); }}>Include reduced extras</Button>}</details>}
 
-            {!exposurePlan && reducedExposure && <p className="notice-section text-sm leading-6">Ease into unfamiliar exercises: follow the reduced sets and RIR shown on each exercise. Your active session keeps its saved prescription.</p>}
+            {!exposurePlan && reducedExposure && <p className="notice-section text-sm leading-6">Ease into unfamiliar exercises: follow the reduced sets and displayed number of reps left. Your active session keeps its saved plan.</p>}
             {exerciseNotices}
-            <details className="notice-section text-sm leading-6"><summary className="cursor-pointer font-semibold">RIR and AMRAP explained</summary><p className="mt-2 text-stone-400">RIR means good reps left in reserve. Follow the target shown for this exercise; unfamiliar exercises keep more reps in reserve. Leave the field blank if unsure. SBS final-set AMRAP applies only when shown; return, calibration and deload prescriptions may skip it.</p></details>
+            <details className="notice-section text-sm leading-6"><summary className="cursor-pointer font-semibold">What “reps left” and “final effort set” mean</summary><p className="mt-2 text-stone-400"><strong className="text-stone-200">Reps left</strong> is how many more clean reps you think you could have done. For example, 2 means you stopped with about two good reps remaining. Leave it blank if you are unsure. A <strong className="text-stone-200">final effort set</strong> means do as many clean reps as you safely can, and stop when form breaks down or pain appears.</p></details>
           </div>
         </SheetContent>
       </Sheet>
@@ -2896,8 +2896,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             </div>
           ) : (
             <>
-              {(readiness === "pain" || readiness === "severe-soreness") && <div role="alert" className="train-safety mb-3 rounded-xl border border-red-300/30 p-3 text-sm leading-6 text-red-200"><p className="font-semibold">Training is paused · {readiness === "pain" ? "pain / unsafe" : "soreness limits normal movement"}</p><p>Do not train through these symptoms. Dark urine, marked swelling or unusual weakness needs urgent medical assessment.</p><Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); setReadinessOpen(true); }} className="mt-1 min-h-11 px-0 text-sm">Review readiness</Button></div>}
-              {readiness && readiness !== "normal" && readiness !== "pain" && readiness !== "severe-soreness" && <p className="mb-3 text-sm text-amber-200">Readiness: {readiness === "low" ? "low energy" : readiness === "sore" ? "unusually sore" : "symptoms"}. Keep effort easier and respect the displayed RIR target.</p>}
+              {(readiness === "pain" || readiness === "severe-soreness") && <div role="alert" className="train-safety mb-3 rounded-xl border border-red-300/30 p-3 text-sm leading-6 text-red-200"><p className="font-semibold">Training is paused · {readiness === "pain" ? "pain / unsafe" : "soreness limits normal movement"}</p><p>Do not train through these symptoms. Dark urine, marked swelling or unusual weakness needs urgent medical assessment.</p><Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); setReadinessOpen(true); }} className="mt-1 min-h-11 px-0 text-sm">Review how you feel</Button></div>}
+              {readiness && readiness !== "normal" && readiness !== "pain" && readiness !== "severe-soreness" && <p className="mb-3 text-sm text-amber-200">Today you reported {readiness === "low" ? "low energy" : readiness === "sore" ? "unusual soreness" : "symptoms"}. Keep the workout easier and leave at least the displayed number of good reps.</p>}
               <div className="mb-4"><ConditioningEditor kind="warmup" value={warmup} onChange={setWarmup} /></div>
               <h2 className="sr-only">Today’s work · {day.exercises.length} movements · {totalSets} working sets</h2>
 
@@ -2933,7 +2933,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                         ...baseSuggestion,
                         value: loadAtOrBelow(baseSuggestion.value * data.program.returnPlan.loadFactor, availableLoads),
                         tag: "hold" as const,
-                        reason: `Return session ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions} · conservative starting load · target ${data.program.returnPlan.targetRir} RIR`,
+                        reason: `Easier return workout ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions}. Use a conservative starting weight and finish with about ${data.program.returnPlan.targetRir} good reps left.`,
                       }
                     : baseSuggestion;
                   const lastHistory = historyFor(exercise).at(-1);
@@ -2944,7 +2944,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const prescription = prescriptionFor(exercise);
                   const rawAdjustment = !skippedExerciseKeys.includes(key) && data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads }) : null;
                   const liveAdjustment = rawAdjustment?.action === "increase" && (exposure?.progressionEligible === false || calibration.state !== "calibrated" || calibration.recoveryPending || Boolean(data.program.returnPlan))
-                    ? { ...rawAdjustment, action: "hold" as const, nextLoad: null, reason: `Keep this exposure comfortable at ${exposure?.targetRir ?? calibration.targetRir} RIR. Do not increase the load while building familiarity or checking recovery.` }
+                    ? { ...rawAdjustment, action: "hold" as const, nextLoad: null, reason: `Keep this workout comfortable with about ${exposure?.targetRir ?? calibration.targetRir} good reps left. Do not increase the weight while learning the exercise or checking recovery.` }
                     : rawAdjustment;
                   const nextSetIndex = sets.findIndex((entry) => !isFilledSet(entry, exercise));
                   const sessionRecovery = currentSession ? data.exerciseRecovery.filter((check) => check.sessionId === currentSession.id && check.exerciseIdentity === calibration.identity) : [];
@@ -2964,13 +2964,13 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               <p className="mt-1 font-mono text-sm text-stone-500">
                                 {prescription
                                   ? prescription.deload
-                                    ? `${exercise.sets} × ${prescription.normalReps} · no AMRAP`
-                                    : `${exercise.sets - 1} × ${prescription.normalReps} + AMRAP ${prescription.repOutTarget}+`
+                                    ? `${exercise.sets} × ${prescription.normalReps} · no final effort set`
+                                    : `${exercise.sets - 1} × ${prescription.normalReps} + final effort set ${prescription.repOutTarget}+`
                                   : `${exercise.sets} × ${exercise.repLow}–${exercise.repHigh}`}
-                                {exercise.perSide ? " · each side" : ""} · {formatTimer(exercise.restSeconds)} rest{prescription?.calibration ? " · calibration" : prescription?.deload ? " · deload" : exercise.note ? ` · ${exercise.note}` : ""}
+                                {exercise.perSide ? " · each side" : ""} · {formatTimer(exercise.restSeconds)} rest{prescription?.calibration ? " · finding your starting level" : prescription?.deload ? " · easier recovery week" : exercise.note ? ` · ${exercise.note}` : ""}
                               </p>
 
-                          {exposure && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{CALIBRATION_LABELS[exposure.stateAtStart]}</span><span className="text-stone-300">{exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} · {prescription && !prescription.deload ? "final set AMRAP" : `at least ${exposure.targetRir} RIR`}</span></div>}
+                          {exposure && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{CALIBRATION_LABELS[exposure.stateAtStart]}</span><span className="text-stone-300">{exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} · {prescription && !prescription.deload ? "final effort set" : `leave at least ${exposure.targetRir} good reps`}</span></div>}
                           {!savedSession && (calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p role="alert" className="mt-3 rounded-xl border border-red-300/30 p-3 text-sm leading-6 text-red-200">Recovery check: normal movement was affected. Wait until it returns; seek urgent care for dark urine, marked swelling, unusual weakness or severe pain.</p>}
                           {!savedSession && calibration.recoveryPending && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-amber-200"><BellRing className="size-4 shrink-0" />Recovery check needed before increases</Button>}
 
@@ -2979,7 +2979,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                             <span />
                             <span className="field-label">{exercise.loadingType === "assisted-bodyweight" ? `Assistance ${profile.unit}` : exercise.loadingType === "bodyweight" || exercise.bodyweight ? `Added ${profile.unit}` : exercise.loadingType === "unloaded" ? "Load optional" : profile.unit}</span>
                             <span className="field-label">Reps</span>
-                            <span className="field-label">RIR</span>
+                            <span className="field-label">Reps left</span>
                             {sets.flatMap((entry, setIndex) => [
                               <span key={`number-${setIndex}`} className={`text-center font-mono text-xs ${prescription && !prescription.deload && setIndex === exercise.sets - 1 ? "font-bold text-amber-300" : "text-stone-600"}`}>
                                 {prescription && !prescription.deload && setIndex === exercise.sets - 1 ? "A" : setIndex + 1}
@@ -3025,7 +3025,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                             <p className="mt-3 leading-5 text-red-200"><strong>Stop:</strong> {guidance.stop}</p>
                           </details>
 
-                          {exerciseNeedsLoad(exercise) && !availableLoads.length && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-stone-300"><Settings className="size-4 shrink-0" />Set available loads · once per exercise</Button>}
+                          {exerciseNeedsLoad(exercise) && !availableLoads.length && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-stone-300"><Settings className="size-4 shrink-0" />Tell RepArc your equipment’s weight choices</Button>}
 
                           {last && (
                             <p className="ml-7 mt-3 truncate font-mono text-[10px] text-stone-600">
@@ -3061,11 +3061,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>}
 
               <details className="train-finish mt-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span>Finish session <span className="font-normal text-stone-400">· effort & cardio</span></span><ChevronDown className="size-4" /></summary>
-              <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4" aria-label="Session effort">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div><p className="eyebrow text-stone-500">Session effort · optional</p><p className="mt-1 text-xs text-stone-400">{sessionRpe === null ? "Add a 1–10 whole-workout effort rating" : `Recorded ${sessionRpe} / 10`}</p></div><ChevronDown className="size-4 text-stone-500" /></summary>
-                <div className="mt-4 flex items-center justify-between gap-3"><p className="text-xs text-stone-500">This improves the daily report and never overrides set performance.</p>{sessionRpe !== null && <button type="button" onClick={() => setSessionRpe(null)} className="text-[11px] text-stone-500 hover:text-white">Clear</button>}</div>
-                <div className="mt-3 grid grid-cols-5 gap-1.5 sm:grid-cols-10">{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <Button key={value} type="button" variant="outline" aria-pressed={sessionRpe === value} data-selected={sessionRpe === value} onClick={() => setSessionRpe(value)} className="selection-button h-10 rounded-lg border-white/10 px-0 font-mono text-xs">{value}</Button>)}</div>
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span>Finish session <span className="font-normal text-stone-400">· difficulty & cardio</span></span><ChevronDown className="size-4" /></summary>
+              <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4" aria-label="Workout difficulty">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div><p className="eyebrow text-stone-500">How hard was today’s workout? · optional</p><p className="mt-1 text-xs text-stone-400">{sessionRpe === null ? "Choose one overall rating from 1 to 10" : `${sessionRpe} / 10 · ${sessionRpe <= 3 ? "Easy" : sessionRpe <= 6 ? "Manageable" : sessionRpe <= 8 ? "Hard" : "Very hard"}`}</p></div><ChevronDown className="size-4 text-stone-500" /></summary>
+                <div className="mt-4 flex items-start justify-between gap-3"><div><p className="text-xs leading-5 text-stone-500">1–3 Easy · 4–6 Manageable · 7–8 Hard · 9–10 Very hard</p><p className="mt-1 text-xs leading-5 text-stone-500">Used in reports only. It does not change your weights, sets, or recovery guidance.</p></div>{sessionRpe !== null && <button type="button" onClick={() => setSessionRpe(null)} className="min-h-8 text-xs text-stone-500 hover:text-white">Clear</button>}</div>
+                <div className="mt-3 grid grid-cols-5 gap-1.5 sm:grid-cols-10">{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <Button key={value} type="button" variant="outline" aria-label={`${value} out of 10, ${value <= 3 ? "easy" : value <= 6 ? "manageable" : value <= 8 ? "hard" : "very hard"}`} aria-pressed={sessionRpe === value} data-selected={sessionRpe === value} onClick={() => setSessionRpe(value)} className="selection-button h-10 rounded-lg border-white/10 px-0 font-mono text-xs">{value}</Button>)}</div>
               </details>
 
               <div className="mt-4"><ConditioningEditor kind="post" value={postCardio} onChange={setPostCardio} /></div>

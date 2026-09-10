@@ -104,7 +104,7 @@ function AuthScreen({ onAuthenticated, installAvailable, installing, onInstall }
             {installAvailable && <Button type="button" variant="outline" onClick={() => void onInstall()} disabled={installing} className="mt-3 min-h-11 w-full rounded-xl border-white/10 bg-white/[0.03] text-stone-300"><Download className="size-4" />{installing ? "Opening installer…" : "Install this app"}</Button>}
           </div>
         </div>
-        <div className="max-w-lg text-xs leading-5 text-stone-500"><p>After the first secure sign-in, this device can still open and record workouts without internet. Authentication tokens are stored in protected cookies, never in the workout database.</p><p className="mt-3"><a href="/privacy" className="underline decoration-white/20 underline-offset-4 hover:text-stone-300">Privacy</a><span aria-hidden="true"> · </span><a href="/terms" className="underline decoration-white/20 underline-offset-4 hover:text-stone-300">Terms & safety</a></p></div>
+        <div className="max-w-lg text-xs leading-5 text-stone-500"><p>After your first secure sign-in, this device can still open and record workouts without internet. Your sign-in is kept in a protected cookie, separate from workout history.</p><p className="mt-3"><a href="/privacy" className="underline decoration-white/20 underline-offset-4 hover:text-stone-300">Privacy</a><span aria-hidden="true"> · </span><a href="/terms" className="underline decoration-white/20 underline-offset-4 hover:text-stone-300">Terms & safety</a></p></div>
       </section>
       </main>
     </>

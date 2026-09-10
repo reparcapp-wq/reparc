@@ -23,18 +23,18 @@ export function LoadProfileEditor({ name, unit, values, hint, onSave, onClear }:
     setBusy(true);
     try {
       const saved = await onSave(parsed.values);
-      setMessage(saved ? "Loads saved. You can edit them here anytime." : "Could not save. Your entries are still here; try again.");
+      setMessage(saved ? "Equipment weights saved. You can edit them here anytime." : "Could not save. Your entries are still here; try again.");
       if (saved) setDraft(parsed.values.join(", "));
     } catch { setMessage("Could not save. Your entries are still here; try again."); }
     finally { setBusy(false); }
   }}>
     <p className="text-sm leading-6 text-stone-400">{hint}</p>
-    <label className="block text-sm font-semibold">Available loads in {unit}
-      <Input value={draft} onChange={(event) => { setDraft(event.target.value); setMessage(""); }} disabled={busy} autoComplete="off" spellCheck={false} placeholder="2.5, 5, 7.5, 10" aria-label={`Available ${unit} loads for ${name}`} className="mt-2 h-12 rounded-xl border-white/10 bg-black/20 font-mono !text-base" />
+    <label className="block text-sm font-semibold">Which {unit} weights can you select?
+      <Input value={draft} onChange={(event) => { setDraft(event.target.value); setMessage(""); }} disabled={busy} autoComplete="off" spellCheck={false} placeholder="2.5, 5, 7.5, 10" aria-label={`Selectable ${unit} weights for ${name}`} className="mt-2 h-12 rounded-xl border-white/10 bg-black/20 font-mono !text-base" />
     </label>
-    <p className="text-sm leading-5 text-stone-400">Enter the values actually available on this equipment. This sets equipment choices, not a recommended starting weight.</p>
+    <p className="text-sm leading-5 text-stone-400">Enter the exact choices printed on the machine or dumbbells, separated by commas. This helps RepArc suggest a weight you can actually select; it does not decide your starting weight.</p>
     <div className="flex flex-wrap gap-2">
-      <Button disabled={busy} type="submit" className="min-h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{busy ? "Saving…" : "Save loads"}</Button>
+      <Button disabled={busy} type="submit" className="min-h-11 rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">{busy ? "Saving…" : "Save equipment weights"}</Button>
       {values.length > 0 && onClear && <Button disabled={busy} type="button" variant="outline" className="min-h-11 rounded-xl" onClick={async () => {
         if (!window.confirm(`Clear the saved equipment loads for ${name}? Workout logs will stay unchanged.`)) return;
         setBusy(true);
@@ -53,8 +53,8 @@ export function EquipmentSettings({ data, onUpdate }: { data: TrainingData; onUp
   const item = choices.find((choice) => choice.key === selected);
   const unit = data.profile!.unit;
   return <article className="rounded-2xl border border-white/10 bg-[#121512] p-4 sm:p-6 md:col-span-2">
-    <h2 className="flex items-center gap-2 text-lg font-semibold"><Settings2 className="size-5" />Available loads</h2>
-    <p className="mt-2 text-sm leading-6 text-stone-400">Set each exercise once. Saved values stay with that exercise and convert when you change units. Your workout logs are not changed.</p>
+    <h2 className="flex items-center gap-2 text-lg font-semibold"><Settings2 className="size-5" />Equipment weights</h2>
+    <p className="mt-2 text-sm leading-6 text-stone-400">Tell RepArc which weights you can actually choose for each exercise. Set it once, then edit it only when your equipment changes. Workout history stays unchanged.</p>
     <label className="mt-4 block text-sm font-semibold">Exercise
       <select value={item?.key ?? ""} onChange={(event) => setSelected(event.target.value)} className="mt-2 min-h-12 w-full min-w-0 rounded-xl border border-white/10 bg-background px-3 text-base text-foreground">
         <option value="">Choose an exercise</option>
@@ -62,8 +62,8 @@ export function EquipmentSettings({ data, onUpdate }: { data: TrainingData; onUp
       </select>
     </label>
     {item && <div className="swap-reveal mt-4" key={`${item.key}:${unit}`}><LoadProfileEditor name={item.name} unit={unit} values={item.values} hint={item.hint}
-      onSave={(values) => { const now = new Date().toISOString(); return onUpdate({ ...data, loadProfiles: { ...data.loadProfiles, [item.key]: { unit, values, updatedAt: now } }, updatedAt: now }, "Available loads saved"); }}
-      onClear={() => { const now = new Date().toISOString(); return onUpdate({ ...data, loadProfiles: { ...data.loadProfiles, [item.key]: { unit, values: [], updatedAt: now, deletedAt: now } }, updatedAt: now }, "Available loads cleared"); }}
+      onSave={(values) => { const now = new Date().toISOString(); return onUpdate({ ...data, loadProfiles: { ...data.loadProfiles, [item.key]: { unit, values, updatedAt: now } }, updatedAt: now }, "Equipment weights saved"); }}
+      onClear={() => { const now = new Date().toISOString(); return onUpdate({ ...data, loadProfiles: { ...data.loadProfiles, [item.key]: { unit, values: [], updatedAt: now, deletedAt: now } }, updatedAt: now }, "Equipment weights cleared"); }}
     /></div>}
   </article>;
 }

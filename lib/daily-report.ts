@@ -204,7 +204,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
       bestEstimatedMax: todayBest,
       priorBestEstimatedMax: priorBest,
       changePercent,
-      recommendation: latest.session.skippedExerciseKeys?.includes(latest.key) ? { action: "hold", nextLoad: null, confidence: "low", reason: "This exercise was stopped. Check suitability and recovery before resuming; no automatic increase from this session.", evidence: ["exercise stopped / skipped"] } : exercise.sbsRole ? { action: "hold", nextLoad: null, confidence: "low", reason: "Use this lift’s SBS prescription in Train. Calibration and recovery checks control whether its final set can adjust the training max.", evidence: ["exercise-specific SBS progression"] } : latest.session.exerciseExposures?.[latest.key] ? constrainCalibrationAdjustment(rawRecommendation, exerciseCalibration(data, exercise, followingDay)) : rawRecommendation,
+      recommendation: latest.session.skippedExerciseKeys?.includes(latest.key) ? { action: "hold", nextLoad: null, confidence: "low", reason: "This exercise was stopped. Check that it suits you and that you recovered before trying it again; this workout will not cause an increase.", evidence: ["exercise stopped / skipped"] } : exercise.sbsRole ? { action: "hold", nextLoad: null, confidence: "low", reason: "Follow this lift’s Phase 2 instructions in Train. Your final effort set can change its planning number only after starting-level and recovery checks pass.", evidence: ["exercise-specific Phase 2 progression"] } : latest.session.exerciseExposures?.[latest.key] ? constrainCalibrationAdjustment(rawRecommendation, exerciseCalibration(data, exercise, followingDay)) : rawRecommendation,
     };
   });
 
@@ -236,14 +236,14 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
         ? `${possiblePerformanceImprovements} exercise${possiblePerformanceImprovements === 1 ? "" : "s"} showed a possible improvement that needs another comparable exposure.`
       : completionPercent >= 100
         ? "The planned work was completed without a clear performance change."
-        : "Today adds useful history, but the incomplete plan limits progression confidence.";
+        : "Today adds useful history, but the incomplete workout is not enough to support an increase.";
   const summary = !sessions.length
     ? status === "missed"
       ? "This date was on your saved training schedule. Record time away or a workout performed elsewhere to keep adherence context accurate."
       : sorenessRecovery
         ? "You recorded movement-limiting soreness. No performance was invented; the scheduled session remains visible in adherence context and the next session uses conservative return mode."
         : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
-    : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". RIR was not recorded consistently, so load advice is conservative." : ` at ${averageRir.toFixed(1)} average RIR.`}`;
+    : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". Reps-left estimates were not recorded consistently, so weight advice remains conservative." : ` with ${averageRir.toFixed(1)} good reps left on average.`}`;
 
   return {
     date,
