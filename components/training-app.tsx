@@ -91,9 +91,11 @@ import {
   loadProfileId,
   normalizeLoadValues,
   nextUnfinishedProgramDay,
+  nextSessionScheduledDate,
   prettyDate,
   programDays,
   recalculatePhase2Progression,
+  resolvedSessionScheduleDates,
   recordPlanChange,
   resolveExerciseVariant,
   resolveAvailableLoad,
@@ -209,11 +211,12 @@ function ConditioningEditor({ kind, value, onChange }: { kind: "warmup" | "post"
 const formatTimer = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
-function RestTimerPanel({ timer, remaining, permission, wakeLockState, className = "", onClose, onAdd, onEnable }: {
+function RestTimerPanel({ timer, remaining, permission, wakeLockState, compact = false, className = "", onClose, onAdd, onEnable }: {
   timer: RestTimer;
   remaining: number;
   permission: AlertPermission;
   wakeLockState: WakeLockState;
+  compact?: boolean;
   className?: string;
   onClose: () => void;
   onAdd: () => void;
@@ -221,6 +224,16 @@ function RestTimerPanel({ timer, remaining, permission, wakeLockState, className
 }) {
   const complete = remaining <= 0;
   const displaySeconds = complete ? Math.abs(remaining) : remaining;
+  if (compact) return (
+    <aside className={`motion-rest flex min-h-14 items-center gap-2 rounded-xl border px-3 py-2 ${complete ? "border-amber-300 bg-amber-300 text-[#0b0d0c]" : "border-white/15 bg-[#171a17] text-stone-100"} ${className}`} aria-label={`Rest timer for ${timer.exerciseName}`}>
+      <div className={`grid size-8 shrink-0 place-items-center rounded-lg ${complete ? "bg-black/10" : "bg-amber-300 text-[#0b0d0c]"}`}><Timer className="size-4" /></div>
+      <div className="min-w-0 flex-1"><p className={`text-[9px] font-bold uppercase tracking-wider ${complete ? "text-black/60" : "text-amber-300"}`}>{complete ? "Rest complete" : "Rest timer"}</p><p className="truncate text-xs font-semibold">{timer.exerciseName}</p></div>
+      <time className="shrink-0 font-mono text-xl font-semibold tracking-[-0.05em]" aria-label={complete ? `Rest completed ${displaySeconds} seconds ago` : `${remaining} seconds remaining`}>{complete ? "+" : ""}{formatTimer(displaySeconds)}</time>
+      {!complete && permission === "default" && <Button type="button" variant="ghost" onClick={onEnable} className="hidden h-9 rounded-lg px-2 text-[10px] text-amber-300 sm:inline-flex">Alerts</Button>}
+      {!complete && <Button type="button" variant="ghost" onClick={onAdd} aria-label="Add 30 seconds" className={`size-9 rounded-lg px-0 ${complete ? "text-black/60" : "text-stone-300"}`}><Plus className="size-4" /></Button>}
+      <Button type="button" onClick={onClose} className={`h-9 rounded-lg px-3 text-[10px] font-bold ${complete ? "bg-[#0b0d0c] text-amber-200 hover:bg-black" : "bg-white/10 text-stone-200 hover:bg-white/15"}`}>{complete ? "Done" : "End"}</Button>
+    </aside>
+  );
   return (
     <aside className={`motion-rest overflow-hidden rounded-[1.35rem] border p-4 shadow-xl backdrop-blur-xl ${complete ? "border-amber-300 bg-amber-300 text-[#0b0d0c]" : "border-white/15 bg-[#171a17]/95 text-stone-100"} ${className}`} aria-label={`Rest timer for ${timer.exerciseName}`}>
       <div className="flex items-center gap-3">
@@ -230,7 +243,7 @@ function RestTimerPanel({ timer, remaining, permission, wakeLockState, className
           <p className="mt-1 truncate text-sm font-semibold">{timer.exerciseName}</p>
         </div>
         <time className="font-mono text-3xl font-semibold tracking-[-0.06em]" aria-label={complete ? `Rest completed ${displaySeconds} seconds ago` : `${remaining} seconds remaining`}>{complete ? "+" : ""}{formatTimer(displaySeconds)}</time>
-        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close rest timer" className={`size-8 rounded-lg ${complete ? "text-black/60 hover:bg-black/10 hover:text-black" : "text-stone-500 hover:bg-white/10 hover:text-white"}`}><X className="size-4" /></Button>
+        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="End rest timer" className={`size-8 rounded-lg ${complete ? "text-black/60 hover:bg-black/10 hover:text-black" : "text-stone-500 hover:bg-white/10 hover:text-white"}`}><X className="size-4" /></Button>
       </div>
       {!complete && <Progress value={Math.min(100, ((timer.durationSeconds - remaining) / timer.durationSeconds) * 100)} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />}
       <div className="mt-3 flex items-center justify-between gap-3">
@@ -238,7 +251,7 @@ function RestTimerPanel({ timer, remaining, permission, wakeLockState, className
         <div className="flex shrink-0 gap-1">
           {!complete && permission === "default" && <Button type="button" variant="ghost" onClick={onEnable} className="h-8 rounded-lg px-2 text-[11px] text-amber-300 hover:bg-white/10 hover:text-amber-200">Enable</Button>}
           {!complete && <Button type="button" variant="outline" onClick={onAdd} className="h-8 rounded-lg border-white/10 bg-white/[0.04] px-2 text-[11px] text-stone-300"><Plus className="size-3" />30 sec</Button>}
-          <Button type="button" onClick={onClose} className={`h-8 rounded-lg px-3 text-[11px] font-bold ${complete ? "bg-[#0b0d0c] text-amber-200 hover:bg-black" : "bg-white/10 text-stone-200 hover:bg-white/15"}`}>{complete ? "Next set" : "Skip"}</Button>
+          <Button type="button" onClick={onClose} className={`h-8 rounded-lg px-3 text-[11px] font-bold ${complete ? "bg-[#0b0d0c] text-amber-200 hover:bg-black" : "bg-white/10 text-stone-200 hover:bg-white/15"}`}>{complete ? "Done" : "End timer"}</Button>
         </div>
       </div>
     </aside>
@@ -706,6 +719,7 @@ export function ProgressView({
   const [openedAt] = useState(() => Date.now());
   const profile = data.profile!;
   const sessions = useMemo(() => activeSessions(data), [data]);
+  const sessionScheduleDates = useMemo(() => resolvedSessionScheduleDates(data), [data]);
   const deletedSessions = useMemo(() => data.sessions.filter((session) => session.deletedAt).sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")), [data.sessions]);
   const weighIns = useMemo(() => activeWeighIns(data), [data]);
   const trend = useMemo(() => weightTrend(data, profile.unit), [data, profile.unit]);
@@ -899,6 +913,13 @@ export function ProgressView({
     }
     return key;
   };
+  const sessionLabel = (session: Session) => {
+    const workoutName = session.planSnapshot?.dayName ?? session.dayId;
+    const scheduledDate = sessionScheduleDates.get(session.id) ?? session.date;
+    return scheduledDate === session.date
+      ? `${prettyDate(session.date, { month: "short", day: "numeric" })} · ${workoutName}`
+      : `${workoutName} · done ${prettyDate(session.date, { month: "short", day: "numeric" })} for ${prettyDate(scheduledDate, { month: "short", day: "numeric" })}`;
+  };
 
   return (
     <section className="motion-page mx-auto max-w-7xl px-4 py-5 sm:px-7 lg:py-8" role="tabpanel" aria-label="Progress history">
@@ -955,7 +976,7 @@ export function ProgressView({
                     const status = dailyStatus(date);
                     const selected = date === selectedBucketKey;
                     const future = date > today();
-                    const statusClass = status === "completed"
+                    const statusClass = status === "completed" || status === "moved"
                       ? "bg-emerald-300"
                       : status === "adjusted"
                         ? "bg-amber-300"
@@ -1057,9 +1078,9 @@ export function ProgressView({
                             <h4 className="mt-3 text-lg font-semibold">{dailyReport.headline}</h4>
                             <p className="mt-1 text-xs leading-5 text-stone-500">{dailyReport.summary}</p>
                           </div>
-                          <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-stone-500">{dailyReport.confidence === "high" ? "Based on more data" : dailyReport.confidence === "moderate" ? "Based on some data" : "Based on limited data"}</span>
+                          <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-stone-500">{dailyReport.status === "moved" ? "Schedule matched" : dailyReport.confidence === "high" ? "Based on more data" : dailyReport.confidence === "moderate" ? "Based on some data" : "Based on limited data"}</span>
                         </div>
-                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {dailyReport.status !== "moved" && <><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                           {[
                             ["Sets completed", `${dailyReport.completionPercent}%`],
                             ["Average reps left", dailyReport.averageRir === null ? "Not logged" : dailyReport.averageRir.toFixed(1)],
@@ -1078,7 +1099,7 @@ export function ProgressView({
                             </div>
                           ))}</div>}
                           <p className="mt-3 text-[10px] leading-4 text-stone-600">This report describes what you logged; it is not a medical or recovery assessment. Missing sets or reps-left estimates make the report less certain.</p>
-                        </details>
+                        </details></>}
                       </section>
                     )}
                     {!dailyReport && !sessions.length && (
@@ -1128,7 +1149,7 @@ export function ProgressView({
                       <footer className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
                       {sessions.map((session) => (
                         <div key={session.id} className="flex items-center gap-1 rounded-xl bg-white/[0.035] p-1">
-                          <span className="px-2 font-mono text-[10px] text-stone-500">{prettyDate(session.date, { month: "short", day: "numeric" })} · {session.dayId}</span>
+                          <span className="px-2 font-mono text-[10px] text-stone-500">{sessionLabel(session)}</span>
                           <Button type="button" variant="ghost" size="icon" onClick={() => onEditSession(session)} aria-label={`Edit session from ${session.date}`} className="size-8 rounded-lg text-stone-400 hover:bg-white/10 hover:text-white"><Pencil className="size-3.5" /></Button>
                           <Button type="button" variant="ghost" size="icon" onClick={() => void deleteSession(session)} aria-label={`Remove session from ${session.date}`} className="size-8 rounded-lg text-stone-500 hover:bg-red-300/10 hover:text-red-300"><Trash2 className="size-3.5" /></Button>
                         </div>
@@ -1138,7 +1159,7 @@ export function ProgressView({
                     {dailyReport && <footer className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
                       {sessions.map((session) => (
                         <div key={session.id} className="flex items-center gap-1 rounded-xl bg-white/[0.035] p-1">
-                          <span className="px-2 font-mono text-[10px] text-stone-500">{prettyDate(session.date, { month: "short", day: "numeric" })} · {session.dayId}</span>
+                          <span className="px-2 font-mono text-[10px] text-stone-500">{sessionLabel(session)}</span>
                           <Button type="button" variant="ghost" size="icon" onClick={() => onEditSession(session)} aria-label={`Edit session from ${session.date}`} className="size-8 rounded-lg text-stone-400 hover:bg-white/10 hover:text-white"><Pencil className="size-3.5" /></Button>
                           <Button type="button" variant="ghost" size="icon" onClick={() => void deleteSession(session)} aria-label={`Remove session from ${session.date}`} className="size-8 rounded-lg text-stone-500 hover:bg-red-300/10 hover:text-red-300"><Trash2 className="size-3.5" /></Button>
                         </div>
@@ -1689,7 +1710,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const nextUnfinished = selectedData ? nextUnfinishedProgramDay(selectedData) : null;
     const match = nextUnfinished ?? days[scheduledIndex];
     pendingRestSetsRef.current.clear();
-    setRestTimer(null);
     setReadiness(null);
     setReadinessOpen(false);
     setSessionRpe(null);
@@ -1808,7 +1828,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     try {
       const stored = JSON.parse(window.localStorage.getItem(restTimerStorageKey) ?? "null") as RestTimer | null;
       if (!stored || !Number.isFinite(stored.endsAt) || Date.now() - stored.endsAt > 10 * 60_000) return;
-      const remainingSeconds = Math.max(0, Math.ceil((stored.endsAt - Date.now()) / 1000));
+      const remainingSeconds = Math.max(-599, Math.ceil((stored.endsAt - Date.now()) / 1000));
       const restore = window.setTimeout(() => setRestTimer({ ...stored, remainingSeconds }), 0);
       return () => window.clearTimeout(restore);
     } catch {
@@ -1987,7 +2007,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     }
     if (data.profile?.gender !== next.profile?.gender || data.profile?.programTrack !== next.profile?.programTrack || data.profile?.goal !== next.profile?.goal || data.profile?.equipment !== next.profile?.equipment || data.program.activeId !== next.program.activeId || data.program.week !== next.program.week || data.program.frequency !== next.program.frequency || data.program.preferredWeekdays.join(",") !== next.program.preferredWeekdays.join(",")) {
       pendingRestSetsRef.current.clear();
-      setRestTimer(null);
       setOpenSwap(null);
       setActiveDate(today());
       selectScheduledDay(next.program.activeId, next.program.frequency, next.program.preferredWeekdays, next.profile, today(), next);
@@ -2045,6 +2064,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const activeProgram = PROGRAMS[data.program.activeId];
   const profile = data.profile;
+  const resolvedScheduleDates = useMemo(() => resolvedSessionScheduleDates(data), [data]);
   const missedTraining = useMemo(() => detectMissedTraining(data, today()), [data]);
   const editingSession = editingSessionId ? data.sessions.find((session) => session.id === editingSessionId) : undefined;
   const workingProgramId = editingSession?.programId ?? data.program.activeId;
@@ -2053,6 +2073,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const selectedDraftKey = `${workingProgramId}:${workingWeek}:${activeDate}:${dayId}`;
   const lockedDraftPlan = draftPlans[selectedDraftKey];
   const savedSession = editingSession ?? data.sessions.find((session) => !session.deletedAt && session.date === activeDate && session.dayId === dayId && (workingProgramId === "phase2" ? session.programId === "phase2" && session.programWeek === workingWeek && (session.programFrequency ?? 5) === workingFrequency : session.programId !== "phase2"));
+  const workingScheduledDate = savedSession ? resolvedScheduleDates.get(savedSession.id) ?? savedSession.date : nextSessionScheduledDate(data, activeDate);
   const snapshotDay = editingSession?.planSnapshot ? trainingDayFromSnapshot(editingSession.planSnapshot) : null;
   const selectedSnapshot = savedSession?.planSnapshot ?? lockedDraftPlan?.snapshot;
   const baseActiveDays = snapshotDay
@@ -2148,7 +2169,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setPostCardio(currentSession?.postCardio ?? null);
   }, [currentSession?.id, currentSession?.postCardio, currentSession?.readiness, currentSession?.sessionRpe, currentSession?.warmup, draftKey]);
   const sessionStartStorageKey = name && draftKey ? `reparc-session-start:${slugify(account.id)}:${slugify(name)}:${draftKey}` : null;
-  const shouldKeepScreenAwake = stage === "app" && view === "train" && Boolean(day) && (Boolean(restTimer) || (Boolean(sessionStartedAt) && !currentSession?.completedAt));
+  const shouldKeepScreenAwake = stage === "app" && (Boolean(restTimer) || (view === "train" && Boolean(day) && Boolean(sessionStartedAt) && !currentSession?.completedAt));
 
   useEffect(() => {
     const wakeLock = (navigator as WakeLockNavigator).wakeLock;
@@ -2542,6 +2563,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       recommendationVersion: currentSession ? currentSession.recommendationVersion : lockedDraftPlan?.recommendationVersion ?? (lockedDraftPlan ? undefined : RECOMMENDATION_VERSION),
       id: currentSession?.id ?? globalThis.crypto?.randomUUID?.() ?? `${activeDate}-${day.id}-${now}`,
       date: activeDate,
+      scheduledDate: currentSession?.scheduledDate ?? nextSessionScheduledDate(data, activeDate),
       dayId: day.id,
       unit: profile.unit,
       entries,
@@ -2644,7 +2666,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       setSessionRpe(null);
       setSessionStartedAt(null);
       pendingRestSetsRef.current.clear();
-      setRestTimer(null);
     }
   };
 
@@ -2754,6 +2775,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           </Tabs>
           <div className="hidden items-center gap-1 lg:flex">{view === "train" && noticeButton}<Button type="button" variant="ghost" onClick={() => setView("guide")} aria-pressed={view === "guide"} className="h-11 rounded-xl px-3 text-xs text-stone-400 hover:bg-white/10 hover:text-white"><CircleHelp className="size-4" />Guide</Button><SyncBadge state={syncState} lastSyncedAt={lastSyncedAt} onSync={() => void attemptCloudSync(true)} /></div>
         </div>
+        {restTimer && <div className="border-t border-white/[0.07] px-4 py-2 sm:px-7"><div ref={restTimerAnchorRef} className="mx-auto max-w-7xl scroll-mt-2"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} compact onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} /></div></div>}
       </header>
       <Sheet open={noticesOpen && view === "train"} onOpenChange={setNoticesOpen}>
         <SheetContent className="training-notices w-full max-w-full gap-0 border-white/10 bg-[#121512] text-stone-100 sm:max-w-lg" showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); const opener = noticeOpenerRef.current; const fallback = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-training-notices="true"]')).find((button) => button.getClientRects().length > 0); (opener?.isConnected ? opener : fallback)?.focus(); }}>
@@ -2844,7 +2866,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   restoredSessionStartKeyRef.current = null;
                   setActiveExerciseIndex(0);
                   pendingRestSetsRef.current.clear();
-                  setRestTimer(null);
                   setOpenSwap(null);
                   setNotice("");
                 }}
@@ -2884,7 +2905,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         </aside>
 
         <section className="min-w-0">
-          {editingSession && <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><div><p className="font-semibold text-sky-200">Editing {prettyDate(editingSession.date)}</p><p className="mt-1 text-xs text-stone-400">This uses the saved historical plan and cannot change your current program, week, schedule, or training status.</p></div><Button type="button" variant="ghost" onClick={cancelHistoricalEdit} className="h-9 shrink-0 rounded-xl text-xs text-sky-200 hover:bg-white/10">Cancel</Button></div>}
+          {editingSession && <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><div><p className="font-semibold text-sky-200">Editing {prettyDate(editingSession.date)}{workingScheduledDate !== editingSession.date ? ` · scheduled ${prettyDate(workingScheduledDate)}` : ""}</p><p className="mt-1 text-xs text-stone-400">This uses the saved historical plan and cannot change your current program, week, schedule, or training status.</p></div><Button type="button" variant="ghost" onClick={cancelHistoricalEdit} className="h-9 shrink-0 rounded-xl text-xs text-sky-200 hover:bg-white/10">Cancel</Button></div>}
+          {!editingSession && workingScheduledDate < activeDate && <div className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4"><p className="font-semibold text-amber-200">Make-up workout · scheduled {prettyDate(workingScheduledDate)}</p><p className="mt-1 text-xs leading-5 text-stone-400">Your sets will stay on {prettyDate(activeDate)}, the day you actually train. RepArc will credit the earlier schedule without duplicating results or forcing you to combine workouts.</p></div>}
           {data.program.status === "paused" && <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><p className="font-semibold text-amber-200">Training is paused</p><p className="mt-1 text-xs text-stone-400">Your history and drafts are safe. Resume from Setup before saving another workout.</p></div>}
           {!day ? (
             <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-white/15 bg-white/[0.025] px-6 text-center">
@@ -2900,8 +2922,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               {readiness && readiness !== "normal" && readiness !== "pain" && readiness !== "severe-soreness" && <p className="mb-3 text-sm text-amber-200">Today you reported {readiness === "low" ? "low energy" : readiness === "sore" ? "unusual soreness" : "symptoms"}. Keep the workout easier and leave at least the displayed number of good reps.</p>}
               <div className="mb-4"><ConditioningEditor kind="warmup" value={warmup} onChange={setWarmup} /></div>
               <h2 className="sr-only">Today’s work · {day.exercises.length} movements · {totalSets} working sets</h2>
-
-              {restTimer && <div ref={restTimerAnchorRef} className="scroll-mt-24 lg:hidden"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="mb-4" /></div>}
 
               <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
                 <div className="flex items-center justify-between gap-3 text-sm"><p className="text-stone-400">Exercise {activeExerciseIndex + 1} of {day.exercises.length}</p><p className="text-stone-400">{totalSets} working sets</p></div>
@@ -3053,7 +3073,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 {skippedExerciseKeys.includes(keyForExercise(currentBaseExercise, activeExerciseIndex)) ? <><p role="status" className="text-stone-400">Skipped / stopped. Existing entries are kept; this workout remains partial.</p><Button type="button" variant="ghost" className="min-h-11 px-0 text-sm" onClick={() => setSkippedDrafts(current => ({ ...current, [draftKey]: skippedExerciseKeys.filter(key => key !== keyForExercise(currentBaseExercise, activeExerciseIndex)) }))}>Undo skip</Button></> : !exerciseIsComplete(activeExerciseIndex) && <Button type="button" variant="ghost" className="min-h-11 px-0 text-sm" onClick={() => {
                   if (!window.confirm("Skip or stop this exercise because it is uncomfortable, unsuitable or equipment is unavailable? Existing sets stay recorded; missing sets will not count as completed. Do not continue training through pain.")) return;
                   setSkippedDrafts(current => ({ ...current, [draftKey]: [...new Set([...skippedExerciseKeys, keyForExercise(currentBaseExercise, activeExerciseIndex)])] }));
-                  closeRestTimer();
                   setOpenSwap(null);
                   if (activeExerciseIndex < day.exercises.length - 1) setActiveExerciseIndex(activeExerciseIndex + 1);
                   setNotice("Exercise skipped / stopped. You can save completed sets as a partial workout. Stop the session if continuing is not comfortable.");
@@ -3110,10 +3129,6 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           onEnableRestAlerts={enableRestAlerts}
           onTestRestAlert={testRestAlert}
         />
-      )}
-
-      {view === "train" && day && restTimer && (
-        <RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} className="fixed bottom-5 right-5 z-50 hidden w-[22rem] lg:block" />
       )}
 
       {view === "train" && day && (

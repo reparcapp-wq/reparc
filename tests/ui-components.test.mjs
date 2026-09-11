@@ -76,8 +76,9 @@ test("adds restrained motion while preserving reduced-motion accessibility", asy
   assert.match(css, /animation-duration:\s*0\.01ms\s*!important/);
   assert.match(app, /data-sync-state=\{state\}/);
   assert.match(app, /className="motion-page[^\"]*"[^>]*role="tabpanel"/);
-  assert.match(app, /scroll-mt-24 lg:hidden/);
-  assert.match(app, /fixed bottom-5 right-5 z-50 hidden/);
+  assert.match(app, /mx-auto max-w-7xl scroll-mt-2/);
+  assert.match(app, /motion-rest flex min-h-14/);
+  assert.doesNotMatch(app, /fixed bottom-5 right-5 z-50 hidden/);
 });
 
 test("forwards progress semantics to the primitive", async () => {

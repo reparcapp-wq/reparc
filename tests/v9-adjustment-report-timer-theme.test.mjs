@@ -153,6 +153,58 @@ test("schedule adherence counts due days without inventing reports for missing w
   assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, loggedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, sorenessRecoverySessions: 0, externalSessions: 0, plannedBreakDays: 0 });
 });
 
+test("a doubled-up day credits the recent missed slot without moving or duplicating performance", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.setupCompletedAt = "2026-09-01T08:00:00.000Z";
+  data.program.frequency = 5;
+  data.program.preferredWeekdays = [1, 2, 4, 5, 6];
+  data.planHistory = [{ id: "setup", effectiveAt: data.setupCompletedAt, kind: "setup", programId: "phase1", week: 1, frequency: 5, preferredWeekdays: [1, 2, 4, 5, 6], track: "current", goal: "balanced", equipment: "full", status: "active" }];
+  const days = training.programDays("phase1", 5, "current");
+  const makeSession = (id, date, day, createdAt, scheduledDate) => {
+    const snapshot = training.buildSessionPlanSnapshot(data, day, "phase1", 1, 5);
+    const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "20" : "0", r: String(exercise.repLow), rir: "3" }))]));
+    return { id, date, scheduledDate, dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt, updatedAt: createdAt };
+  };
+  data.sessions = [
+    makeSession("prior", "2026-09-10", days[2], "2026-09-10T10:00:00.000Z"),
+    makeSession("make-up", "2026-09-12", days[3], "2026-09-12T08:00:00.000Z"),
+    makeSession("today", "2026-09-12", days[4], "2026-09-12T10:00:00.000Z"),
+  ];
+  const resolved = training.resolvedSessionScheduleDates(data);
+  assert.equal(resolved.get("make-up"), "2026-09-11");
+  assert.equal(resolved.get("today"), "2026-09-12");
+  assert.equal(data.sessions[1].date, "2026-09-12");
+  const missedDay = reports.buildDailyReport(data, "2026-09-11");
+  assert.equal(missedDay.status, "moved");
+  assert.deepEqual(missedDay.performedOnDates, ["2026-09-12"]);
+  assert.equal(missedDay.completedSets, 0);
+  const actualDay = reports.buildDailyReport(data, "2026-09-12");
+  assert.equal(actualDay.sessions, 2);
+  assert.match(actualDay.label, /2 workouts recorded/i);
+  assert.match(actualDay.summary, /remain separate workout records/i);
+  const adherence = reports.buildScheduleAdherence(data, "2026-09-07", "2026-09-12", "2026-09-12");
+  assert.equal(adherence.loggedSessions, 3);
+  assert.equal(adherence.movedSessions, 1);
+});
+
+test("new catch-up sessions store the missed scheduled date separately from the performance date", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.setupCompletedAt = "2026-09-01T08:00:00.000Z";
+  data.program.frequency = 5;
+  data.program.preferredWeekdays = [1, 2, 4, 5, 6];
+  data.planHistory = [{ id: "setup", effectiveAt: data.setupCompletedAt, kind: "setup", programId: "phase1", week: 1, frequency: 5, preferredWeekdays: [1, 2, 4, 5, 6], track: "current", goal: "balanced", equipment: "full", status: "active" }];
+  const day = training.programDays("phase1", 5, "current")[0];
+  const snapshot = training.buildSessionPlanSnapshot(data, day, "phase1", 1, 5);
+  const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "20" : "0", r: String(exercise.repLow), rir: "3" }))]));
+  data.sessions = [{ id: "prior", date: "2026-09-10", dayId: day.id, unit: "kg", entries, planSnapshot: snapshot, completionStatus: "completed", revision: 1, createdAt: "2026-09-10T10:00:00.000Z", updatedAt: "2026-09-10T10:00:00.000Z" }];
+  assert.equal(training.nextSessionScheduledDate(data, "2026-09-12"), "2026-09-11");
+  const normalized = training.normalizeTrainingData({ ...data, sessions: [{ ...data.sessions[0], date: "2026-09-12", scheduledDate: "2026-09-11" }] });
+  assert.equal(normalized.sessions[0].date, "2026-09-12");
+  assert.equal(normalized.sessions[0].scheduledDate, "2026-09-11");
+});
+
 test("training elsewhere fulfills schedule adherence without creating performance data", () => {
   const data = training.emptyData();
   data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
@@ -244,8 +296,8 @@ test("timer and theme integration use persistent, non-blocking platform behavior
   assert.match(source, /serviceWorker\.ready/);
   assert.match(source, /showNotification/);
   assert.doesNotMatch(source, /new Notification\(/);
-  assert.match(source, /scroll-mt-24 lg:hidden/);
-  assert.match(source, /hidden w-\[22rem\] lg:block/);
+  assert.match(source, /restTimer && <div className="border-t[\s\S]*compact onClose=\{closeRestTimer\}/);
+  assert.doesNotMatch(source, /hidden w-\[22rem\] lg:block/);
   assert.match(serviceWorker, /notificationclick/);
   assert.match(layout, /ThemeProvider/);
   assert.match(source, /System.*Light.*Dark/s);
@@ -279,6 +331,16 @@ test("progress shows one navigable report and the light theme covers custom cont
   assert.match(css, /html\.light \.set-input/);
   assert.match(css, /html\.light \.selection-button\[data-selected="true"\]/);
   assert.match(css, /html\.light \.target-panel/);
+});
+
+test("the rest timer is global, persistent across navigation, and only ends explicitly", async () => {
+  const source = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
+  assert.match(source, /restTimer && <div className="border-t[\s\S]*compact onClose=\{closeRestTimer\}/);
+  assert.match(source, /const shouldKeepScreenAwake = stage === "app" && \(Boolean\(restTimer\)/);
+  assert.match(source, /Math\.max\(-599, Math\.ceil\(\(stored\.endsAt - Date\.now\(\)\) \/ 1000\)\)/);
+  assert.equal((source.match(/setRestTimer\(null\)/g) ?? []).length, 1);
+  assert.doesNotMatch(source, /view === "train" && day && restTimer/);
+  assert.match(source, /"End timer"/);
 });
 
 test("foreground rest completion runs a ten-second alert pattern", async () => {

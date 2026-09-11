@@ -14,6 +14,7 @@ import {
   loadProfileId,
   loadProfileValues,
   numeric,
+  resolvedSessionScheduleDates,
   sessionPlannedSets,
   sessionCountsAsCompletedDay,
   supportsEstimatedMax,
@@ -54,14 +55,14 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
     const preferredWeekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
     if (status === "active" && preferredWeekdays.includes(cursor.getUTCDay()) && !plannedDates.has(date)) expectedSessions += 1;
   }
-  const loggedSessions = new Set(activeSessions(data)
-    .filter((session) => session.date >= startDate && session.date <= effectiveEnd && sessionCountsAsCompletedDay(session, data))
+  const scheduleDates = resolvedSessionScheduleDates(data);
+  const completedInRange = activeSessions(data).filter((session) => {
+    const scheduledDate = scheduleDates.get(session.id) ?? session.date;
+    return scheduledDate >= startDate && scheduledDate <= effectiveEnd && sessionCountsAsCompletedDay(session, data);
+  });
+  const loggedSessions = new Set(completedInRange
     .map((session) => session.logicalKey ?? session.id)).size;
-  const completedInRange = activeSessions(data).filter((session) => session.date >= startDate && session.date <= effectiveEnd && sessionCountsAsCompletedDay(session, data));
-  const movedSessions = completedInRange.filter((session) => {
-    const plan = history.filter((change) => change.effectiveAt.slice(0, 10) <= session.date).at(-1);
-    return !(plan?.preferredWeekdays ?? data.program.preferredWeekdays).includes(new Date(`${session.date}T12:00:00.000Z`).getUTCDay());
-  }).length;
+  const movedSessions = completedInRange.filter((session) => (scheduleDates.get(session.id) ?? session.date) !== session.date).length;
   const skippedSessions = relevantAbsences.filter((record) => record.resolution === "skip").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
   const sorenessRecoverySessions = relevantAbsences
     .filter((record) => record.resolution === "skip" && record.reason === "soreness")
@@ -84,7 +85,7 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
   };
 }
 
-export type DailyReportStatus = "completed" | "adjusted" | "partial" | "recovery" | "missed";
+export type DailyReportStatus = "completed" | "adjusted" | "partial" | "recovery" | "missed" | "moved";
 
 export type DailyExerciseReport = {
   key: string;
@@ -119,6 +120,8 @@ export type DailyReport = {
   confidence: AdjustmentConfidence;
   headline: string;
   summary: string;
+  performedOnDates: string[];
+  sessionNames: string[];
   exercises: DailyExerciseReport[];
 };
 
@@ -149,6 +152,13 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const profile = data.profile!;
   const allSessions = activeSessions(data);
   const sessions = allSessions.filter((session) => session.date === date);
+  const scheduleDates = resolvedSessionScheduleDates(data);
+  const movedCompletions = allSessions.filter((session) =>
+    sessionCountsAsCompletedDay(session, data)
+    && session.date !== date
+    && scheduleDates.get(session.id) === date);
+  const performedOnDates = [...new Set(movedCompletions.map((session) => session.date))].sort();
+  const sessionNames = [...new Set(sessions.map((session) => session.planSnapshot?.dayName ?? session.dayId))];
   const sorenessRecovery = data.absences.some((record) => record.reason === "soreness" && record.resolution === "skip" && record.missedDates.includes(date));
   const currentOccurrences = sessions
     .flatMap((session) => Object.entries(session.entries).flatMap(([key, entries]) => {
@@ -220,16 +230,18 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const possiblePerformanceImprovements = performanceImprovements;
   const establishedPerformanceImprovements = establishedImprovementIds.size;
   const status: DailyReportStatus = !sessions.length
-    ? sorenessRecovery ? "recovery" : isScheduledTrainingDate(data, date) ? "missed" : "recovery"
+    ? movedCompletions.length ? "moved" : sorenessRecovery ? "recovery" : isScheduledTrainingDate(data, date) ? "missed" : "recovery"
     : completionPercent >= 100 ? "completed" : completionPercent >= 70 ? "adjusted" : "partial";
   const confidence: AdjustmentConfidence = completionPercent >= 100 && rirCoveragePercent >= 60
     ? "high"
     : completionPercent >= 70 && (rirCoveragePercent >= 30 || completedSets >= 6)
       ? "moderate"
       : "low";
-  const label = status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "missed" ? "Scheduled workout not recorded" : sorenessRecovery ? "Soreness recovery recorded" : "Recovery day";
+  const label = sessions.length > 1 ? `${sessions.length} workouts recorded` : status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "moved" ? `Completed on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })).join(" and ")}` : status === "missed" ? "Scheduled workout not recorded" : sorenessRecovery ? "Soreness recovery recorded" : "Recovery day";
   const headline = !sessions.length
-    ? status === "missed" ? "A scheduled workout was not recorded." : sorenessRecovery ? "This planned workout was skipped for recovery." : "No workout was recorded."
+    ? status === "moved" ? "This planned workout was completed on a later day." : status === "missed" ? "A scheduled workout was not recorded." : sorenessRecovery ? "This planned workout was skipped for recovery." : "No workout was recorded."
+    : sessions.length > 1
+      ? `${sessions.length} separate workouts were completed on this date.`
     : establishedPerformanceImprovements > 0
       ? `${establishedPerformanceImprovements} exercise${establishedPerformanceImprovements === 1 ? "" : "s"} repeated a positive performance trend.`
       : possiblePerformanceImprovements > 0
@@ -238,12 +250,16 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
         ? "The planned work was completed without a clear performance change."
         : "Today adds useful history, but the incomplete workout is not enough to support an increase.";
   const summary = !sessions.length
-    ? status === "missed"
+    ? status === "moved"
+      ? `The workout is credited to this scheduled date, while its sets, duration and performance stay on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" })).join(" and ")}. Nothing is duplicated.`
+      : status === "missed"
       ? "This date was on your saved training schedule. Record time away or a workout performed elsewhere to keep adherence context accurate."
       : sorenessRecovery
         ? "You recorded movement-limiting soreness. No performance was invented; the scheduled session remains visible in adherence context and the next session uses conservative return mode."
         : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
-    : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". Reps-left estimates were not recorded consistently, so weight advice remains conservative." : ` with ${averageRir.toFixed(1)} good reps left on average.`}`;
+    : sessions.length > 1
+      ? `${sessionNames.join(" and ")} remain separate workout records. These totals combine only the work actually performed on this date; RepArc does not require missed sessions to be doubled up.`
+      : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". Reps-left estimates were not recorded consistently, so weight advice remains conservative." : ` with ${averageRir.toFixed(1)} good reps left on average.`}`;
 
   return {
     date,
@@ -266,6 +282,8 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     confidence,
     headline,
     summary,
+    performedOnDates,
+    sessionNames,
     exercises,
   };
 }

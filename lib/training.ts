@@ -159,6 +159,8 @@ export type Session = {
   recommendationVersion?: string;
   id: string;
   date: string;
+  /** Calendar slot this workout fulfilled. `date` always remains the day it was actually performed. */
+  scheduledDate?: string;
   dayId: string;
   unit: Unit;
   entries: Record<string, SetEntry[]>;
@@ -1223,6 +1225,77 @@ export const isActiveSession = (session: Session) => !session.deletedAt;
 export const activeSessions = (data: Pick<TrainingData, "sessions">) => data.sessions.filter(isActiveSession);
 export const activeWeighIns = (data: Pick<TrainingData, "weighIns">) => data.weighIns.filter((entry) => !entry.deletedAt);
 
+const shiftDate = (date: string, days: number) => {
+  const value = new Date(`${date}T12:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+};
+
+const handledScheduleDates = (data: TrainingData) => new Set(data.absences
+  .filter((record) => record.resolution !== "continue")
+  .flatMap((record) => record.missedDates));
+
+/**
+ * Returns the calendar slot fulfilled by each completed workout while keeping
+ * the workout's real performance date untouched. Explicit links are preferred.
+ * For older data, one extra workout on the same day may conservatively fill a
+ * scheduled slot from the preceding seven days. This repairs the common
+ * "catch up yesterday, then train today" pattern without moving any set data.
+ */
+export const resolvedSessionScheduleDates = (data: TrainingData) => {
+  const completed = activeSessions(data)
+    .filter((session) => sessionCountsAsCompletedDay(session, data))
+    .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt));
+  const resolved = new Map<string, string>();
+  const claimed = new Set<string>();
+  const handled = handledScheduleDates(data);
+
+  completed.filter((session) => session.scheduledDate).forEach((session) => {
+    resolved.set(session.id, session.scheduledDate!);
+    claimed.add(session.scheduledDate!);
+  });
+
+  const byActualDate = new Map<string, Session[]>();
+  completed.filter((session) => !session.scheduledDate).forEach((session) => {
+    byActualDate.set(session.date, [...(byActualDate.get(session.date) ?? []), session]);
+  });
+
+  [...byActualDate.entries()].sort(([left], [right]) => left.localeCompare(right)).forEach(([actualDate, sessions]) => {
+    const ordered = [...sessions].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    const reserveToday = isScheduledTrainingDate(data, actualDate) && !claimed.has(actualDate) && !handled.has(actualDate)
+      ? ordered.pop()
+      : undefined;
+    const priorDates = datesThrough(shiftDate(actualDate, -7), shiftDate(actualDate, -1))
+      .filter((date) => isScheduledTrainingDate(data, date) && !claimed.has(date) && !handled.has(date));
+    const candidates = priorDates.slice(-ordered.length);
+
+    ordered.forEach((session, index) => {
+      const scheduledDate = candidates[index] ?? actualDate;
+      resolved.set(session.id, scheduledDate);
+      if (scheduledDate !== actualDate) claimed.add(scheduledDate);
+    });
+    if (reserveToday) {
+      resolved.set(reserveToday.id, actualDate);
+      claimed.add(actualDate);
+    }
+  });
+
+  return resolved;
+};
+
+/** Choose the oldest unresolved scheduled slot since the last earlier workout. */
+export const nextSessionScheduledDate = (data: TrainingData, actualDate: string) => {
+  const completed = activeSessions(data)
+    .filter((session) => sessionCountsAsCompletedDay(session, data) && session.date < actualDate)
+    .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt));
+  const lastEarlierDate = completed.at(-1)?.date;
+  if (!lastEarlierDate || lastEarlierDate >= actualDate) return actualDate;
+  const claimed = new Set(resolvedSessionScheduleDates(data).values());
+  const handled = handledScheduleDates(data);
+  return datesThrough(shiftDate(lastEarlierDate, 1), shiftDate(actualDate, -1))
+    .find((date) => isScheduledTrainingDate(data, date) && !claimed.has(date) && !handled.has(date)) ?? actualDate;
+};
+
 export const bodyweightForSession = (data: TrainingData, session: Session, unit: Unit) => {
   if (session.bodyweightAtSession !== undefined) return convertWeight(session.bodyweightAtSession, session.unit, unit);
   const prior = activeWeighIns(data)
@@ -1560,6 +1633,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     recommendationVersion: typeof session.recommendationVersion === "string" ? session.recommendationVersion.slice(0, 60) : undefined,
     id: typeof session.id === "string" ? session.id : `${session.date}-${session.dayId}-${index}`,
     date: session.date,
+    scheduledDate: isValidDateOnly(session.scheduledDate) && session.scheduledDate <= session.date ? session.scheduledDate : undefined,
     dayId: session.dayId,
     unit: session.unit === "lb" ? "lb" : fallbackUnit,
     entries,
