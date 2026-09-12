@@ -1655,7 +1655,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     postCardio: normalizeConditioning(session.postCardio),
     startedAt: typeof session.startedAt === "string" ? validIso(session.startedAt, fallbackTime) : undefined,
     completedAt: typeof session.completedAt === "string" ? validIso(session.completedAt, fallbackTime) : undefined,
-    durationSeconds: Number.isFinite(Number(session.durationSeconds)) && Number(session.durationSeconds) >= 0 && Number(session.durationSeconds) <= 43_200
+    durationSeconds: session.durationSeconds !== null && session.durationSeconds !== undefined && session.durationSeconds !== "" && Number.isFinite(Number(session.durationSeconds)) && Number(session.durationSeconds) >= 0 && Number(session.durationSeconds) <= 43_200
       ? Math.trunc(Number(session.durationSeconds))
       : undefined,
     completionStatus: session.completionStatus === "completed" || session.completionStatus === "adjusted" || session.completionStatus === "skipped" || session.completionStatus === "partial" ? session.completionStatus : undefined,

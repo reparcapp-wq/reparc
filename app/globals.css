@@ -2,6 +2,83 @@
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
+/* Progress Analysis uses scoped semantic colors in both themes. No inline styles. */
+.progress-analysis { --review-bg: #151a17; --review-panel: #1c231e; --review-text: #e9eee9; --review-muted: #a9b5ad; --review-border: #354139; --review-accent: #f5ca70; --review-ink: #162018; max-width: 1050px; margin: 0 auto; padding: 24px 20px 110px; color: var(--review-text); overflow-wrap: anywhere; }
+html.light .progress-analysis { --review-bg: #fff; --review-panel: #f1f4ef; --review-text: #1d2b22; --review-muted: #526257; --review-border: #cad5ca; --review-accent: #775000; --review-ink: #fff; }
+.progress-analysis button, .progress-analysis input, .progress-analysis select { font: inherit; min-height: 44px; border: 1px solid var(--review-border); border-radius: 12px; background: var(--review-bg); color: var(--review-text); padding: 9px 12px; max-width: 100%; }
+.progress-analysis button { cursor: pointer; transition: background .15s, border-color .15s; }
+.progress-analysis input, .progress-analysis select { font-size: 16px; width: 100%; }
+.progress-analysis button:hover { background: var(--review-panel); border-color: var(--review-accent); }
+.progress-analysis button:disabled { opacity: .4; cursor: default; }
+.progress-analysis :focus-visible { outline: 3px solid var(--review-accent); outline-offset: 3px; }
+.progress-analysis h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 650; letter-spacing: -.045em; margin-top: 20px; }
+.progress-analysis h2 { font-size: 1.15rem; font-weight: 650; line-height: 1.45; }
+.progress-analysis h3 { font-size: 1rem; font-weight: 650; margin-top: 16px; }
+.progress-analysis p { font-size: .92rem; line-height: 1.65; margin-top: 10px; }
+.progress-analysis small { display: block; font-size: .76rem; line-height: 1.5; color: var(--review-muted); }
+.progress-analysis .analysis-muted, .analysis-intro { color: var(--review-muted); }
+.analysis-heading, .analysis-period-controls, .analysis-verdict-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.analysis-heading { font-size: .8rem; }
+.progress-analysis .analysis-link { display: inline-flex; gap: 8px; align-items: center; color: var(--review-accent); background: transparent; border-color: transparent; }
+.analysis-period-controls { margin-top: 24px; }
+.analysis-periods { display: flex; gap: 6px; }
+.analysis-date { display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; gap: 10px; align-items: center; text-align: center; margin: 16px 0; }
+.analysis-date strong { font-size: .95rem; }
+.analysis-date small { margin-top: 3px; }
+.analysis-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 12px; }
+.analysis-fields label, .analysis-select { font-size: .8rem; display: grid; gap: 6px; min-width: 0; }
+.analysis-tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; margin: 20px 0; }
+.analysis-tabs button { font-size: .85rem; padding: 8px; }
+.progress-analysis button[aria-pressed="true"] { background: var(--review-accent); color: var(--review-ink); border-color: var(--review-accent); font-weight: 650; }
+.analysis-content { display: grid; gap: 16px; }
+.analysis-card, .analysis-verdict { border: 1px solid var(--review-border); border-radius: 22px; padding: clamp(16px, 3vw, 26px); background: var(--review-bg); min-width: 0; }
+.analysis-verdict { border-top: 3px solid var(--review-accent); }
+.analysis-verdict[data-status="adjust"] { border-top-color: #d24f58; }
+.analysis-verdict h2 { font-size: clamp(1.2rem, 3vw, 1.55rem); margin-top: 18px; max-width: 44ch; }
+.analysis-verdict-top > span:last-child { color: var(--review-muted); font-size: .76rem; }
+.analysis-badge { display: inline-flex; align-items: center; padding: 6px 10px; border: 1px solid var(--review-border); border-radius: 50px; font-size: .73rem; font-weight: 600; color: var(--review-text); gap: 7px; }
+.analysis-badge::before, .analysis-dot { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #7d8887; flex-shrink: 0; }
+.analysis-badge[data-status="on-track"]::before, .analysis-dot[data-status="on-track"] { background: #159a70; }
+.analysis-badge[data-status="hold"]::before, .analysis-dot[data-status="hold"] { background: #b77d0b; }
+.analysis-badge[data-status="adjust"]::before, .analysis-dot[data-status="adjust"] { background: #d24f58; }
+.analysis-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.analysis-metric { padding: 15px; border-radius: 16px; background: var(--review-panel); min-width: 0; }
+.analysis-metric p { font-size: .73rem; color: var(--review-muted); margin-top: 0; }
+.analysis-metric strong { display: block; font-size: 1.55rem; font-variant-numeric: tabular-nums; margin: 8px 0; }
+.analysis-actions { counter-reset: actions; list-style: none; padding: 0; margin: 16px 0; }
+.analysis-actions li { counter-increment: actions; position: relative; padding: 5px 0 16px 40px; }
+.analysis-actions li::before { content: counter(actions,decimal-leading-zero); position: absolute; left: 0; font-size: .8rem; font-weight: 700; color: var(--review-accent); }
+.analysis-actions p { margin-top: 4px; }
+.progress-analysis .analysis-primary { display: inline-flex; align-items: center; gap: 14px; background: var(--review-accent); color: var(--review-ink); font-weight: 650; border: 0; }
+.progress-analysis summary { cursor: pointer; min-height: 44px; align-content: center; font-size: .88rem; font-weight: 550; line-height: 1.6; }
+.progress-analysis details:not(.analysis-card) { border-bottom: 1px solid var(--review-border); padding: 8px 0; }
+.progress-analysis details[open] > summary { color: var(--review-accent); margin-bottom: 8px; }
+.progress-analysis ul { padding-left: 20px; margin-top: 12px; list-style: disc; font-size: .88rem; line-height: 1.7; }
+.progress-analysis li + li { margin-top: 8px; }
+.progress-analysis table { width: 100%; font-size: .78rem; text-align: left; border-collapse: collapse; margin: 12px 0; }
+.progress-analysis th, .progress-analysis td { padding: 9px 5px; border-bottom: 1px solid var(--review-border); }
+.progress-analysis caption { text-align: left; color: var(--review-muted); padding-bottom: 10px; }
+.analysis-line, .analysis-bars { width: 100%; max-height: 240px; color: var(--review-accent); margin: 14px 0 0; }
+.progress-analysis svg text { fill: var(--review-muted); font: 12px system-ui,sans-serif; }
+.analysis-axis { stroke: var(--review-border); }
+.analysis-callout { padding: 12px; background: var(--review-panel); border-radius: 12px; }
+.analysis-select { margin: 16px 0; }
+.analysis-body-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: center; margin: 20px 0; }
+.analysis-body { width: 100%; max-height: 360px; color: var(--review-text); }
+.analysis-silhouette { fill: var(--review-panel); stroke: var(--review-border); }
+.analysis-muscle-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.analysis-muscle-buttons button { display: flex; align-items: center; text-align: left; gap: 8px; font-size: .8rem; padding: 9px; }
+.analysis-muscle-buttons button[aria-pressed="true"] small { color: inherit; }
+.analysis-muscle-buttons small { font-size: .66rem; }
+.analysis-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--review-muted); font-size: .72rem; margin-top: 15px; }
+.analysis-muscle-detail { padding: 16px; border-radius: 16px; background: var(--review-panel); }
+.analysis-muscle-detail h3 { margin: 0 0 8px; }
+.progress-analysis a { color: var(--review-accent); text-decoration: underline; text-underline-offset: 3px; }
+.analysis-footer { display: flex; gap: 8px; align-items: center; justify-content: center; color: var(--review-muted); font-size: .7rem; margin-top: 22px; }
+@media (max-width: 650px) { .analysis-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .analysis-body-layout { grid-template-columns: 1fr; gap: 10px; } .analysis-body { max-height: 270px; } .analysis-fields { grid-template-columns: 1fr; } }
+@media (max-width: 360px) { .analysis-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); } .progress-analysis { padding-inline: 14px; } .analysis-periods { gap: 4px; } }
+@media (prefers-reduced-motion: reduce) { .progress-analysis *, .progress-analysis *::before { transition: none !important; animation: none !important; } }
+
 @utility scrollbar-thin {
   scrollbar-width: thin;
 }

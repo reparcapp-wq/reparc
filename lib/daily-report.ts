@@ -1,5 +1,6 @@
 import { nextSessionAdjustment, type AdjustmentConfidence, type LoadAdjustment } from "@/lib/autoregulation";
 import { constrainCalibrationAdjustment, exerciseCalibration } from "@/lib/exercise-calibration";
+import { measuredSessionDuration } from "./session-duration";
 import {
   activeSessions,
   bodyweightForSession,
@@ -222,7 +223,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const averageRir = rirValues.length ? rirValues.reduce((sum, value) => sum + value, 0) / rirValues.length : null;
   const rirCoveragePercent = completedEntries.length ? Math.round((rirValues.length / completedEntries.length) * 100) : 0;
   const averageSessionRpe = sessionRpes.length ? sessionRpes.reduce((sum, value) => sum + value, 0) / sessionRpes.length : null;
-  const durations = sessions.flatMap((session) => typeof session.durationSeconds === "number" && session.durationSeconds >= 0 ? [session.durationSeconds] : []);
+  const durations = sessions.flatMap((session) => { const duration = measuredSessionDuration(session); return duration === null ? [] : [duration]; });
   const totalDurationSeconds = durations.length ? durations.reduce((sum, value) => sum + value, 0) : null;
   const warmupMinutes = sessions.reduce((sum, session) => sum + (session.warmup?.durationMinutes ?? 0), 0);
   const postCardioMinutes = sessions.reduce((sum, session) => sum + (session.postCardio?.durationMinutes ?? 0), 0);

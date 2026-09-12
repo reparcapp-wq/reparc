@@ -59,6 +59,8 @@ import { exerciseGuidance } from "@/lib/exercise-guidance";
 import { buildExposurePlan, calibrationSetCount, CALIBRATION_LABELS, constrainCalibrationAdjustment, exerciseCalibration, loadAtOrBelow, preserveLegacyDraft, restrictActiveExposure } from "@/lib/exercise-calibration";
 import { nextSessionAdjustment, nextSetAdjustment, type LoadAdjustment } from "@/lib/autoregulation";
 import { buildDailyReport, buildScheduleAdherence } from "@/lib/daily-report";
+import { measuredSessionDuration, sessionTiming } from "@/lib/session-duration";
+import { ProgressAnalysisView } from "@/components/progress-analysis";
 import { TrainingGuide } from "@/components/training-guide";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -151,7 +153,7 @@ import type { PwaLifecycle } from "@/hooks/use-pwa";
 
 type Stage = "loading" | "name" | "profile" | "consent" | "improvement" | "app";
 type SyncState = "loading" | "saving" | "synced" | "pending" | "local";
-type View = "train" | "progress" | "settings" | "guide";
+type View = "train" | "progress" | "analysis" | "settings" | "guide";
 type RestTimer = {
   exerciseId: string;
   exerciseName: string;
@@ -694,11 +696,13 @@ export function ProgressView({
   onUpdate,
   onEditSession,
   onStartMakeup,
+  onAnalysis,
 }: {
   data: TrainingData;
   onUpdate: (data: TrainingData, message?: string) => Promise<boolean>;
   onEditSession: (session: Session) => void;
   onStartMakeup: (date: string) => void;
+  onAnalysis?: () => void;
 }) {
   const [range, setRange] = useState<HistoryRange>("day");
   const [selectedBuckets, setSelectedBuckets] = useState<Partial<Record<HistoryRange, string>>>({});
@@ -934,6 +938,7 @@ export function ProgressView({
           <p className="eyebrow text-amber-300">Performance archive</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em]">Your progress</h1>
           <p className="mt-2 text-sm leading-6 text-stone-500">Every session becomes a clearer next target. Trends use the unit selected in Setup.</p>
+          {onAnalysis && <Button type="button" onClick={onAnalysis} className="mt-4 min-h-12 w-full rounded-2xl bg-amber-300 text-[#0b0d0c] hover:bg-amber-200"><BarChart3 className="size-5" />Open progress analysis<ArrowUpRight className="size-4" /></Button>}
 
           <div className="motion-stagger mt-6 grid grid-cols-3 gap-2 lg:grid-cols-1">
             {[
@@ -1055,7 +1060,7 @@ export function ProgressView({
                 const completedSets = periodReports.reduce((sum, report) => sum + report.completedSets, 0);
                 const plannedSets = periodReports.reduce((sum, report) => sum + report.plannedSets, 0);
                 const completionPercent = plannedSets ? Math.min(100, Math.round((completedSets / plannedSets) * 100)) : sessions.length ? 100 : 0;
-                const measuredDurations = sessions.flatMap((session) => typeof session.durationSeconds === "number" ? [session.durationSeconds] : []);
+                const measuredDurations = sessions.flatMap((session) => { const duration = measuredSessionDuration(session); return duration === null ? [] : [duration]; });
                 const totalDurationSeconds = measuredDurations.reduce((sum, duration) => sum + duration, 0);
                 const effortRatings = sessions.flatMap((session) => typeof session.sessionRpe === "number" ? [session.sessionRpe] : []);
                 const averageEffort = effortRatings.length ? effortRatings.reduce((sum, effort) => sum + effort, 0) / effortRatings.length : null;
@@ -2546,8 +2551,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       return;
     }
     const now = new Date().toISOString();
-    const startedAt = currentSession?.startedAt ?? sessionStartedAt ?? now;
-    const durationSeconds = currentSession?.durationSeconds ?? Math.min(43_200, Math.max(0, Math.round((Date.parse(now) - Date.parse(startedAt)) / 1000)));
+    const timing = sessionTiming(currentSession ?? undefined, sessionStartedAt, now, Boolean(editingSession));
     const planSnapshot = selectedSnapshot ?? buildSessionPlanSnapshot(data, day, workingProgramId, workingWeek, workingFrequency);
     const plannedSets = planSnapshot.exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
     const completedSetCount = Object.entries(entries).reduce((sum, [key, sets]) => {
@@ -2603,9 +2607,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       sessionRpe: sessionRpe ?? undefined,
       warmup: warmup ?? undefined,
       postCardio: postCardio ?? undefined,
-      startedAt,
-      completedAt: now,
-      durationSeconds,
+      ...timing,
       completionStatus,
       skippedExerciseKeys: [...skippedExerciseKeys],
       affectsProgression,
@@ -2800,7 +2802,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             <BrandLockup />
             <div className="flex items-center gap-1 lg:hidden">{view === "train" && noticeButton}<Button type="button" variant="ghost" size="icon" onClick={() => setView("guide")} aria-label="Open guide" title="Guide" className="size-11 rounded-xl text-stone-400 hover:bg-white/10 hover:text-white"><CircleHelp className="size-5" /></Button><SyncBadge state={syncState} lastSyncedAt={lastSyncedAt} onSync={() => void attemptCloudSync(true)} /></div>
           </div>
-          <Tabs value={view} onValueChange={(value) => setView(value as View)}>
+          <Tabs value={view === "analysis" ? "progress" : view} onValueChange={(value) => setView(value as View)}>
             <TabsList className="grid h-11 w-full grid-cols-3 gap-1 rounded-none border-0 bg-transparent p-0 shadow-none lg:w-80">
               <TabsTrigger value="train" className="h-11 rounded-xl border border-white/10 bg-white/[0.035] text-[11px] text-stone-400 hover:border-white/20 hover:bg-white/[0.07] hover:text-stone-200 data-[state=active]:bg-amber-300 data-[state=active]:text-[#0b0d0c]"><Dumbbell className="size-3.5" />Train</TabsTrigger>
               <TabsTrigger value="progress" className="h-11 rounded-xl border border-white/10 bg-white/[0.035] text-[11px] text-stone-400 hover:border-white/20 hover:bg-white/[0.07] hover:text-stone-200 data-[state=active]:bg-amber-300 data-[state=active]:text-[#0b0d0c]"><History className="size-3.5" />Progress</TabsTrigger>
@@ -2818,6 +2820,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
             <SheetDescription className="text-sm leading-5 text-stone-400">Check how you feel before training, report recovery from earlier workouts, and review today’s special instructions. Closing this panel does not change your plan.</SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+            <button type="button" onClick={() => { setNoticesOpen(false); setView("analysis"); }} className="flex min-h-16 w-full items-center gap-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4 text-left"><BarChart3 className="size-5 shrink-0 text-amber-300" /><span><strong className="text-sm text-stone-100">Review your progress</strong><span className="mt-1 block text-xs text-stone-400">Weekly summary, charts and what to check next.</span></span><ArrowUpRight className="ml-auto size-4 shrink-0" /></button>
             {day && <>
               <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
                 <div className="flex items-center justify-between gap-4">
@@ -3142,7 +3145,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
       {view === "guide" && <TrainingGuide />}
 
-      {view === "progress" && <ProgressView data={data} onUpdate={persist} onEditSession={editSession} onStartMakeup={startMakeupWorkout} />}
+      {view === "progress" && <ProgressView data={data} onUpdate={persist} onEditSession={editSession} onStartMakeup={startMakeupWorkout} onAnalysis={() => setView("analysis")} />}
+      {view === "analysis" && <ProgressAnalysisView key={account.id} data={data} onClose={() => setView("progress")} onTrain={() => setView("train")} onGuide={() => setView("guide")} />}
       {view === "settings" && (
         <SettingsView
           account={account}
