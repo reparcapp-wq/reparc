@@ -1029,32 +1029,29 @@ export const detectMissedTraining = (data: TrainingData, asOfDate = isoDate()): 
   const completed = activeSessions(data)
     .filter((session) => sessionCountsAsCompletedDay(session, data))
     .sort((left, right) => left.date.localeCompare(right.date) || left.updatedAt.localeCompare(right.updatedAt));
-  const lastCompleted = completed.at(-1);
-  if (!lastCompleted) return null;
-  const handledEnd = data.absences.map((record) => record.endDate).sort().at(-1);
   const scanFloor = new Date(`${asOfDate}T12:00:00.000Z`);
   scanFloor.setUTCDate(scanFloor.getUTCDate() - 366);
-  const startDate = [lastCompleted.date, handledEnd, scanFloor.toISOString().slice(0, 10)].filter((value): value is string => Boolean(value)).sort().at(-1)!;
+  const setupDate = data.setupCompletedAt?.slice(0, 10);
+  const firstCompletedDate = completed.at(0)?.date;
+  const startDate = [setupDate, firstCompletedDate, scanFloor.toISOString().slice(0, 10)].filter((value): value is string => Boolean(value)).sort().at(-1)!;
   const yesterday = new Date(`${asOfDate}T12:00:00.000Z`);
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const endDate = yesterday.toISOString().slice(0, 10);
-  if (startDate >= endDate) return null;
+  if (startDate > endDate) return null;
   const coveredDates = new Set(data.absences.flatMap((record) => record.missedDates));
-  const dueDates = datesThrough(startDate, endDate).filter((date) => {
-    if (date <= startDate || coveredDates.has(date)) return false;
-    const plan = planOnDate(data, date);
-    const weekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
-    const status = plan?.status ?? data.program.status;
-    return status === "active" && weekdays.includes(new Date(`${date}T12:00:00.000Z`).getUTCDay());
-  });
-  const completedAfter = completed.filter((session) => session.date > startDate && session.date <= endDate).length;
-  const missingCount = Math.max(0, dueDates.length - completedAfter);
-  if (!missingCount) return null;
+  const claimedDates = new Set(resolvedSessionScheduleDates(data).values());
+  const dueDates = datesThrough(startDate, endDate).filter((date) => isScheduledTrainingDate(data, date));
+  const missedDates = dueDates.filter((date) => !coveredDates.has(date) && !claimedDates.has(date));
+  if (!missedDates.length) return null;
+  const lastActivityDate = [completed.at(-1)?.date, data.absences.map((record) => record.endDate).sort().at(-1), startDate]
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1)!;
   return {
-    missedDates: dueDates.slice(-missingCount),
-    gapDays: daysBetweenDates(lastCompleted.date, asOfDate),
+    missedDates,
+    gapDays: daysBetweenDates(lastActivityDate, asOfDate),
     expectedSessions: dueDates.length,
-    completedSessions: completedAfter,
+    completedSessions: dueDates.length - missedDates.length,
   };
 };
 

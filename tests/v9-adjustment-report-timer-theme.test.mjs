@@ -153,7 +153,7 @@ test("schedule adherence counts due days without inventing reports for missing w
   assert.deepEqual(adherence, { available: true, expectedSessions: 2, completedSessions: 1, loggedSessions: 1, adherencePercent: 50, movedSessions: 0, skippedSessions: 0, sorenessRecoverySessions: 0, externalSessions: 0, plannedBreakDays: 0 });
 });
 
-test("a doubled-up day credits the recent missed slot without moving or duplicating performance", () => {
+test("a make-up workout is reported only under its scheduled calendar date", () => {
   const data = training.emptyData();
   data.profile = { bodyweight: 80, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
   data.setupCompletedAt = "2026-09-01T08:00:00.000Z";
@@ -176,13 +176,14 @@ test("a doubled-up day credits the recent missed slot without moving or duplicat
   assert.equal(resolved.get("today"), "2026-09-12");
   assert.equal(data.sessions[1].date, "2026-09-12");
   const missedDay = reports.buildDailyReport(data, "2026-09-11");
-  assert.equal(missedDay.status, "moved");
+  assert.equal(missedDay.status, "completed");
   assert.deepEqual(missedDay.performedOnDates, ["2026-09-12"]);
-  assert.equal(missedDay.completedSets, 0);
+  assert.ok(missedDay.completedSets > 0);
+  assert.equal(missedDay.sessions, 1);
+  assert.match(missedDay.label, /completed on sep 12/i);
   const actualDay = reports.buildDailyReport(data, "2026-09-12");
-  assert.equal(actualDay.sessions, 2);
-  assert.match(actualDay.label, /2 workouts recorded/i);
-  assert.match(actualDay.summary, /remain separate workout records/i);
+  assert.equal(actualDay.sessions, 1);
+  assert.deepEqual(actualDay.performedOnDates, []);
   const adherence = reports.buildScheduleAdherence(data, "2026-09-07", "2026-09-12", "2026-09-12");
   assert.equal(adherence.loggedSessions, 3);
   assert.equal(adherence.movedSessions, 1);

@@ -91,7 +91,6 @@ import {
   loadProfileId,
   normalizeLoadValues,
   nextUnfinishedProgramDay,
-  nextSessionScheduledDate,
   prettyDate,
   programDays,
   recalculatePhase2Progression,
@@ -694,10 +693,12 @@ export function ProgressView({
   data,
   onUpdate,
   onEditSession,
+  onStartMakeup,
 }: {
   data: TrainingData;
   onUpdate: (data: TrainingData, message?: string) => Promise<boolean>;
   onEditSession: (session: Session) => void;
+  onStartMakeup: (date: string) => void;
 }) {
   const [range, setRange] = useState<HistoryRange>("day");
   const [selectedBuckets, setSelectedBuckets] = useState<Partial<Record<HistoryRange, string>>>({});
@@ -724,8 +725,12 @@ export function ProgressView({
   const weighIns = useMemo(() => activeWeighIns(data), [data]);
   const trend = useMemo(() => weightTrend(data, profile.unit), [data, profile.unit]);
   const sortedSessions = useMemo(
-    () => [...sessions].sort((left, right) => right.date.localeCompare(left.date) || right.createdAt.localeCompare(left.createdAt)),
-    [sessions],
+    () => [...sessions].sort((left, right) => {
+      const leftDate = sessionScheduleDates.get(left.id) ?? left.date;
+      const rightDate = sessionScheduleDates.get(right.id) ?? right.date;
+      return rightDate.localeCompare(leftDate) || right.createdAt.localeCompare(left.createdAt);
+    }),
+    [sessionScheduleDates, sessions],
   );
   const totalSets = sessions.reduce(
     (sum, session) => sum + Object.entries(session.entries).reduce(
@@ -822,17 +827,18 @@ export function ProgressView({
   const grouped = useMemo(() => {
     const groups = new Map<string, typeof sortedSessions>();
     sortedSessions.forEach((session) => {
+      const reportDate = sessionScheduleDates.get(session.id) ?? session.date;
       const key = range === "day"
-        ? session.date
+        ? reportDate
         : range === "week"
-          ? weekKey(session.date)
+          ? weekKey(reportDate)
           : range === "month"
-            ? session.date.slice(0, 7)
-            : session.date.slice(0, 4);
+            ? reportDate.slice(0, 7)
+            : reportDate.slice(0, 4);
       groups.set(key, [...(groups.get(key) ?? []), session]);
     });
     return [...groups.entries()];
-  }, [range, sortedSessions]);
+  }, [range, sessionScheduleDates, sortedSessions]);
   const currentBucketKey = range === "day"
     ? calendarToday
     : range === "week"
@@ -848,7 +854,7 @@ export function ProgressView({
   // Explicitly browsed history stays selected until the user chooses Today.
   const selectedBucketKey = selectedBuckets[range] ?? currentBucketKey;
   const selectedSessions = range === "day"
-    ? sortedSessions.filter((session) => session.date === selectedBucketKey)
+    ? sortedSessions.filter((session) => (sessionScheduleDates.get(session.id) ?? session.date) === selectedBucketKey)
     : reportGroups.find(([key]) => key === selectedBucketKey)?.[1] ?? [];
   const visibleGrouped: Array<[string, Session[]]> = [[selectedBucketKey, selectedSessions]];
 
@@ -1045,7 +1051,7 @@ export function ProgressView({
                 const dailyReport = range === "day" ? buildDailyReport(data, key) : null;
                 const periodReports = range === "day"
                   ? []
-                  : [...new Set(sessions.map((session) => session.date))].map((date) => buildDailyReport(data, date));
+                  : [...new Set(sessions.map((session) => sessionScheduleDates.get(session.id) ?? session.date))].map((date) => buildDailyReport(data, date));
                 const completedSets = periodReports.reduce((sum, report) => sum + report.completedSets, 0);
                 const plannedSets = periodReports.reduce((sum, report) => sum + report.plannedSets, 0);
                 const completionPercent = plannedSets ? Math.min(100, Math.round((completedSets / plannedSets) * 100)) : sessions.length ? 100 : 0;
@@ -1080,7 +1086,7 @@ export function ProgressView({
                           </div>
                           <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-stone-500">{dailyReport.status === "moved" ? "Schedule matched" : dailyReport.confidence === "high" ? "Based on more data" : dailyReport.confidence === "moderate" ? "Based on some data" : "Based on limited data"}</span>
                         </div>
-                        {dailyReport.status !== "moved" && <><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {dailyReport.sessions > 0 && <><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                           {[
                             ["Sets completed", `${dailyReport.completionPercent}%`],
                             ["Average reps left", dailyReport.averageRir === null ? "Not logged" : dailyReport.averageRir.toFixed(1)],
@@ -1100,6 +1106,7 @@ export function ProgressView({
                           ))}</div>}
                           <p className="mt-3 text-[10px] leading-4 text-stone-600">This report describes what you logged; it is not a medical or recovery assessment. Missing sets or reps-left estimates make the report less certain.</p>
                         </details></>}
+                        {dailyReport.status === "missed" && key < calendarToday && <Button type="button" onClick={() => onStartMakeup(key)} className="mt-4 h-11 w-full rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><Play className="size-3.5" />Do this missed workout</Button>}
                       </section>
                     )}
                     {!dailyReport && !sessions.length && (
@@ -1401,13 +1408,14 @@ function SettingsView({
   };
 
   const exportCsv = () => {
-    const rows: Array<Array<string | number>> = [["date", "program", "program_week", "session", "exercise", "set", "weight", "unit", "reps", "rir"]];
+    const scheduleDates = resolvedSessionScheduleDates(data);
+    const rows: Array<Array<string | number>> = [["workout_date", "performed_date", "program", "program_week", "session", "exercise", "set", "weight", "unit", "reps", "rir"]];
     activeSessions(data).forEach((session) => {
       Object.entries(session.entries).forEach(([key, entries]) => {
         entries.forEach((entry, index) => {
           const exercise = storedExercise(session, key);
           if (!isFilledSet(entry, exercise)) return;
-          rows.push([session.date, session.programId ?? "legacy", session.programWeek ?? "", session.dayId, exercise?.name ?? exerciseName(key), index + 1, entry.w || 0, session.unit, entry.r, entry.rir]);
+          rows.push([scheduleDates.get(session.id) ?? session.date, session.date, session.programId ?? "legacy", session.programWeek ?? "", session.dayId, exercise?.name ?? exerciseName(key), index + 1, entry.w || 0, session.unit, entry.r, entry.rir]);
         });
       });
     });
@@ -1680,6 +1688,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const noticeOpenerRef = useRef<HTMLButtonElement | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [activeDate, setActiveDate] = useState(today);
+  const [makeupScheduledDate, setMakeupScheduledDate] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [restTimer, setRestTimer] = useState<RestTimer | null>(null);
   const [restAlertLevel, setRestAlertLevel] = useState<RestAlertLevel>(() => {
@@ -1973,6 +1982,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const currentDate = today();
       if (activeDate === currentDate) return;
       setActiveDate(currentDate);
+      setMakeupScheduledDate(null);
       selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, currentDate, data);
       setNotice("A new day started — today’s scheduled workout is ready");
     };
@@ -2070,10 +2080,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const workingProgramId = editingSession?.programId ?? data.program.activeId;
   const workingWeek = editingSession?.programWeek ?? data.program.week;
   const workingFrequency = editingSession?.programFrequency ?? data.program.frequency;
-  const selectedDraftKey = `${workingProgramId}:${workingWeek}:${activeDate}:${dayId}`;
+  const requestedScheduledDate = editingSession ? resolvedScheduleDates.get(editingSession.id) ?? editingSession.date : makeupScheduledDate ?? activeDate;
+  const selectedDraftKey = `${workingProgramId}:${workingWeek}:${activeDate}:${requestedScheduledDate}:${dayId}`;
   const lockedDraftPlan = draftPlans[selectedDraftKey];
-  const savedSession = editingSession ?? data.sessions.find((session) => !session.deletedAt && session.date === activeDate && session.dayId === dayId && (workingProgramId === "phase2" ? session.programId === "phase2" && session.programWeek === workingWeek && (session.programFrequency ?? 5) === workingFrequency : session.programId !== "phase2"));
-  const workingScheduledDate = savedSession ? resolvedScheduleDates.get(savedSession.id) ?? savedSession.date : nextSessionScheduledDate(data, activeDate);
+  const savedSession = editingSession ?? data.sessions.find((session) => !session.deletedAt && session.date === activeDate && (resolvedScheduleDates.get(session.id) ?? session.date) === requestedScheduledDate && session.dayId === dayId && (workingProgramId === "phase2" ? session.programId === "phase2" && session.programWeek === workingWeek && (session.programFrequency ?? 5) === workingFrequency : session.programId !== "phase2"));
+  const workingScheduledDate = savedSession ? resolvedScheduleDates.get(savedSession.id) ?? savedSession.date : requestedScheduledDate;
   const snapshotDay = editingSession?.planSnapshot ? trainingDayFromSnapshot(editingSession.planSnapshot) : null;
   const selectedSnapshot = savedSession?.planSnapshot ?? lockedDraftPlan?.snapshot;
   const baseActiveDays = snapshotDay
@@ -2087,7 +2098,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       );
   const exposurePlans = !savedSession && !lockedDraftPlan ? baseActiveDays.map((programDay) => buildExposurePlan(data, programDay, activeDate,
     (exercise) => resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name),
-    Boolean(noveltyOverrides[`${workingProgramId}:${workingWeek}:${activeDate}:${programDay.id}`]),
+    Boolean(noveltyOverrides[`${workingProgramId}:${workingWeek}:${activeDate}:${requestedScheduledDate}:${programDay.id}`]),
   )) : [];
   const activeDays = selectedSnapshot ? baseActiveDays.map((programDay) => programDay.id === selectedSnapshot.dayId ? trainingDayFromSnapshot(selectedSnapshot) : programDay) : exposurePlans.map((plan) => plan.day);
   const exposurePlan = exposurePlans.find((plan) => plan.day.id === dayId);
@@ -2145,18 +2156,34 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const saved = await persist(next, resolution === "pause" ? "Program paused — your history is safe" : returnPlan ? "Welcome back — return mode is ready" : "Time away recorded");
     if (saved) selectScheduledDay(next.program.activeId, next.program.frequency, next.program.preferredWeekdays, next.profile, today(), next);
   };
-  const currentSession = editingSession ?? (day
-    ? data.sessions.find((session) =>
-        !session.deletedAt
-        &&
-        session.date === activeDate
-        && session.dayId === day.id
-        && (workingProgramId === "phase2"
-          ? session.programId === "phase2" && session.programWeek === workingWeek && (session.programFrequency ?? 5) === workingFrequency
-          : session.programId !== "phase2"),
-      )
-    : undefined);
-  const draftKey = day ? `${workingProgramId}:${workingWeek}:${activeDate}:${day.id}` : null;
+
+  const startMakeupWorkout = (scheduledDate: string) => {
+    const missedDates = missedTraining?.missedDates ?? [scheduledDate];
+    const missedIndex = Math.max(0, missedDates.indexOf(scheduledDate));
+    const dayIds = absenceDayIds(data, Math.max(1, missedDates.length));
+    const targetDayId = dayIds[missedIndex] ?? nextUnfinishedProgramDay(data)?.id ?? null;
+    const performanceDate = today();
+    setEditingSessionId(null);
+    setActiveDate(performanceDate);
+    setMakeupScheduledDate(scheduledDate);
+    setDayId(targetDayId);
+    setReadiness(null);
+    setReadinessOpen(false);
+    setSessionRpe(null);
+    setWarmup(null);
+    setPostCardio(null);
+    setSessionStartedAt(null);
+    setActiveExerciseIndex(0);
+    setOpenSwap(null);
+    pendingRestSetsRef.current.clear();
+    hydratedSessionKeyRef.current = null;
+    restoredSessionStartKeyRef.current = null;
+    setNoticesOpen(false);
+    setView("train");
+    setNotice(`Make-up workout selected — this report will be filed under ${prettyDate(scheduledDate)}`);
+  };
+  const currentSession = savedSession;
+  const draftKey = day ? `${workingProgramId}:${workingWeek}:${activeDate}:${requestedScheduledDate}:${day.id}` : null;
   const skippedExerciseKeys = (draftKey ? skippedDrafts[draftKey] : undefined) ?? currentSession?.skippedExerciseKeys ?? [];
 
   useEffect(() => {
@@ -2563,7 +2590,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       recommendationVersion: currentSession ? currentSession.recommendationVersion : lockedDraftPlan?.recommendationVersion ?? (lockedDraftPlan ? undefined : RECOMMENDATION_VERSION),
       id: currentSession?.id ?? globalThis.crypto?.randomUUID?.() ?? `${activeDate}-${day.id}-${now}`,
       date: activeDate,
-      scheduledDate: currentSession?.scheduledDate ?? nextSessionScheduledDate(data, activeDate),
+      scheduledDate: currentSession?.scheduledDate ?? workingScheduledDate,
       dayId: day.id,
       unit: profile.unit,
       entries,
@@ -2585,7 +2612,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       bodyweightAtSession: currentSession?.bodyweightAtSession ?? profile.bodyweight,
       planSnapshot,
       exerciseExposures,
-      logicalKey: currentSession?.logicalKey ?? sessionLogicalKey(activeDate, workingProgramId, workingProgramId === "phase2" ? workingWeek : undefined, workingFrequency, day.id),
+      logicalKey: currentSession?.logicalKey ?? sessionLogicalKey(workingScheduledDate, workingProgramId, workingProgramId === "phase2" ? workingWeek : undefined, workingFrequency, day.id),
       revision: (currentSession?.revision ?? 0) + 1,
       createdAt: currentSession?.createdAt ?? now,
       updatedAt: now,
@@ -2621,6 +2648,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (saved) {
       if (sessionStartStorageKey) window.localStorage.removeItem(sessionStartStorageKey);
       setNotice(currentSession ? "Session updated — previous version kept in history" : "Session saved — complete the week when you are ready");
+      if (makeupScheduledDate) {
+        setMakeupScheduledDate(null);
+        selectScheduledDay(next.program.activeId, next.program.frequency, next.program.preferredWeekdays, next.profile, today(), next);
+        setView("progress");
+      }
       if (editingSession) {
         setEditingSessionId(null);
         setView("progress");
@@ -2670,6 +2702,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   };
 
   const editSession = (session: Session) => {
+    setMakeupScheduledDate(null);
     setEditingSessionId(session.id);
     setActiveDate(session.date);
     setDayId(session.dayId);
@@ -2686,6 +2719,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const cancelHistoricalEdit = () => {
     setEditingSessionId(null);
+    setMakeupScheduledDate(null);
     const currentDate = today();
     setActiveDate(currentDate);
     selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, currentDate, data);
@@ -2733,7 +2767,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const currentExposure = currentExercise && currentBaseExercise ? exposureFor(currentExercise, keyForExercise(currentBaseExercise, activeExerciseIndex)) : null;
   const isReturnSession = !editingSession && data.program.calibrationRequired && data.program.status !== "paused";
   const reducedExposure = Boolean(currentExposure && currentExposure.prescribedSets < currentExposure.originalSets) || Boolean(exposurePlan && Object.values(exposurePlan.exposures).some((item) => item.prescribedSets < item.originalSets));
-  const noticeCount = Number(!readiness && Boolean(day)) + Number(Boolean(missedTraining) && !editingSession) + Number(isReturnSession) + Number(reducedExposure) + Number(Boolean(currentCalibration?.recoveryPending));
+  const noticeCount = Number(!readiness && Boolean(day)) + Number(Boolean(missedTraining) && !editingSession && !makeupScheduledDate) + Number(isReturnSession) + Number(reducedExposure) + Number(Boolean(currentCalibration?.recoveryPending));
   const noticeButton = <Button data-training-notices="true" type="button" variant="ghost" aria-label={noticeCount ? `Training notices, ${noticeCount} items to review` : "Training notices"} aria-haspopup="dialog" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="relative size-11 rounded-xl text-stone-300"><BellRing className="size-5" />{noticeCount > 0 && <span className="notice-count absolute right-0.5 top-0.5 grid min-w-4 place-items-center rounded-full bg-amber-300 px-1 text-[11px] font-bold text-[#0b0d0c]">{noticeCount}</span>}</Button>;
   const exerciseNotices = (() => {
     if (!currentExercise || !currentBaseExercise) return null;
@@ -2797,11 +2831,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>
 
             </>}
-          {!editingSession && missedTraining && data.program.status === "active" && (
+          {!editingSession && !makeupScheduledDate && missedTraining && data.program.status === "active" && (
             <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4">
               <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-amber-200">Welcome back</p><p className="mt-1 text-xs leading-5 text-stone-400">{missedTraining.missedDates.length} planned workout{missedTraining.missedDates.length === 1 ? " needs" : "s need"} an answer. Tell RepArc what happened so your schedule stays accurate; it will not invent completed sets.</p></div><span className="shrink-0 rounded-full bg-black/20 px-2 py-1 font-mono text-[10px] text-stone-400">{missedTraining.gapDays} days</span></div>
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <Button type="button" onClick={() => void resolveTimeAway("continue", "busy")} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><Play className="size-3.5" />Continue next</Button>
+                <Button type="button" onClick={() => startMakeupWorkout(missedTraining.missedDates[0])} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><Play className="size-3.5" />Do {prettyDate(missedTraining.missedDates[0], { month: "short", day: "numeric" })} workout</Button>
                 <Button type="button" variant="outline" onClick={() => void resolveTimeAway("trained-elsewhere", "other")} className="h-10 rounded-xl border-white/10 text-xs"><Check className="size-3.5" />Trained elsewhere</Button>
                 <Button type="button" variant="outline" onClick={() => void resolveTimeAway("skip", "busy")} className="h-10 rounded-xl border-white/10 text-xs">Skip missed</Button>
                 <Button type="button" variant="outline" onClick={() => void resolveTimeAway("skip", "soreness")} className="h-10 rounded-xl border-red-300/20 text-xs text-red-200"><ShieldAlert className="size-3.5" />Severe soreness</Button>
@@ -2906,7 +2940,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
         <section className="min-w-0">
           {editingSession && <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><div><p className="font-semibold text-sky-200">Editing {prettyDate(editingSession.date)}{workingScheduledDate !== editingSession.date ? ` · scheduled ${prettyDate(workingScheduledDate)}` : ""}</p><p className="mt-1 text-xs text-stone-400">This uses the saved historical plan and cannot change your current program, week, schedule, or training status.</p></div><Button type="button" variant="ghost" onClick={cancelHistoricalEdit} className="h-9 shrink-0 rounded-xl text-xs text-sky-200 hover:bg-white/10">Cancel</Button></div>}
-          {!editingSession && workingScheduledDate < activeDate && <div className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4"><p className="font-semibold text-amber-200">Make-up workout · scheduled {prettyDate(workingScheduledDate)}</p><p className="mt-1 text-xs leading-5 text-stone-400">Your sets will stay on {prettyDate(activeDate)}, the day you actually train. RepArc will credit the earlier schedule without duplicating results or forcing you to combine workouts.</p></div>}
+          {!editingSession && workingScheduledDate < activeDate && <div className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4"><div><p className="font-semibold text-amber-200">Make-up workout for {prettyDate(workingScheduledDate)}</p><p className="mt-1 text-xs leading-5 text-stone-400">This workout and its full report will appear under {prettyDate(workingScheduledDate)} only. RepArc keeps {prettyDate(activeDate)} privately as the date you actually performed it for recovery timing.</p></div><Button type="button" variant="ghost" onClick={() => { setMakeupScheduledDate(null); selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, activeDate, data); }} className="h-9 shrink-0 rounded-xl px-3 text-xs text-stone-300 hover:bg-white/10">Train today instead</Button></div>}
           {data.program.status === "paused" && <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><p className="font-semibold text-amber-200">Training is paused</p><p className="mt-1 text-xs text-stone-400">Your history and drafts are safe. Resume from Setup before saving another workout.</p></div>}
           {!day ? (
             <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-white/15 bg-white/[0.025] px-6 text-center">
@@ -3108,7 +3142,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
       {view === "guide" && <TrainingGuide />}
 
-      {view === "progress" && <ProgressView data={data} onUpdate={persist} onEditSession={editSession} />}
+      {view === "progress" && <ProgressView data={data} onUpdate={persist} onEditSession={editSession} onStartMakeup={startMakeupWorkout} />}
       {view === "settings" && (
         <SettingsView
           account={account}

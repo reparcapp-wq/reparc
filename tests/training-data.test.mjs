@@ -414,9 +414,25 @@ test("missed training detection credits moved workouts without inventing perform
   const session = (id, date) => ({ id, date, dayId: day.id, unit: "kg", entries, programId: "phase1", programFrequency: 3, planSnapshot: snapshot, completionStatus: "completed", affectsProgression: true, revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z` });
   data.sessions = [session("baseline", "2026-08-21"), session("moved", "2026-08-25")];
   const missed = training.detectMissedTraining(data, "2026-08-29");
-  assert.equal(missed.expectedSessions, 2);
-  assert.equal(missed.completedSessions, 0);
+  assert.equal(missed.expectedSessions, 4);
+  assert.equal(missed.completedSessions, 2);
   assert.deepEqual(missed.missedDates, ["2026-08-26", "2026-08-28"]);
+});
+
+test("later workouts do not hide an unresolved earlier scheduled day", () => {
+  const data = training.emptyData();
+  data.profile = { bodyweight: 75, unit: "kg", level: "intermediate", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: true };
+  data.program.frequency = 3;
+  data.program.preferredWeekdays = [1, 3, 5];
+  data.setupCompletedAt = "2026-08-21T08:00:00.000Z";
+  data.planHistory = [{ id: "setup", effectiveAt: data.setupCompletedAt, kind: "setup", programId: "phase1", week: 1, frequency: 3, preferredWeekdays: [1, 3, 5], track: "current", goal: "balanced", equipment: "full", status: "active" }];
+  const day = training.programDays("phase1", 3, "current")[0];
+  const snapshot = training.buildSessionPlanSnapshot(data, day, "phase1", 1, 3);
+  const entries = Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: exercise.loadingType === "external" || exercise.loadingType === "assisted-bodyweight" ? "10" : "", r: String(exercise.repLow), rir: "2" }))]));
+  const session = (id, date, scheduledDate) => ({ id, date, scheduledDate, dayId: day.id, unit: "kg", entries, programId: "phase1", programFrequency: 3, planSnapshot: snapshot, completionStatus: "completed", affectsProgression: true, revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z` });
+  data.sessions = [session("baseline", "2026-08-21"), session("later", "2026-08-28", "2026-08-28")];
+  const missed = training.detectMissedTraining(data, "2026-08-29");
+  assert.deepEqual(missed.missedDates, ["2026-08-24", "2026-08-26"]);
 });
 
 test("return plans scale conservatively with time away and end after bounded sessions", () => {

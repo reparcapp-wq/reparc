@@ -21,7 +21,7 @@ test("Progress selects the local current date, not an older workout, including m
         data.profile = { displayName: "Test", bodyweight: 75, unit: "kg", level: "new", gender: "man", programTrack: "current", goal: "balanced", equipment: "full", weightGoal: "maintain", weightTrackingEnabled: false };
         if (withHistory) data.sessions = [{ id: "old", date: "2026-08-01", dayId: "UA", unit: "kg", entries: {ua1:[{w:"5",r:"8",rir:"4"}]}, programId:"phase1",revision:1,createdAt:"2026-08-01T10:00:00Z",updatedAt:"2026-08-01T10:00:00Z" }];
         const before = JSON.stringify(data);
-        const html = renderToStaticMarkup(React.createElement(ProgressView, { data, onUpdate: async () => true, onEditSession() {} }));
+        const html = renderToStaticMarkup(React.createElement(ProgressView, { data, onUpdate: async () => true, onEditSession() {}, onStartMakeup() {} }));
         const dateField = html.match(/<input[^>]*type="date"[^>]*>/)?.[0];
         assert.ok(dateField);
         assert.ok(dateField.includes(`value="${t.isoDate(current)}"`), dateField);

@@ -151,13 +151,13 @@ const plannedSetsFor = (data: TrainingData, session: Session) => {
 export function buildDailyReport(data: TrainingData, date: string): DailyReport {
   const profile = data.profile!;
   const allSessions = activeSessions(data);
-  const sessions = allSessions.filter((session) => session.date === date);
   const scheduleDates = resolvedSessionScheduleDates(data);
-  const movedCompletions = allSessions.filter((session) =>
-    sessionCountsAsCompletedDay(session, data)
-    && session.date !== date
-    && scheduleDates.get(session.id) === date);
-  const performedOnDates = [...new Set(movedCompletions.map((session) => session.date))].sort();
+  // Reports are filed under the calendar slot the workout fulfilled. The
+  // actual performance date remains on the session for audit/recovery logic.
+  const sessions = allSessions.filter((session) => (scheduleDates.get(session.id) ?? session.date) === date);
+  const performedOnDates = [...new Set(sessions
+    .filter((session) => session.date !== date)
+    .map((session) => session.date))].sort();
   const sessionNames = [...new Set(sessions.map((session) => session.planSnapshot?.dayName ?? session.dayId))];
   const sorenessRecovery = data.absences.some((record) => record.reason === "soreness" && record.resolution === "skip" && record.missedDates.includes(date));
   const currentOccurrences = sessions
@@ -230,16 +230,19 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
   const possiblePerformanceImprovements = performanceImprovements;
   const establishedPerformanceImprovements = establishedImprovementIds.size;
   const status: DailyReportStatus = !sessions.length
-    ? movedCompletions.length ? "moved" : sorenessRecovery ? "recovery" : isScheduledTrainingDate(data, date) ? "missed" : "recovery"
+    ? sorenessRecovery ? "recovery" : isScheduledTrainingDate(data, date) ? "missed" : "recovery"
     : completionPercent >= 100 ? "completed" : completionPercent >= 70 ? "adjusted" : "partial";
   const confidence: AdjustmentConfidence = completionPercent >= 100 && rirCoveragePercent >= 60
     ? "high"
     : completionPercent >= 70 && (rirCoveragePercent >= 30 || completedSets >= 6)
       ? "moderate"
       : "low";
-  const label = sessions.length > 1 ? `${sessions.length} workouts recorded` : status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "moved" ? `Completed on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })).join(" and ")}` : status === "missed" ? "Scheduled workout not recorded" : sorenessRecovery ? "Soreness recovery recorded" : "Recovery day";
+  const performedLaterLabel = performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })).join(" and ");
+  const label = performedOnDates.length
+    ? `Completed on ${performedLaterLabel}`
+    : sessions.length > 1 ? `${sessions.length} workouts recorded` : status === "completed" ? "Completed as planned" : status === "adjusted" ? "Productively adjusted" : status === "partial" ? "Partial session" : status === "missed" ? "Scheduled workout not recorded" : sorenessRecovery ? "Soreness recovery recorded" : "Recovery day";
   const headline = !sessions.length
-    ? status === "moved" ? "This planned workout was completed on a later day." : status === "missed" ? "A scheduled workout was not recorded." : sorenessRecovery ? "This planned workout was skipped for recovery." : "No workout was recorded."
+    ? status === "missed" ? "A scheduled workout was not recorded." : sorenessRecovery ? "This planned workout was skipped for recovery." : "No workout was recorded."
     : sessions.length > 1
       ? `${sessions.length} separate workouts were completed on this date.`
     : establishedPerformanceImprovements > 0
@@ -250,13 +253,13 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
         ? "The planned work was completed without a clear performance change."
         : "Today adds useful history, but the incomplete workout is not enough to support an increase.";
   const summary = !sessions.length
-    ? status === "moved"
-      ? `The workout is credited to this scheduled date, while its sets, duration and performance stay on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" })).join(" and ")}. Nothing is duplicated.`
-      : status === "missed"
+    ? status === "missed"
       ? "This date was on your saved training schedule. Record time away or a workout performed elsewhere to keep adherence context accurate."
       : sorenessRecovery
         ? "You recorded movement-limiting soreness. No performance was invented; the scheduled session remains visible in adherence context and the next session uses conservative return mode."
         : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
+    : performedOnDates.length
+      ? `${completedSets} of ${plannedSets || completedSets} planned sets are filed under this missed workout date. You actually trained on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" })).join(" and ")}; the workout is shown here only, not duplicated on that day.`
     : sessions.length > 1
       ? `${sessionNames.join(" and ")} remain separate workout records. These totals combine only the work actually performed on this date; RepArc does not require missed sessions to be doubled up.`
       : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". Reps-left estimates were not recorded consistently, so weight advice remains conservative." : ` with ${averageRir.toFixed(1)} good reps left on average.`}`;
