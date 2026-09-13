@@ -12,7 +12,7 @@ export const ANATOMY_GROUPS: Readonly<Partial<Record<string, Muscle>>> = {
   gluteal: "glutes", calves: "calves", trapezius: "back", "upper-back": "back", "lower-back": "back",
 };
 
-type Props = { review: ProgressAnalysis; selected: Muscle; select: (muscle: Muscle) => void };
+type Props = { review: ProgressAnalysis; selected: Muscle; select: (muscle: Muscle) => void; compact?: boolean };
 
 function BodyView({ regions, side, review, selected, select }: Props & { regions: AnatomyRegion[]; side: "Front" | "Back" }) {
   // One keyboard stop per report group, even when several anatomical shapes share its status.
@@ -44,18 +44,19 @@ function BodyView({ regions, side, review, selected, select }: Props & { regions
 }
 
 export function MuscleAnatomy(props: Props) {
-  return <div className="analysis-body-layout">
+  return <div className={`analysis-body-layout${props.compact ? " is-compact" : ""}`}>
+    {props.compact && <label className="analysis-select">Muscle group<select value={props.selected} onChange={(event) => props.select(event.target.value as Muscle)}>{props.review.muscles.map((row) => <option key={row.muscle} value={row.muscle}>{MUSCLE_LABELS[row.muscle]}</option>)}</select></label>}
     <div className="anatomy-stage">
       <div className="anatomy-pair"><BodyView {...props} regions={bodyFront} side="Front" /><BodyView {...props} regions={bodyBack} side="Back" /></div>
       <p className="anatomy-hint">Tap a muscle or choose its name.</p>
     </div>
-    <div className="analysis-muscle-buttons" aria-label="Muscle groups">
+    {!props.compact && <div className="analysis-muscle-buttons" aria-label="Muscle groups">
       {props.review.muscles.map((row) => <button type="button" key={row.muscle} aria-pressed={props.selected === row.muscle}
         aria-label={`${MUSCLE_LABELS[row.muscle]}: ${row.direct} direct sets, ${row.indirect} supporting sets. ${REVIEW_STATUS[row.status]}`}
         onClick={() => props.select(row.muscle)}>
         <span className="analysis-dot" data-status={row.status} />
         <span>{MUSCLE_LABELS[row.muscle]}<small>{row.direct} direct · {row.indirect} supporting</small></span>
       </button>)}
-    </div>
+    </div>}
   </div>;
 }

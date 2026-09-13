@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ProgressAnalysisView } from '../../components/progress-analysis';
 import { emptyData, programDays, resolveExerciseVariant, buildSessionPlanSnapshot, loadProfileId } from '../../lib/training';
 import '../../app/globals.css';
+import './progress-analysis-preview.css';
 
 export function syntheticAnalysisData() {
   const data = emptyData(); data.profile = { displayName: 'Synthetic QA', bodyweight: 75, unit: 'kg', level: 'experienced', gender: 'man', programTrack: 'current', goal: 'balanced', equipment: 'full', weightGoal: 'maintain', weightTrackingEnabled: true };
@@ -25,6 +26,8 @@ function Preview() {
   const [data, setData] = useState(syntheticAnalysisData);
   const [theme, setTheme] = useState('dark');
   const [notice, setNotice] = useState('');
-  return <main className="min-h-screen bg-[#0b0d0c] text-stone-100"><div className="flex flex-wrap gap-4 p-4"><strong>Synthetic QA only</strong><button onClick={() => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); document.documentElement.className = next; }}>Toggle theme</button><button onClick={() => setData({ ...syntheticAnalysisData(), sessions: [], exerciseRecovery: [], weighIns: [] })}>Empty account</button><button onClick={() => setData(syntheticAnalysisData())}>Restore fixture</button><span>{notice}</span></div><ProgressAnalysisView data={data} initialDate="2026-09-07" onClose={() => setNotice('Back to Progress')} onTrain={() => setNotice('Open Train')} onGuide={() => setNotice('Open Guide')} /></main>;
+  return <main className="min-h-screen bg-[#0b0d0c] text-stone-100"><div className="flex flex-wrap gap-4 p-4"><strong>Synthetic QA only</strong><button onClick={() => document.documentElement.classList.toggle('qa-large-text')}>Large text</button><button onClick={() => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); document.documentElement.classList.toggle('light', next === 'light'); document.documentElement.classList.toggle('dark', next === 'dark'); }}>Toggle theme</button><button onClick={() => setData({ ...syntheticAnalysisData(), sessions: [], exerciseRecovery: [], weighIns: [] })}>Empty account</button><button onClick={() => setData(syntheticAnalysisData())}>Restore fixture</button><span>{notice}</span></div><ProgressAnalysisView data={data} initialDate="2026-09-07" onClose={() => setNotice('Back to Progress')} onTrain={() => setNotice('Open Train')} onGuide={() => setNotice('Open Guide')} /></main>;
 }
-createRoot(document.getElementById('root')).render(<Preview />);
+const previewRoot = import.meta.hot?.data.root ?? createRoot(document.getElementById('root'));
+if (import.meta.hot) import.meta.hot.data.root = previewRoot;
+previewRoot.render(<Preview />);

@@ -1,5 +1,16 @@
 # RepArc 12.0.0 — Progress Analysis
 
+## 12.0.2 — Mobile-first analysis redesign
+
+- Equal-width Daily/Weekly/Monthly controls; centered dates; return-to-current control only for historical periods.
+- Overview, Trends, Muscles and Details navigation with unbroken labels and a deliberate two-by-two layout on phones.
+- Compact overview metrics and visible next steps, including recovery warnings. Supporting explanations move to Details.
+- One chart at a time: exercises, workload or weight. Numeric tables remain available in bounded, user-opened disclosures without decorative bottom rules.
+- Details opens one of five topics at a time; exercise and workout selectors replace long record lists. Evidence, rule versions, privacy and limitations remain available, not discarded.
+- Compact muscle selector, existing interactive anatomy and selected-group numbers. Subtle transitions respect reduced-motion settings.
+- Same analysis engine/rule version, calibration, training prescriptions and stored data. No new email/PDF workflow, data upload or database migration.
+- Synthetic browser QA includes 320/390px phone, 768px tablet, 1280px desktop, dark/light, 200% text, date reset, one-chart selection and exclusive detail topics. These are browser layout checks, not physical-device certification.
+
 ## 12.0.1 — Anatomy display refinement
 
 - Replaced the blocky schematic with detailed licensed front/back vector anatomy, styled for both themes.
