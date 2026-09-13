@@ -1,5 +1,13 @@
 # RepArc 12.0.0 — Progress Analysis
 
+## 12.0.1 — Anatomy display refinement
+
+- Replaced the blocky schematic with detailed licensed front/back vector anatomy, styled for both themes.
+- Tap a muscle or use its named control to view the existing report counts and explanation. Keyboard controls remain available.
+- Explicit display mapping covers the same ten report groups. Untracked regions stay neutral; group colors do not imply individual submuscle or left/right measurements.
+- Correct colored legend dots and clearer selected-group styling. No changes to report calculations, training prescriptions, calibration, stored records or the analysis rule version.
+- Geometry adapted from react-native-body-highlighter, pinned to commit 15df9e2dbc621450001960bed5a30e6a75357faa, MIT / Copyright (c) 2022 ELABBASSI Hicham. Full license ships at /licenses/body-highlighter.txt. No new runtime dependencies or external image requests.
+
 ## What ships
 
 - Progress → Open progress analysis, also accessible from Training notices.

@@ -63,19 +63,33 @@ html.light .progress-analysis { --review-bg: #fff; --review-panel: #f1f4ef; --re
 .analysis-axis { stroke: var(--review-border); }
 .analysis-callout { padding: 12px; background: var(--review-panel); border-radius: 12px; }
 .analysis-select { margin: 16px 0; }
-.analysis-body-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: center; margin: 20px 0; }
-.analysis-body { width: 100%; max-height: 360px; color: var(--review-text); }
-.analysis-silhouette { fill: var(--review-panel); stroke: var(--review-border); }
-.analysis-muscle-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.analysis-muscle-buttons button { display: flex; align-items: center; text-align: left; gap: 8px; font-size: .8rem; padding: 9px; }
-.analysis-muscle-buttons button[aria-pressed="true"] small { color: inherit; }
-.analysis-muscle-buttons small { font-size: .66rem; }
-.analysis-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--review-muted); font-size: .72rem; margin-top: 15px; }
+.analysis-body-layout { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); gap: 24px; align-items: center; margin: 20px 0; }
+.anatomy-stage { --anatomy-neutral: #303c42; --anatomy-missing: #778b98; --anatomy-green: #45c9a0; --anatomy-yellow: #e4b957; --anatomy-red: #ef7680; --anatomy-seam: #14201e; min-width: 0; padding: 16px 8px 12px; border-radius: 18px; background: radial-gradient(ellipse at 50% 40%, #24342f 0%, #18221f 62%, #151e1b 100%); }
+html.light .anatomy-stage { --anatomy-neutral: #d0dadd; --anatomy-missing: #8598a3; --anatomy-green: #16886d; --anatomy-yellow: #b7801c; --anatomy-red: #ca4758; --anatomy-seam: #f3f7f5; background: radial-gradient(ellipse at 50% 40%, #fff 0%, #eef3f0 80%); }
+.anatomy-pair { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; }
+.anatomy-view { margin: 0; min-width: 0; }
+.anatomy-view figcaption { color: var(--review-muted); text-align: center; text-transform: uppercase; letter-spacing: .14em; font-size: .75rem; font-weight: 650; margin-bottom: 8px; }
+.anatomy-figure { display: block; width: 100%; max-height: 460px; overflow: visible; }
+.anatomy-region { fill: var(--anatomy-neutral); stroke: var(--anatomy-seam); stroke-width: .5px; transition: fill .2s ease, opacity .2s ease; }
+.anatomy-region[data-status="insufficient"] { fill: var(--anatomy-missing); }
+.anatomy-region[data-status="on-track"] { fill: var(--anatomy-green); }
+.anatomy-region[data-status="hold"] { fill: var(--anatomy-yellow); }
+.anatomy-region[data-status="adjust"] { fill: var(--anatomy-red); }
+.anatomy-region[role="button"] { cursor: pointer; }
+.anatomy-region[data-selected="true"], .anatomy-region[role="button"]:hover, .anatomy-region:focus-visible { stroke: var(--review-text); stroke-width: 1.2px; }
+.anatomy-region:focus-visible { outline: none; }
+.progress-analysis .anatomy-hint { text-align: center; color: var(--review-muted); font-size: .8rem; margin: 10px 0 0; }
+.analysis-muscle-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+.analysis-muscle-buttons button { display: flex; align-items: center; text-align: left; gap: 8px; font-size: .875rem; padding: 12px 10px; min-width: 0; }
+.progress-analysis .analysis-muscle-buttons button[aria-pressed="true"] { color: var(--review-text); background: var(--review-panel); border-color: var(--review-accent); box-shadow: inset 0 0 0 1px var(--review-accent); }
+.analysis-muscle-buttons small { font-size: .75rem; margin-top: 3px; }
+.analysis-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--review-muted); font-size: .8rem; margin-top: 15px; }
+.analysis-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .analysis-muscle-detail { padding: 16px; border-radius: 16px; background: var(--review-panel); }
 .analysis-muscle-detail h3 { margin: 0 0 8px; }
 .progress-analysis a { color: var(--review-accent); text-decoration: underline; text-underline-offset: 3px; }
 .analysis-footer { display: flex; gap: 8px; align-items: center; justify-content: center; color: var(--review-muted); font-size: .7rem; margin-top: 22px; }
-@media (max-width: 650px) { .analysis-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .analysis-body-layout { grid-template-columns: 1fr; gap: 10px; } .analysis-body { max-height: 270px; } .analysis-fields { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .analysis-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .analysis-body-layout { grid-template-columns: 1fr; gap: 16px; } .anatomy-stage { padding-inline: 2px; } .anatomy-pair { gap: 0; } .analysis-fields { grid-template-columns: 1fr; } }
 @media (max-width: 360px) { .analysis-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); } .progress-analysis { padding-inline: 14px; } .analysis-periods { gap: 4px; } }
 @media (prefers-reduced-motion: reduce) { .progress-analysis *, .progress-analysis *::before { transition: none !important; animation: none !important; } }
 
