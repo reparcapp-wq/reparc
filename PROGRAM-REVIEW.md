@@ -30,6 +30,8 @@ Status: **external review not yet recorded**. Automated checks cannot fill or re
 
 ## First-exposure policy · 6 September 2026
 
+Later software audit: [FINAL-SAFETY-AUDIT-12.0.3.md](FINAL-SAFETY-AUDIT-12.0.3.md) records corrected Phase 2 replay, effort guards, historical reporting and evidence wording. This separate verification pass does not complete the independent coach-review sign-off above or establish a clinical accuracy percentage.
+
 Version 10.5.0 adds per-exercise familiarization, reduced sets, recovery-dependent advancement, a visible unfamiliar-work budget and selective Phase 2 progression freezes. The complete deterministic policy, research boundaries and outstanding external-review findings are recorded in [EXPOSURE-REVIEW.md](EXPOSURE-REVIEW.md). These exact thresholds require coach review and prospective user evaluation; this addition does not fill the sign-off above.
 
 ## Warm-up, cardio and equipment audit · 5 September 2026

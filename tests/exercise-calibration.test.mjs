@@ -145,8 +145,8 @@ test("new Phase 2 lifts cannot update a training max, while established lifts in
   const snapshot = t.buildSessionPlanSnapshot(data, day, "phase2", 1, 5);
   const keys = snapshot.exercises.map((item) => item.key);
   const session = { id: "sbs", date: "2026-08-05", dayId: day.id, unit: "kg", programId: "phase2", programWeek: 1, affectsProgression: true, completionStatus: "completed", planSnapshot: snapshot, revision: 1, createdAt: "2026-08-05T10:00:00Z", updatedAt: "2026-08-05T10:00:00Z", trainingMaxesBefore: Object.fromEntries(keys.map((key) => [key, 100])),
-    entries: Object.fromEntries(lifts.map((lift, index) => [keys[index], Array.from({length: 4}, () => ({ w: "70", r: String(t.sbsPrescription(lift.sbsRole, 1).repOutTarget + 3), rir: "0" }))])),
-    exerciseExposures: Object.fromEntries(keys.map((key, index) => [key, { stateAtStart: index ? "calibrated" : "uncalibrated", progressionEligible: Boolean(index) }])) };
+    entries: Object.fromEntries(lifts.map((lift, index) => [keys[index], Array.from({length: 4}, (_, setIndex) => ({ w: String(100 * t.sbsPrescription(lift.sbsRole, 1).intensity), r: String(setIndex === 3 ? t.sbsPrescription(lift.sbsRole, 1).repOutTarget + 3 : t.sbsPrescription(lift.sbsRole, 1).normalReps), rir: "0" }))])),
+    exerciseExposures: Object.fromEntries(keys.map((key, index) => [key, { stateAtStart: index ? "calibrated" : "uncalibrated", suggestedLoad: 100 * t.sbsPrescription(lifts[index].sbsRole, 1).intensity, progressionEligible: Boolean(index) }])) };
   data.sessions = [session]; data.program.trainingMaxes = session.trainingMaxesBefore;
   const result = t.recalculatePhase2Progression(data);
   assert.equal(result.program.trainingMaxes[keys[0]], 100);

@@ -45,6 +45,22 @@ test("blank RIR cannot trigger a next-session increase", () => {
   assert.equal(result.confidence, "low");
 });
 
+test("mixed effort cannot hide failure or missing RIR behind an average", () => {
+  const ex = { ...exercise, sets: 3 };
+  for (const unit of ["kg", "lb"]) for (const rirs of [[0, 3, 3], ["", "", 3], ["", 4, 4]]) {
+    const entries = rirs.map((rir) => filled(100, ex.repHigh, rir));
+    const result = adjustment.nextSessionAdjustment({ exercise: ex, entries, unit, readiness: "normal", availableLoads: [95, 100, 105] });
+    assert.equal(result.action, "hold", JSON.stringify({ unit, rirs }));
+    assert.doesNotMatch(result.reason, /without recorded failure|next higher/);
+    const next = adjustment.nextSetAdjustment({ exercise: { ...ex, sets: 4 }, entries: [entries[0], filled(100, ex.repHigh, 5)], unit, readiness: "normal", availableLoads: [95, 100, 105] });
+    assert.notEqual(next.action, "increase");
+  }
+  const varied = [1, 6, 6].map((rir) => filled(100, ex.repLow, rir));
+  assert.equal(adjustment.nextSessionAdjustment({ exercise: ex, entries: varied, unit: "kg", availableLoads: [95, 100, 105] }).action, "hold");
+  const miss = [filled(100, ex.repLow - 1, 0), filled(100, ex.repHigh, 5), filled(100, ex.repHigh, 5)];
+  assert.equal(adjustment.nextSessionAdjustment({ exercise: ex, entries: miss, unit: "kg", availableLoads: [95, 100, 105] }).action, "decrease");
+});
+
 test("equipment-aware advice never invents an unavailable 4 kg dumbbell", () => {
   const lower = adjustment.nextSetAdjustment({ exercise, entries: [filled(5, exercise.repLow - 1, 0)], unit: "kg", readiness: "normal", availableLoads: [2.5, 5, 7.5] });
   assert.equal(lower.nextLoad, 2.5);
@@ -117,7 +133,7 @@ test("daily report measures adherence and reduces confidence when effort data is
   assert.equal(report.postCardioMinutes, 10);
   assert.equal(report.confidence, "low");
   assert.equal(report.performanceImprovements, 0);
-  assert.ok(report.possiblePerformanceImprovements >= 1);
+  assert.equal(report.possiblePerformanceImprovements, 0, "missing effort cannot substantiate a comparable performance improvement");
   assert.equal(report.exercises[0].recommendation.confidence, "low");
 });
 
@@ -236,11 +252,12 @@ test("a performance improvement becomes established only after it repeats", () =
   const day = training.programDays("phase1", 5, "current")[0];
   const exercise = day.exercises[0];
   const key = training.exerciseKey(exercise, {});
-  const makeSession = (id, date, load) => ({ id, date, dayId: day.id, unit: "kg", entries: { [key]: Array.from({ length: exercise.sets }, () => filled(load, Math.min(10, exercise.repHigh), 2)) }, programId: "phase1", revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z` });
+  const planSnapshot = training.buildSessionPlanSnapshot(base, day, "phase1", 1, 5);
+  const makeSession = (id, date, load) => ({ id, date, dayId: day.id, unit: "kg", entries: { [key]: Array.from({ length: exercise.sets }, () => filled(load, Math.min(10, exercise.repHigh), 2)) }, planSnapshot, programId: "phase1", revision: 1, createdAt: `${date}T10:00:00.000Z`, updatedAt: `${date}T11:00:00.000Z` });
   base.sessions = [makeSession("baseline", "2026-08-20", 70), makeSession("first-signal", "2026-08-27", 75), makeSession("repeat", "2026-09-02", 75)];
   const report = reports.buildDailyReport(base, "2026-09-02");
   assert.equal(report.performanceImprovements, 1);
-  assert.match(report.headline, /repeated a positive performance trend/i);
+  assert.match(report.headline, /higher first-set load.rep score/i);
 });
 
 test("daily reports compare the same Pec Deck movement across different slots", () => {
@@ -253,6 +270,9 @@ test("daily reports compare the same Pec Deck movement across different slots", 
   const cableFly = upperA.exercises.find((item) => item.name === "Cable fly");
   data.swaps = { [cableFly.id]: "Pec deck" };
   const currentSnapshot = training.buildSessionPlanSnapshot(data, { ...upperA, exercises: [cableFly] }, "phase1", 1, 5);
+  // Compare identity across slots while keeping the recorded protocol identical.
+  currentSnapshot.exercises[0].repLow = priorSnapshot.exercises[0].repLow;
+  currentSnapshot.exercises[0].repHigh = priorSnapshot.exercises[0].repHigh;
   const session = (id, date, snapshot, weight) => ({
     id,
     date,

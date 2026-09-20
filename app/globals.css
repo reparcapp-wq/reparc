@@ -3,8 +3,8 @@
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
 /* Progress Analysis uses scoped semantic colors in both themes. No inline styles. */
-.progress-analysis { --review-bg: #141b18; --review-panel: #1d2722; --review-text: #edf2ee; --review-muted: #afbeb4; --review-border: #35463b; --review-accent: #f5ca70; --review-ink: #162018; max-width: 960px; margin: 0 auto; padding: 12px 16px 40px; color: var(--review-text); overflow-wrap: break-word; }
-html.light .progress-analysis { --review-bg: #fff; --review-panel: #f1f4ef; --review-text: #1d2b22; --review-muted: #526257; --review-border: #cad5ca; --review-accent: #775000; --review-ink: #fff; }
+.progress-analysis { --review-bg: #121512; --review-panel: #1b1f1b; --review-text: #f5f3ef; --review-muted: #b5bcb4; --review-border: #354035; --review-accent: var(--brand-gold); max-width: 960px; margin: 0 auto; padding: 12px 16px 40px; color: var(--review-text); overflow-wrap: break-word; }
+html.light .progress-analysis { --review-bg: #fff; --review-panel: #f3f2ef; --review-text: #1c211d; --review-muted: #4f5750; --review-border: #cbd0c9; --review-accent: #805200; }
 .progress-analysis button, .progress-analysis input, .progress-analysis select { font: inherit; min-height: 44px; border: 1px solid var(--review-border); border-radius: 12px; background: var(--review-bg); color: var(--review-text); padding: 9px 12px; max-width: 100%; }
 .progress-analysis button { cursor: pointer; transition: background .15s, border-color .15s; }
 .progress-analysis input, .progress-analysis select { font-size: 16px; width: 100%; }
@@ -33,7 +33,7 @@ html.light .progress-analysis { --review-bg: #fff; --review-panel: #f1f4ef; --re
 .analysis-fields label, .analysis-select { font-size: .8rem; display: grid; gap: 6px; min-width: 0; }
 .analysis-tabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; margin: 16px 0; }
 .analysis-tabs button { font-size: .875rem; padding: 10px 6px; white-space: nowrap; word-break: normal; overflow-wrap: normal; }
-.progress-analysis button[aria-pressed="true"] { background: var(--review-accent); color: var(--review-ink); border-color: var(--review-accent); font-weight: 650; }
+.progress-analysis button[aria-pressed="true"] { background: var(--brand-gold); color: var(--brand-ink); border-color: var(--brand-gold); font-weight: 650; }
 .analysis-content { display: grid; gap: 12px; animation: review-reveal .18s ease-out; }
 .analysis-card, .analysis-verdict { border: 1px solid var(--review-border); border-radius: 18px; padding: clamp(16px, 2.5vw, 22px); background: var(--review-bg); min-width: 0; }
 .analysis-verdict { border-top: 3px solid var(--review-accent); }
@@ -54,7 +54,8 @@ html.light .progress-analysis { --review-bg: #fff; --review-panel: #f1f4ef; --re
 .analysis-actions li::before { content: counter(actions,decimal-leading-zero); position: absolute; left: 0; font-size: .8rem; font-weight: 700; color: var(--review-accent); }
 .analysis-actions p { margin-top: 4px; font-size: .9375rem; }
 .analysis-actions li:last-child { padding-bottom: 0; }
-.progress-analysis .analysis-primary { display: inline-flex; align-items: center; gap: 14px; background: var(--review-accent); color: var(--review-ink); font-weight: 650; border: 0; }
+.progress-analysis .analysis-primary { display: inline-flex; align-items: center; gap: 14px; background: var(--brand-gold); color: var(--brand-ink); font-weight: 650; border: 0; }
+.progress-analysis .analysis-primary:hover { background: var(--brand-gold-hover); }
 .progress-analysis summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .875rem; font-weight: 550; line-height: 1.5; list-style: none; }
 .progress-analysis summary::-webkit-details-marker { display: none; }
 .progress-analysis summary::after { content: ""; width: 7px; height: 7px; flex: 0 0 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); margin: -4px 4px 0 0; transition: transform .18s; }
@@ -149,6 +150,9 @@ html.light .anatomy-stage { --anatomy-neutral: #d0dadd; --anatomy-missing: #8598
 }
 
 :root {
+  --brand-gold: #f7c66b;
+  --brand-gold-hover: #ffd58b;
+  --brand-ink: #0b0d0c;
   --background: #ffffff;
   --foreground: #171717;
   --card: #ffffff;
@@ -670,10 +674,20 @@ select {
 }
 
 .selection-button[data-selected="true"] {
-  border-color: #f7c66b !important;
-  background: #f7c66b !important;
-  color: #0b0d0c !important;
+  border-color: var(--brand-gold) !important;
+  background: var(--brand-gold) !important;
+  color: var(--brand-ink) !important;
 }
+
+.brand-action {
+  background: var(--brand-gold);
+  color: var(--brand-ink);
+  border-color: var(--brand-gold);
+  font-weight: 650;
+}
+.brand-action:hover { background: var(--brand-gold-hover); }
+.brand-action:focus-visible { outline: 3px solid var(--brand-gold); outline-offset: 3px; }
+html.light .brand-action:focus-visible { outline-color: #805200; }
 
 .onboarding-choice {
   border-width: 1px !important;
@@ -681,9 +695,9 @@ select {
 }
 
 [data-slot="tabs-trigger"][data-state="active"] {
-  border-color: #f7c66b !important;
-  background: #f7c66b !important;
-  color: #0b0d0c !important;
+  border-color: var(--brand-gold) !important;
+  background: var(--brand-gold) !important;
+  color: var(--brand-ink) !important;
 }
 
 .progress-ring {
@@ -796,8 +810,8 @@ html.light .selection-button:hover {
 }
 html.light .selection-button[data-selected="true"] {
   border-color: #d99b2b !important;
-  background: #f7c66b !important;
-  color: #0b0d0c !important;
+  background: var(--brand-gold) !important;
+  color: var(--brand-ink) !important;
 }
 html.light .progress-ring { background: conic-gradient(#d99b2b var(--progress), rgb(28 33 29 / 0.1) 0); }
 html.light .exercise-card { box-shadow: 0 1rem 2.5rem rgb(28 33 29 / 0.08); }
@@ -815,8 +829,8 @@ html.light .target-panel summary { color: #454f47; }
 .target-panel { overflow-wrap: anywhere; }
 html.light [data-slot="tabs-trigger"][data-state="active"] {
   border-color: #d99b2b !important;
-  background: #f7c66b !important;
-  color: #0b0d0c !important;
+  background: var(--brand-gold) !important;
+  color: var(--brand-ink) !important;
 }
 html.light .legal-copy h2 { color: #1c211d; }
 

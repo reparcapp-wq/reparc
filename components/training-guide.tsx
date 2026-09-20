@@ -43,8 +43,8 @@ const references = [
   {
     grade: "Emerging",
     title: "Cross-validation of estimated 1RM equations",
-    result: "A 2025 study using four- to ten-repetition sets found prediction accuracy varied by exercise and equation, supporting exercise-specific trend use rather than a universal true-1RM claim.",
-    limitation: "The study tested bench press and leg extension; RepArc therefore treats its estimate as a narrow trend and suppresses unsuitable movements.",
+    result: "A 2025 study of young men performing repetitions to failure at 80% of 1RM found that prediction accuracy varied by exercise and equation.",
+    limitation: "Bench press and leg extension results do not validate estimates from ordinary submaximal sets. RepArc’s load–rep score is descriptive, not a measured maximum; comparison requires the same saved protocol and reported effort.",
     href: "https://pubmed.ncbi.nlm.nih.gov/39495260/",
   },
   {
@@ -78,7 +78,7 @@ const references = [
   {
     grade: "Moderate",
     title: "Training moderators in healthy young women",
-    result: "Forty studies with 1,312 participants found meaningful strength, lean-mass, body-fat and power improvements; training exposure and volume influenced outcomes.",
+    result: "Forty studies with 1,312 participants found strength, lean-mass, body-fat and power improvements. More sessions were associated with larger lean-mass gains; weekly volume showed a possible association with strength gains.",
     limitation: "The population was primarily healthy women aged 18–35.",
     href: "https://pubmed.ncbi.nlm.nih.gov/38090747/",
   },

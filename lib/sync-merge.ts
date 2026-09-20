@@ -18,7 +18,7 @@ export function reconcileTrainingData(local: TrainingData, remote: TrainingData,
       const previous = object(before) ? before : {};
       return Object.fromEntries([...new Set([...Object.keys(left), ...Object.keys(right)])].map((key) => [key, resolve(left[key], right[key], previous[key], path ? `${path}.${key}` : key)]));
     }
-    if (Array.isArray(left) && Array.isArray(right) && ["sessions", "sessionRevisions", "weighIns", "planHistory", "absences", "exerciseRecovery", "program.weekRecords"].includes(path)) {
+    if (Array.isArray(left) && Array.isArray(right) && ["sessions", "sessionRevisions", "weighIns", "planHistory", "absences", "exerciseRecovery", "program.weekRecords", "program.trainingMaxReviews"].includes(path)) {
       const key = (item: ObjectValue) => String(path === "sessions" ? item.logicalKey ?? item.id : item.id ?? `${item.programId}:${item.week}:${item.frequency}:${item.status}:${item.at}`);
       const a = new Map(left.map((item) => [key(item), item]));
       const b = new Map(right.map((item) => [key(item), item]));

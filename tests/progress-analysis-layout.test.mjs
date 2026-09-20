@@ -59,3 +59,20 @@ test('phone labels cannot split mid-word and disclosures have no decorative bott
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.doesNotMatch(source, /motion-pop|motion-page/);
 });
+
+test('analysis entry and selected tabs share the RepArc gold with readable text in both themes', async () => {
+  const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const app = await readFile(new URL('../components/training-app.tsx', import.meta.url), 'utf8');
+  assert.match(app, /onClick=\{onAnalysis\} className="brand-action /);
+  assert.match(css, /\.brand-action \{[^}]*background: var\(--brand-gold\);[^}]*color: var\(--brand-ink\)/);
+  assert.match(css, /\.progress-analysis button\[aria-pressed="true"\] \{[^}]*background: var\(--brand-gold\);[^}]*color: var\(--brand-ink\)/);
+  assert.match(css, /\[data-slot="tabs-trigger"\]\[data-state="active"\] \{[^}]*background: var\(--brand-gold\)/);
+  assert.match(css, /html\.light \.progress-analysis \{[^}]*--review-accent: #805200/);
+  const value = (name) => css.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))[1];
+  const luminance = (hex) => hex.slice(1).match(/../g).map((v) => parseInt(v, 16) / 255)
+    .map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+    .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+  const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
+  for (const background of [value('brand-gold'), value('brand-gold-hover')]) assert.ok(contrast(background, value('brand-ink')) >= 4.5);
+  for (const background of ['#ffffff', '#f3f2ef']) assert.ok(contrast(background, '#805200') >= 4.5);
+});

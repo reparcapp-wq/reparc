@@ -50,10 +50,14 @@ Run the full test suite, TypeScript, lint, production Next build, static securit
 
 No database migration or user-data reset is needed. Publish through the existing GitHub → Netlify pipeline after checks. Verify the actual production release/build stamp; do not announce a queued deployment as live.
 
-The requested **GPT-6 Astra / xhigh separate recommendation-logic and safety verification pass has not yet run**. Its reviewer should challenge the report's denominators, sufficiency labels, treatment of saved snapshots, dates, Phase 2, recovery precedence, hidden/excluded records, alias matching, and suggestion-outcome selection bias. Passing the implementation tests is not independent evidence of clinical safety or predictive accuracy.
+At the original v12.0.0 release, the requested separate recommendation-logic and safety pass had not run. It has now been performed for v12.0.3, with confirmed defects and corrective tests documented in [FINAL-SAFETY-AUDIT-12.0.3.md](FINAL-SAFETY-AUDIT-12.0.3.md). Passing software checks is not independent evidence of clinical safety or predictive accuracy.
 
 Existing external acceptance still applies: physical iOS/Android offline behavior, full authenticated end-to-end checks, provider-backup restoration and qualified independent program review. No new live RLS claim is made from the isolated PostgreSQL test.
 
 ## Concise team changelog
 
 RepArc now explains your progress inside the app: quick weekly/monthly reviews, exercise and weight charts, muscle coverage, and clear next steps. Missing data is called out instead of guessed. Catch-up workouts keep their correct calendar slot while workload uses the day you actually trained. Partial-save workout timing is fixed. Existing logs and training rules are preserved.
+
+## 12.0.3 — safety-audit corrections
+
+Tighter load-increase checks, corrected Phase 2 kg/lb and revision replay, preserved manually reviewed maxes, clearer missing-data reporting, and consistent RepArc gold across progress analysis. Severe recovery overrides guidance; ordinary symptoms alone do not erase exercise familiarity. Original recorded sets remain intact. Derived reports and planning numbers can change because the calculations were corrected. No database migration is needed. See the audit for verification and remaining external acceptance.

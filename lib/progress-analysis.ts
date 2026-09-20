@@ -1,5 +1,5 @@
 import {
-  activeSessions, activeWeighIns, comparableExerciseHistory, convertWeight, exerciseFromKey,
+  activeSessions, activeWeighIns, comparableExerciseHistory, convertWeight, currentSessionRecords, exerciseFromKey,
   isFilledSet, isValidDateOnly, loadProfileId, numeric, resolvedSessionScheduleDates,
   sbsPrescription, type Exercise, type Session, type SetEntry, type TrainingData,
 } from "./training";
@@ -9,7 +9,7 @@ import type { LoadAdjustment } from "./autoregulation";
 import { exerciseMetadata, MUSCLES, type Muscle } from "./exercise-metadata";
 import { measuredSessionDuration } from "./session-duration";
 
-export const REVIEW_VERSION = "12.0.0-review1";
+export const REVIEW_VERSION = "12.0.3-review2";
 // Published product thresholds for data sufficiency; these are not accuracy probabilities.
 export const REVIEW_RULES = { highExposures: 3, highRirCoverage: 80, moderateRirCoverage: 60, monthlyWeeks: 3, weeklySessions: 2, weeklySetCoverage: 70 } as const;
 export type ReviewPeriod = "day" | "week" | "month";
@@ -37,12 +37,7 @@ const storedExercise = (session: Session, key: string): Exercise | null => {
 
 // Only the current revision counts; never count tombstones, duplicated ids or logical workouts twice.
 export function reviewSessions(data: TrainingData, asOf: string) {
-  const ids = new Map<string, Session>();
-  const newer = (a: Session, b: Session) => a.revision > b.revision || a.revision === b.revision && a.updatedAt > b.updatedAt;
-  for (const session of data.sessions) { const old = ids.get(session.id); if (!old || newer(session, old)) ids.set(session.id, session); }
-  const logical = new Map<string, Session>();
-  for (const session of ids.values()) { const key = session.logicalKey ?? session.id; const old = logical.get(key); if (!old || newer(session, old)) logical.set(key, session); }
-  return [...logical.values()].filter((session) => !session.deletedAt && isValidDateOnly(session.date) && session.date <= asOf)
+  return currentSessionRecords(data).filter((session) => !session.deletedAt && isValidDateOnly(session.date) && session.date <= asOf)
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
@@ -75,7 +70,8 @@ function occurrences(data: TrainingData): Occurrence[] {
             ? { low: sbs.repOutTarget, high: null, rir: null }
             : { low: sbs.normalReps, high: sbs.normalReps, rir: null };
         }
-        return { low: exposure?.targetRepLow ?? exercise.repLow, high: exposure?.targetRepHigh ?? exercise.repHigh, rir: exposure?.targetRir ?? null };
+        if (exposure && (exposure.targetRepLow === undefined || exposure.targetRepHigh === undefined)) return null;
+        return { low: exposure?.targetRepLow ?? snapshot.repLow, high: exposure?.targetRepHigh ?? snapshot.repHigh, rir: exposure?.targetRir ?? null };
       });
       const checks = [...(recoveryByExposure.get(`${session.id}:${identity}`) ?? [])]
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.id.localeCompare(b.id));
@@ -119,7 +115,7 @@ function firstPoint(item: Occurrence, unit: "kg" | "lb") {
   const entry = item.entries[0];
   return entry && isFilledSet(entry, item.exercise) ? { date: item.session.date, sessionId: item.session.id, load: round(convertWeight(numeric(entry.w), item.session.unit, unit)), reps: numeric(entry.r), rir: entry.rir === "" ? null : numeric(entry.rir) } : null;
 }
-function exerciseReview(data: TrainingData, items: Occurrence[], all: Occurrence[], asOf: string): ExerciseReview {
+function exerciseReview(data: TrainingData, items: Occurrence[], all: Occurrence[]): ExerciseReview {
   const latest = items.at(-1)!; const exercise = latest.exercise; const unit = data.profile?.unit ?? "kg";
   const c = counts(items); const latestCounts = counts([latest]);
   // The canonical history matcher is shared with Train. Additional protocol filters are stricter for trend claims.
@@ -129,7 +125,7 @@ function exerciseReview(data: TrainingData, items: Occurrence[], all: Occurrence
   const previous = history.filter((item) => item.session.date < latest.session.date).at(-1);
   const currentPoint = firstPoint(latest, unit); const previousPoint = previous ? firstPoint(previous, unit) : null;
   const exposure = latest.session.exerciseExposures?.[latest.key];
-  const calibration = exerciseCalibration(data, exercise, shiftReviewDate(asOf, 1));
+  const calibration = exerciseCalibration(data, exercise, shiftReviewDate(latest.session.date, 1));
   let trend: ExerciseReview["trend"] = "insufficient";
   let trendReason = "Record this exercise on another day to compare performance.";
   const familiar = exposure?.stateAtStart === "calibrated" || exposure?.stateAtStart === "developing";
@@ -181,7 +177,7 @@ function exerciseReview(data: TrainingData, items: Occurrence[], all: Occurrence
   else if (missingRecovery || latestCounts.rirTargetKnown < latestCounts.sets || c.rirCoverage === null || c.rirCoverage < 80 || latestCounts.unknownPlan) {
     reason = missingRecovery ? `Recovery after ${latest.session.date} has not been confirmed at least 48 hours after completion.` : latestCounts.unknownPlan || latestCounts.rirTargetKnown < latestCounts.rirKnown ? "Part of the original prescription was not saved, so full target compliance cannot be reconstructed." : `Reps left were recorded for ${c.rirKnown} of ${c.sets} sets.`;
     action = missingRecovery ? "Answer the recovery check when due before increasing load." : "Keep recording reps left. Open Train for the current target; this review will not invent missing historical targets.";
-  } else if (calibration.state !== "calibrated" || latest.session.affectsProgression === false || data.program.returnPlan) {
+  } else if (calibration.state !== "calibrated" || latest.session.affectsProgression === false || exposure?.progressionEligible === false) {
     reason = "This exercise is building repeatable history or returning gradually. Reduced volume is intentional.";
     action = "Repeat the comfortable target in Train and record recovery before adding work.";
   } else if (latestCounts.plannedCompleted < latestCounts.planned) {
@@ -212,7 +208,7 @@ export function buildProgressAnalysis(data: TrainingData, period: ReviewPeriod, 
   const unknownExercises = filed.flatMap((session) => Object.entries(session.entries).filter(([key, entries]) => !storedExercise(session, key) && entries.some(hasValue))).length;
   const grouped = new Map<string, Occurrence[]>();
   selected.forEach((item) => grouped.set(item.identity, [...(grouped.get(item.identity) ?? []), item]));
-  const exercises = [...grouped.values()].map((items) => exerciseReview(cleaned, items, all, asOf));
+  const exercises = [...grouped.values()].map((items) => exerciseReview(cleaned, items, all));
   const adherence = buildScheduleAdherence(cleaned, start, end, asOf);
   const durationValues = filed.flatMap((session) => { const value = measuredSessionDuration(session); return value === null ? [] : [value]; });
   const workoutDifficulty = mean(filed.flatMap((session) => typeof session.sessionRpe === "number" && session.sessionRpe >= 1 && session.sessionRpe <= 10 ? [session.sessionRpe] : []));

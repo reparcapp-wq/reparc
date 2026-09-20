@@ -5,9 +5,8 @@ export function weeklyMuscleVolume(data: TrainingData, start: string, end: strin
   const rows = MUSCLES.map((muscle) => ({ muscle, direct: 0, indirect: 0, plannedDirect: 0, plannedIndirect: 0 }));
   const lookup = new Map(rows.map((row) => [row.muscle, row]));
   let unclassifiedSets = 0, inferredSets = 0, loggedSessions = 0;
-  const seen = new Set<string>();
   for (const session of activeSessions(data).filter((item) => item.date >= start && item.date <= end)) {
-    const id = session.logicalKey ?? session.id; if (seen.has(id)) continue; seen.add(id); loggedSessions += 1;
+    loggedSessions += 1;
     for (const [key, entries] of Object.entries(session.entries)) {
       const snapshot = session.planSnapshot?.exercises.find((item) => item.key === key);
       const exercise = snapshot ? { ...snapshot, alternatives: [] } : exerciseFromKey(key);

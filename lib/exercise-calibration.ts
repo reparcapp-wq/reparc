@@ -61,24 +61,29 @@ export function exerciseCalibration(data: TrainingData, exercise: Exercise, date
     const checks = data.exerciseRecovery.filter((check) => check.sessionId === item.session.id && check.exerciseIdentity === identity).sort((a,b) => a.updatedAt.localeCompare(b.updatedAt));
     const recovery = checks.at(-1);
     const filled = item.entries.filter((entry) => isFilledSet(entry, item.exercise));
-    const unsafe = ["pain", "severe-soreness", "symptoms"].includes(item.session.readiness ?? "") || checks.some((check) => check.status === "limiting" || check.status === "severe");
+    const unsafe = ["pain", "severe-soreness"].includes(item.session.readiness ?? "") || checks.some((check) => check.status === "limiting" || check.status === "severe");
     lastSets = filled.length;
     if (item.session.skippedExerciseKeys?.includes(item.key)) { goodDates = []; continue; }
     if (unsafe) { state = "recalibration"; goodDates = []; reset = true; continue; }
+    const failed = exposure
+      ? exposure.stateAtStart !== "calibrated" && filled.some((entry) => entry.rir !== "" && numeric(entry.rir) < 2)
+      : !item.exercise.sbsRole && filled.some((entry) => entry.rir !== "" && numeric(entry.rir) < 1);
+    if (failed) { state = "recalibration"; goodDates = []; reset = true; continue; }
+    if (item.session.readiness === "symptoms") {
+      if (state === "uncalibrated" && !reset && exposure) state = exposure.stateAtStart;
+      goodDates = []; continue; // Temporary symptoms hold promotion, not erase familiarity.
+    }
     if (!exposure) {
       // Legacy history is credited as history, without inventing a recovery response.
-      const knownFailure = !item.exercise.sbsRole && filled.some((entry) => entry.rir !== "" && numeric(entry.rir) < 1);
-      if (knownFailure) { state = "recalibration"; goodDates = []; reset = true; continue; }
       if (filled.length < item.exercise.sets) { goodDates = []; if (state === "uncalibrated") state = "preliminary"; continue; }
       goodDates.push(item.session.date);
       state = goodDates.length >= 3 ? "calibrated" : goodDates.length === 2 ? "developing" : "preliminary";
       continue;
     }
-    const failed = exposure.stateAtStart !== "calibrated" && filled.some((entry) => entry.rir !== "" && numeric(entry.rir) < 2);
-    if (failed) { state = "recalibration"; goodDates = []; reset = true; continue; }
     if (state === "uncalibrated" && !reset && exposure.stateAtStart !== "uncalibrated") state = exposure.stateAtStart;
-    const qualifies = filled.length >= exposure.prescribedSets
-      && filled.every((entry) => entry.rir !== "" && numeric(entry.rir) >= Math.max(2, exposure.targetRir - 2) && numeric(entry.rir) <= exposure.targetRir + 2 && numeric(entry.r) >= item.exercise.repLow && numeric(entry.r) <= item.exercise.repHigh)
+    const targetRir = exposure.targetRir;
+    const qualifies = targetRir !== undefined && filled.length >= exposure.prescribedSets
+      && filled.every((entry) => entry.rir !== "" && numeric(entry.rir) >= Math.max(2, targetRir - 2) && numeric(entry.rir) <= targetRir + 2 && numeric(entry.r) >= item.exercise.repLow && numeric(entry.r) <= item.exercise.repHigh)
       && goodRecovery(recovery?.status)
       && Date.parse(recovery!.createdAt) - Date.parse(item.session.completedAt ?? item.session.createdAt) >= EXPOSURE_POLICY.recoveryHours * 3_600_000;
     if (!qualifies) {

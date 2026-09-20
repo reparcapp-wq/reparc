@@ -1,7 +1,7 @@
 import { loadProfileId, exerciseFromKey, type TrainingData, type Session } from "@/lib/training";
 
 export const IMPROVEMENT_NOTICE_VERSION = "2026-09-07";
-export const RECOMMENDATION_VERSION = "11.0.1-policy2";
+export const RECOMMENDATION_VERSION = "12.0.3-policy3";
 export const IMPROVEMENT_RETENTION_DAYS = 180;
 export type ImprovementStatus = { available: boolean; enabled: boolean; noticeVersion?: string; grantedAt?: string; expiresAt?: string };
 
@@ -22,10 +22,13 @@ export function improvementSample(session: Session, data: TrainingData) {
       if (!exercise || !exposure) return [];
       return [{ identity: loadProfileId(exercise), policyVersion: exposure.policyVersion,
         state: exposure.stateAtStart, prescribedSets: exposure.prescribedSets,
-        suggestedLoad: exposure.suggestedLoad ?? null, targetRir: exposure.targetRir,
-        repLow: exposure.targetRepLow ?? exercise.repLow, repHigh: exposure.targetRepHigh ?? exercise.repHigh,
+        suggestedLoad: exposure.suggestedLoad ?? null, targetRir: exposure.targetRir ?? null,
+        repLow: exposure.targetRepLow ?? null, repHigh: exposure.targetRepHigh ?? null,
         sets: sets.map(({ w, r, rir }) => ({ load: w === "" ? null : Number(w), reps: r === "" ? null : Number(r), rir: rir === "" ? null : Number(rir) })),
-        recovery: data.exerciseRecovery.filter((check) => check.sessionId === session.id && check.exerciseIdentity === exposure.identity).map((check) => ({ status: check.status, hoursAfter: session.completedAt ? Math.max(0, Math.round((Date.parse(check.createdAt) - Date.parse(session.completedAt)) / 3_600_000)) : null })),
+        recovery: data.exerciseRecovery.filter((check) => check.sessionId === session.id && check.exerciseIdentity === exposure.identity).map((check) => {
+          const hours = session.completedAt ? (Date.parse(check.createdAt) - Date.parse(session.completedAt)) / 3_600_000 : NaN;
+          return { status: check.status, hoursAfter: Number.isFinite(hours) && hours >= 0 ? hours : null };
+        }),
       }];
     }),
   };

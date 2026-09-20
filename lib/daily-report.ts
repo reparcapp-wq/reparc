@@ -1,24 +1,19 @@
-import { nextSessionAdjustment, type AdjustmentConfidence, type LoadAdjustment } from "@/lib/autoregulation";
-import { constrainCalibrationAdjustment, exerciseCalibration } from "@/lib/exercise-calibration";
+import { type AdjustmentConfidence, type LoadAdjustment } from "@/lib/autoregulation";
+import { comparablePerformanceScore, performanceScorePoint } from "./performance-score";
 import { measuredSessionDuration } from "./session-duration";
 import {
   activeSessions,
-  bodyweightForSession,
   comparableExerciseHistory,
   convertWeight,
-  effectiveExerciseLoad,
-  estimatedOneRepMax,
   externalLoadVolume,
   exerciseFromKey,
   isFilledSet,
   isScheduledTrainingDate,
   loadProfileId,
-  loadProfileValues,
   numeric,
   resolvedSessionScheduleDates,
   sessionPlannedSets,
   sessionCountsAsCompletedDay,
-  supportsEstimatedMax,
   type Session,
   type TrainingData,
 } from "@/lib/training";
@@ -46,32 +41,35 @@ export function buildScheduleAdherence(data: TrainingData, startDate: string, en
   const trackingStart = setupDate && setupDate > startDate ? setupDate : startDate;
   if (!history.length || trackingStart < history[0].effectiveAt.slice(0, 10)) return { available: false, expectedSessions: 0, completedSessions: 0, loggedSessions: 0, adherencePercent: null, ...empty };
   const relevantAbsences = data.absences.filter((record) => record.endDate >= startDate && record.startDate <= effectiveEnd);
-  const plannedDates = new Set(relevantAbsences.filter((record) => record.reason === "planned" || record.resolution === "pause").flatMap((record) => record.missedDates));
-  let expectedSessions = 0;
+  const inRange = (date: string) => date >= trackingStart && date <= effectiveEnd;
+  const plannedDates = new Set(relevantAbsences.filter((record) => record.reason === "planned" || record.resolution === "pause").flatMap((record) => record.missedDates.filter(inRange)));
+  const expectedDates = new Set<string>();
   for (let cursor = new Date(`${startDate}T12:00:00.000Z`), end = new Date(`${effectiveEnd}T12:00:00.000Z`); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     const date = cursor.toISOString().slice(0, 10);
     if (setupDate && date < setupDate) continue;
     const plan = history.filter((change) => change.effectiveAt.slice(0, 10) <= date).at(-1);
     const status = plan?.status ?? data.program.status;
     const preferredWeekdays = plan?.preferredWeekdays ?? data.program.preferredWeekdays;
-    if (status === "active" && preferredWeekdays.includes(cursor.getUTCDay()) && !plannedDates.has(date)) expectedSessions += 1;
+    if (status === "active" && preferredWeekdays.includes(cursor.getUTCDay()) && !plannedDates.has(date)) expectedDates.add(date);
   }
+  const expectedSessions = expectedDates.size;
   const scheduleDates = resolvedSessionScheduleDates(data);
   const completedInRange = activeSessions(data).filter((session) => {
     const scheduledDate = scheduleDates.get(session.id) ?? session.date;
-    return scheduledDate >= startDate && scheduledDate <= effectiveEnd && sessionCountsAsCompletedDay(session, data);
+    return inRange(scheduledDate) && session.date <= asOfDate && sessionCountsAsCompletedDay(session, data);
   });
   const loggedSessions = new Set(completedInRange
     .map((session) => session.logicalKey ?? session.id)).size;
   const movedSessions = completedInRange.filter((session) => (scheduleDates.get(session.id) ?? session.date) !== session.date).length;
-  const skippedSessions = relevantAbsences.filter((record) => record.resolution === "skip").reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
-  const sorenessRecoverySessions = relevantAbsences
-    .filter((record) => record.resolution === "skip" && record.reason === "soreness")
-    .reduce((sum, record) => sum + record.resolvedDayIds.length, 0);
-  const externalSessions = relevantAbsences
+  const recordedDates = new Set(completedInRange.map((session) => scheduleDates.get(session.id) ?? session.date).filter((date) => expectedDates.has(date)));
+  const externalDates = new Set(relevantAbsences
     .filter((record) => record.resolution === "trained-elsewhere")
-    .reduce((sum, record) => sum + record.missedDates.filter((date) => date >= startDate && date <= effectiveEnd).length, 0);
-  const completedSessions = Math.min(expectedSessions, loggedSessions + externalSessions);
+    .flatMap((record) => record.missedDates).filter((date) => expectedDates.has(date) && !recordedDates.has(date)));
+  const completedDates = new Set([...recordedDates, ...externalDates]);
+  const skippedSessions = new Set(relevantAbsences.filter((record) => record.resolution === "skip").flatMap((record) => record.missedDates).filter((date) => expectedDates.has(date) && !completedDates.has(date))).size;
+  const sorenessRecoverySessions = new Set(relevantAbsences.filter((record) => record.resolution === "skip" && record.reason === "soreness").flatMap((record) => record.missedDates).filter((date) => expectedDates.has(date) && !completedDates.has(date))).size;
+  const externalSessions = externalDates.size;
+  const completedSessions = completedDates.size;
   return {
     available: true,
     expectedSessions,
@@ -131,20 +129,6 @@ const exerciseForSession = (session: Session, key: string) => {
   return snapshot ? { ...snapshot, alternatives: [] } : exerciseFromKey(key);
 };
 
-const bestEstimatedMax = (data: TrainingData, session: Session, key: string, targetUnit: "kg" | "lb") => {
-  const exercise = exerciseForSession(session, key);
-  if (!exercise || !supportsEstimatedMax(exercise)) return 0;
-  return (session.entries[key] ?? []).reduce((best, entry) => {
-    if (!isFilledSet(entry, exercise)) return best;
-    const reps = numeric(entry.r);
-    if (reps < 4 || reps > 10) return best;
-    const externalLoad = convertWeight(numeric(entry.w), session.unit, targetUnit);
-    const bodyweight = bodyweightForSession(data, session, targetUnit);
-    const effectiveLoad = effectiveExerciseLoad(exercise, externalLoad, bodyweight);
-    return Math.max(best, estimatedOneRepMax(effectiveLoad, reps));
-  }, 0);
-};
-
 const plannedSetsFor = (data: TrainingData, session: Session) => {
   return sessionPlannedSets(session, data);
 };
@@ -192,20 +176,23 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     const latest = occurrences.at(-1)!;
     const exercise = latest.exercise;
     const completed = occurrences.flatMap((occurrence) => occurrence.entries.filter((entry) => isFilledSet(entry, occurrence.exercise)));
-    const todayBest = Math.max(0, ...occurrences.map((occurrence) => bestEstimatedMax(data, occurrence.session, occurrence.key, profile.unit)));
-    const history = comparableExerciseHistory(data, exercise)
-      .filter((occurrence) => occurrence.session.date < date);
-    const priorBest = Math.max(0, ...history.map((occurrence) => bestEstimatedMax(data, occurrence.session, occurrence.key, profile.unit)));
+    const point = performanceScorePoint(latest.session, latest.key, profile.unit);
+    const todayBest = point?.value ?? 0;
+    const history = [...new Map(comparableExerciseHistory(data, exercise)
+      .filter((occurrence) => occurrence.session.date < latest.session.date)
+      .map((occurrence) => performanceScorePoint(occurrence.session, occurrence.key, profile.unit))
+      .filter((prior) => comparablePerformanceScore(point, prior))
+      .map((prior) => [prior!.date, prior!])).values()];
+    const priorBest = Math.max(0, ...history.map((prior) => prior.value));
     const changePercent = priorBest > 0 && todayBest > 0 ? ((todayBest - priorBest) / priorBest) * 100 : null;
     if (history.length >= 2) {
       const previous = history.at(-1)!;
-      const baseline = Math.max(0, ...history.slice(0, -1).map((occurrence) => bestEstimatedMax(data, occurrence.session, occurrence.key, profile.unit)));
-      const previousBest = bestEstimatedMax(data, previous.session, previous.key, profile.unit);
+      const baseline = Math.max(0, ...history.slice(0, -1).map((prior) => prior.value));
+      const previousBest = previous.value;
       if (baseline > 0 && previousBest >= baseline * 1.05 && todayBest >= previousBest * 0.99) establishedImprovementIds.add(identity);
     }
-    const recommendationEntries = latest.entries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), latest.session.unit, profile.unit)) });
-    const followingDay = new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-    const rawRecommendation = nextSessionAdjustment({ exercise, entries: recommendationEntries, unit: profile.unit, readiness: latest.session.readiness, availableLoads: loadProfileValues(data.loadProfiles[identity] ?? data.loadProfiles[latest.key], profile.unit) });
+    const unsafe = latest.session.readiness === "pain" || latest.session.readiness === "severe-soreness"
+      || data.exerciseRecovery.some((check) => check.sessionId === latest.session.id && check.exerciseIdentity === identity && (check.status === "limiting" || check.status === "severe"));
     return {
       key: identity,
       name: exercise.name,
@@ -215,7 +202,11 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
       bestEstimatedMax: todayBest,
       priorBestEstimatedMax: priorBest,
       changePercent,
-      recommendation: latest.session.skippedExerciseKeys?.includes(latest.key) ? { action: "hold", nextLoad: null, confidence: "low", reason: "This exercise was stopped. Check that it suits you and that you recovered before trying it again; this workout will not cause an increase.", evidence: ["exercise stopped / skipped"] } : exercise.sbsRole ? { action: "hold", nextLoad: null, confidence: "low", reason: "Follow this lift’s Phase 2 instructions in Train. Your final effort set can change its planning number only after starting-level and recovery checks pass.", evidence: ["exercise-specific Phase 2 progression"] } : latest.session.exerciseExposures?.[latest.key] ? constrainCalibrationAdjustment(rawRecommendation, exerciseCalibration(data, exercise, followingDay)) : rawRecommendation,
+      recommendation: unsafe
+        ? { action: "stop", nextLoad: null, confidence: "low", reason: "Pain or movement-limiting recovery was recorded. Do not train this area while movement is limited. Check recovery before resuming.", evidence: ["recorded pain / adverse recovery"] }
+        : { action: "hold", nextLoad: null, confidence: "low", reason: latest.session.skippedExerciseKeys?.includes(latest.key)
+          ? "This exercise was stopped. Check that it is suitable and comfortable before resuming; open Train for its current target."
+          : "Open Train for the next load and reps. It checks your current recovery, starting level, equipment and program together; this past report does not prescribe a new weight.", evidence: ["historical report; current prescription stays in Train"] },
     };
   });
 
@@ -247,11 +238,11 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     : sessions.length > 1
       ? `${sessions.length} separate workouts were completed on this date.`
     : establishedPerformanceImprovements > 0
-      ? `${establishedPerformanceImprovements} exercise${establishedPerformanceImprovements === 1 ? "" : "s"} repeated a positive performance trend.`
+      ? `${establishedPerformanceImprovements} exercise${establishedPerformanceImprovements === 1 ? "" : "s"} repeated a higher first-set load–rep score at the same reported effort. This is not measured strength gain.`
       : possiblePerformanceImprovements > 0
-        ? `${possiblePerformanceImprovements} exercise${possiblePerformanceImprovements === 1 ? "" : "s"} showed a possible improvement that needs another comparable exposure.`
+        ? `${possiblePerformanceImprovements} exercise${possiblePerformanceImprovements === 1 ? "" : "s"} recorded a higher first-set load–rep score at the same reported effort. Confirm it with another comparable workout.`
       : completionPercent >= 100
-        ? "The planned work was completed without a clear performance change."
+        ? "The planned work was completed. Open progress analysis to review comparable exercise results."
         : "Today adds useful history, but the incomplete workout is not enough to support an increase.";
   const summary = !sessions.length
     ? status === "missed"

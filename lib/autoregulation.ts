@@ -92,7 +92,8 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness, availabl
     };
   }
 
-  if (rir !== null && rir >= 4 && reps >= exercise.repLow && !conservativeReadiness(readiness)) {
+  if (rir !== null && rir >= 4 && reps >= exercise.repLow && !conservativeReadiness(readiness)
+    && completed.every((entry) => entry.rir !== "" && numeric(entry.rir) >= 1)) {
     if (!exercise.bodyweight && !practicalIncrease) {
       return {
         action: "hold",
@@ -163,7 +164,7 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
     };
   }
 
-  if (anyBelow && averageRir !== null && averageRir <= 1) {
+  if (completed.some((entry) => numeric(entry.r) < exercise.repLow && entry.rir !== "" && numeric(entry.rir) <= 1)) {
     return {
       action: "decrease",
       nextLoad: exercise.bodyweight ? null : lowerLoad,
@@ -193,6 +194,19 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
     };
   }
 
+  // Averages must never conceal failure or treat missing effort as successful work.
+  if (rirValues.length !== completed.length || rirValues.some((value) => value < 1)) {
+    return {
+      action: "hold",
+      nextLoad: exercise.bodyweight ? null : representativeLoad,
+      confidence: rirValues.length !== completed.length ? "low" : confidence,
+      reason: rirValues.some((value) => value < 1)
+        ? "At least one set had fewer than one good rep left. Do not increase the weight; leave the prescribed reps left next time. Reduce it if needed."
+        : "Reps left were not recorded for every set. Keep the weight the same until the effort of all planned sets is known.",
+      evidence,
+    };
+  }
+
   if (allAtTop && loadSpread <= comparisonIncrement && averageRir !== null && averageRir >= 1) {
     if (!exercise.bodyweight && !practicalIncrease) {
       return {
@@ -212,7 +226,7 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
     };
   }
 
-  if (averageRir !== null && averageRir >= 4 && loadSpread <= comparisonIncrement) {
+  if (rirValues.length === completed.length && rirValues.every((value) => value >= 4) && loadSpread <= comparisonIncrement) {
     if (!exercise.bodyweight && !practicalIncrease) {
       return {
         action: "hold",

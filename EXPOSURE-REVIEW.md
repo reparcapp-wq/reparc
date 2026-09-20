@@ -31,6 +31,8 @@ The external reviewer is right to prioritize volume as well as load. Their exact
 
 ## External feedback: checked status
 
+Historical status: the table below describes the 10.5 release, not today's open-issue list. As of the 12.0.3 audit, structured exercise metadata, weekly direct/supporting muscle totals, three-way clock-independent reconciliation, archival storage and nonce-based script CSP have shipped. Goal emphasis selects lower-volume eligible muscles from metadata and checks a weekly 18-direct-set product ceiling before adding an accessory set; it is no longer a first-name-match rule. That ceiling is not a validated universal target. Familiarity still uses an explicit movement-family registry and never transfers kilograms. External acceptance and coach sign-off are not closed merely by those implementations. See FINAL-SAFETY-AUDIT-12.0.3.md for this audit's specific fixes and limits.
+
 | Claim | Result |
 | --- | --- |
 | Bad demographic starting-load formula removed, first-exposure volume missing | Correct at 10.4.1. This release supplies the exercise-specific ramp. |

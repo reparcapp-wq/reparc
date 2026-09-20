@@ -28,7 +28,7 @@ export type ExerciseExposureSnapshot = {
   noveltyRisk: ExerciseNoveltyRisk;
   prescribedSets: number;
   originalSets: number;
-  targetRir: number;
+  targetRir?: number;
   relatedHistory: boolean;
   startingLoadSource: "guided" | "user";
   progressionEligible: boolean;
@@ -230,6 +230,7 @@ export type ProgramState = {
   phase2UnlockedAt?: string;
   weekRecords: WeekRecord[];
   trainingMaxes: Record<string, number>;
+  trainingMaxReviews?: Array<{ id: string; at: string; date: string; unit: Unit; values: Record<string, number> }>;
   returnPlan?: ReturnPlan;
 };
 
@@ -1219,7 +1220,16 @@ const defaultWeekdays = (frequency: TrainingFrequency) =>
   frequency === 3 ? [1, 3, 5] : frequency === 4 ? [1, 2, 4, 5] : [1, 2, 4, 5, 6];
 
 export const isActiveSession = (session: Session) => !session.deletedAt;
-export const activeSessions = (data: Pick<TrainingData, "sessions">) => data.sessions.filter(isActiveSession);
+export function currentSessionRecords(data: Pick<TrainingData, "sessions">) {
+  const newer = (a: Session, b: Session) => a.revision > b.revision
+    || a.revision === b.revision && (a.updatedAt > b.updatedAt || a.updatedAt === b.updatedAt && !!a.deletedAt && !b.deletedAt);
+  const ids = new Map<string, Session>();
+  for (const session of data.sessions) { const previous = ids.get(session.id); if (!previous || newer(session, previous)) ids.set(session.id, session); }
+  const logical = new Map<string, Session>();
+  for (const session of ids.values()) { const key = session.logicalKey ?? session.id; const previous = logical.get(key); if (!previous || newer(session, previous)) logical.set(key, session); }
+  return [...logical.values()];
+}
+export const activeSessions = (data: Pick<TrainingData, "sessions">) => currentSessionRecords(data).filter(isActiveSession);
 export const activeWeighIns = (data: Pick<TrainingData, "weighIns">) => data.weighIns.filter((entry) => !entry.deletedAt);
 
 const shiftDate = (date: string, days: number) => {
@@ -1332,39 +1342,65 @@ export const comparableExerciseHistory = (data: TrainingData, target: Exercise):
     .sort((left, right) => left.session.date.localeCompare(right.session.date) || left.session.createdAt.localeCompare(right.session.createdAt));
 };
 
+// Historical set values and recommendation metadata share the session's unit.
+// Convert them together when editing history in a different display unit.
+export function sessionInUnit(session: Session, unit: Unit): Session {
+  if (session.unit === unit) return session;
+  const convertMap = (values?: Record<string, number>) => values && Object.fromEntries(Object.entries(values).map(([key, value]) => [key, convertWeight(value, session.unit, unit)]));
+  return {
+    ...session, unit,
+    entries: Object.fromEntries(Object.entries(session.entries).map(([key, sets]) => [key, sets.map((entry) => ({ ...entry, w: entry.w === "" ? "" : String(Math.round(convertWeight(numeric(entry.w), session.unit, unit) * 100) / 100) }))])),
+    trainingMaxesBefore: convertMap(session.trainingMaxesBefore), trainingMaxesAfter: convertMap(session.trainingMaxesAfter),
+    bodyweightAtSession: session.bodyweightAtSession === undefined ? undefined : convertWeight(session.bodyweightAtSession, session.unit, unit),
+    exerciseExposures: session.exerciseExposures && Object.fromEntries(Object.entries(session.exerciseExposures).map(([key, exposure]) => [key, { ...exposure, suggestedLoad: exposure.suggestedLoad == null ? exposure.suggestedLoad : convertWeight(exposure.suggestedLoad, session.unit, unit) }])),
+  };
+}
+
 export function recalculatePhase2Progression(data: TrainingData): TrainingData {
+  // Keep replay values in one physical unit; snapshots remain in their session unit.
   const rolling: Record<string, number> = {};
   const managedKeys = new Set<string>();
-  const revisedById = new Map<string, Session>();
-  const phaseTwoSessions = data.sessions
+  const revisedByRecord = new Map<Session, Session>();
+  const phaseTwoSessions = currentSessionRecords(data)
     .filter((session) => session.programId === "phase2")
     .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt) || (left.programWeek ?? 1) - (right.programWeek ?? 1));
   phaseTwoSessions.forEach((session) => {
     Object.keys(session.trainingMaxesBefore ?? {}).forEach((key) => {
       managedKeys.add(key);
-      if (rolling[key] === undefined) rolling[key] = session.trainingMaxesBefore![key];
+      if (rolling[key] === undefined) rolling[key] = convertWeight(session.trainingMaxesBefore![key], session.unit, "kg");
     });
     Object.keys(session.trainingMaxesAfter ?? {}).forEach((key) => managedKeys.add(key));
   });
-  phaseTwoSessions
-    .filter((session) => !session.deletedAt)
-    .forEach((session) => {
-      const before = { ...(session.trainingMaxesBefore ?? {}) };
-      const after = { ...(session.trainingMaxesAfter ?? {}) };
+  const replay = (session: Session, values: Record<string, number>, onlyKeys?: Set<string>) => {
+      const saved = revisedByRecord.get(session) ?? session;
+      const before = { ...(saved.trainingMaxesBefore ?? {}) };
+      const after = { ...(saved.trainingMaxesAfter ?? {}) };
       Object.entries(session.entries).forEach(([key, sets]) => {
         const exercise = exerciseForSessionKey(session, key);
-        if (!exercise?.sbsRole) return;
+        if (!exercise?.sbsRole || (onlyKeys && !onlyKeys.has(key))) return;
         managedKeys.add(key);
-        const base = rolling[key]
-          ?? before[key]
-          ?? before[exercise.id]
-          ?? data.program.trainingMaxes[key]
-          ?? data.program.trainingMaxes[exercise.id];
+        const historicalBase = before[key] ?? before[exercise.id];
+        const baseKg = values[key]
+          ?? (historicalBase ? convertWeight(historicalBase, session.unit, "kg") : undefined)
+          ?? convertWeight(data.program.trainingMaxes[key] ?? data.program.trainingMaxes[exercise.id] ?? 0, data.profile?.unit ?? "kg", "kg");
+        const base = convertWeight(baseKg, "kg", session.unit);
         if (!base || !Number.isFinite(base) || base <= 0) return;
         before[key] = base;
         const finalSet = sets[exercise.sets - 1];
         const prescription = sbsPrescription(exercise.sbsRole, session.programWeek ?? 1);
+        const exposure = session.exerciseExposures?.[key];
+        // A final-set result is only meaningful at the load actually prescribed.
+        // Legacy records without a captured equipment load can only match the exact percentage.
+        const expectedLoad = exposure ? exposure.suggestedLoad : base * prescription.intensity;
+        const prescribedWork = expectedLoad != null && expectedLoad > 0
+          && sets.length === exercise.sets
+          && sets.every((entry, index) => isFilledSet(entry, exercise)
+            && Math.abs(convertWeight(numeric(entry.w) - expectedLoad, session.unit, "kg")) < .01
+            && (index === exercise.sets - 1 || numeric(entry.r) === prescription.normalReps));
+        const adverseRecovery = data.exerciseRecovery.some((check) => check.sessionId === session.id && check.exerciseIdentity === loadProfileId(exercise) && (check.status === "limiting" || check.status === "severe"));
         const progressionEligible = session.affectsProgression !== false
+          && prescribedWork && !adverseRecovery
+          && (!session.readiness || session.readiness === "normal")
           && !session.skippedExerciseKeys?.length
           && session.exerciseExposures?.[key]?.progressionEligible !== false
           && session.completionStatus !== "partial"
@@ -1372,15 +1408,25 @@ export function recalculatePhase2Progression(data: TrainingData): TrainingData {
         after[key] = !progressionEligible || !finalSet || !isFilledSet(finalSet, exercise) || prescription.deload
           ? base
           : base * (1 + sbsTrainingMaxChange(numeric(finalSet.r), prescription.repOutTarget));
-        rolling[key] = after[key];
+        values[key] = convertWeight(after[key], session.unit, "kg");
       });
-      revisedById.set(session.id, { ...session, trainingMaxesBefore: before, trainingMaxesAfter: after });
-    });
+      revisedByRecord.set(session, { ...session, trainingMaxesBefore: before, trainingMaxesAfter: after });
+  };
+  phaseTwoSessions.filter((session) => !session.deletedAt).forEach((session) => replay(session, rolling));
+  for (const review of [...(data.program.trainingMaxReviews ?? [])].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id))) {
+    const reviewed = Object.fromEntries(Object.entries(review.values).map(([key, value]) => [key, convertWeight(value, review.unit, "kg")]));
+    const keys = new Set(Object.keys(reviewed));
+    // Updates to old records must not masquerade as workouts after a manual review.
+    phaseTwoSessions.filter((session) => !session.deletedAt && session.date >= review.date
+      && Date.parse(session.startedAt ?? session.completedAt ?? session.createdAt) > Date.parse(review.at))
+      .forEach((session) => replay(session, reviewed, keys));
+    Object.assign(rolling, reviewed);
+  }
   return {
     ...data,
-    sessions: data.sessions.map((session) => revisedById.get(session.id) ?? session),
+    sessions: data.sessions.map((session) => revisedByRecord.get(session) ?? session),
     program: data.program.activeId === "phase2"
-      ? { ...data.program, trainingMaxes: { ...Object.fromEntries(Object.entries(data.program.trainingMaxes).filter(([key]) => !managedKeys.has(key))), ...rolling } }
+      ? { ...data.program, trainingMaxes: { ...Object.fromEntries(Object.entries(data.program.trainingMaxes).filter(([key]) => !managedKeys.has(key))), ...Object.fromEntries(Object.entries(rolling).map(([key, value]) => [key, convertWeight(value, "kg", data.profile?.unit ?? "kg")])) } }
       : data.program,
   };
 }
@@ -1601,6 +1647,8 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
         const noveltyRisk: ExerciseNoveltyRisk = exposure.noveltyRisk === "low" || exposure.noveltyRisk === "moderate" ? exposure.noveltyRisk : "high";
         const prescribedSets = Math.max(1, Math.min(10, Math.trunc(numeric(exposure.prescribedSets) || 1)));
         const originalSets = Math.max(prescribedSets, Math.min(10, Math.trunc(numeric(exposure.originalSets) || prescribedSets)));
+        const repLow = Number(exposure.targetRepLow), repHigh = Number(exposure.targetRepHigh);
+        const savedRange = Number.isInteger(repLow) && Number.isInteger(repHigh) && repLow >= 1 && repHigh <= 100 && repHigh >= repLow && !(repLow === 1 && repHigh === 100);
         return [[key, {
           policyVersion: 1 as const,
           identity: typeof exposure.identity === "string" && exposure.identity.trim() ? exposure.identity.slice(0, 160) : key.slice(0, 160),
@@ -1608,13 +1656,13 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
           noveltyRisk,
           prescribedSets,
           originalSets,
-          targetRir: Math.max(1, Math.min(5, Math.trunc(numeric(exposure.targetRir) || 3))),
+          targetRir: typeof exposure.targetRir === "number" && Number.isInteger(exposure.targetRir) && exposure.targetRir >= 1 && exposure.targetRir <= 5 ? exposure.targetRir : undefined,
           relatedHistory: exposure.relatedHistory === true,
           startingLoadSource: exposure.startingLoadSource === "user" ? "user" as const : "guided" as const,
           progressionEligible: exposure.progressionEligible === true && stateAtStart === "calibrated",
           suggestedLoad: typeof exposure.suggestedLoad === "number" && exposure.suggestedLoad >= 0 && exposure.suggestedLoad <= 2_000 ? exposure.suggestedLoad : null,
-          targetRepLow: Math.max(1, Math.min(100, Math.trunc(numeric(exposure.targetRepLow) || 1))),
-          targetRepHigh: Math.max(1, Math.min(100, Math.trunc(numeric(exposure.targetRepHigh) || 100))),
+          targetRepLow: savedRange ? repLow : undefined,
+          targetRepHigh: savedRange ? repHigh : undefined,
         } satisfies ExerciseExposureSnapshot]];
       }).slice(0, 50))
     : undefined;
@@ -1632,7 +1680,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     date: session.date,
     scheduledDate: isValidDateOnly(session.scheduledDate) && session.scheduledDate <= session.date ? session.scheduledDate : undefined,
     dayId: session.dayId,
-    unit: session.unit === "lb" ? "lb" : fallbackUnit,
+    unit: session.unit === "lb" || session.unit === "kg" ? session.unit : fallbackUnit,
     entries,
     programId: session.programId === "phase1" || session.programId === "phase2" ? session.programId : undefined,
     programWeek: typeof session.programWeek === "number" && session.programWeek >= 1 && session.programWeek <= 21
@@ -1661,7 +1709,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     completionStatus: session.completionStatus === "completed" || session.completionStatus === "adjusted" || session.completionStatus === "skipped" || session.completionStatus === "partial" ? session.completionStatus : undefined,
     skippedExerciseKeys: normalizeSkippedExercises(session.skippedExerciseKeys),
     affectsProgression: session.affectsProgression !== false,
-    bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= ((session.unit === "lb" ? "lb" : fallbackUnit) === "kg" ? 300 : 660) ? Number(session.bodyweightAtSession) : undefined,
+    bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= ((session.unit === "lb" || session.unit === "kg" ? session.unit : fallbackUnit) === "kg" ? 300 : 660) ? Number(session.bodyweightAtSession) : undefined,
     planSnapshot: normalizePlanSnapshot(session.planSnapshot),
     exerciseExposures,
     logicalKey: typeof session.logicalKey === "string" ? session.logicalKey : undefined,
@@ -1733,14 +1781,20 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     : [];
   const preferredWeekdays = preferredWeekdaysSource.length === frequency ? preferredWeekdaysSource : defaultWeekdays(frequency);
   const trainingMaxes = rawProgram.trainingMaxes && typeof rawProgram.trainingMaxes === "object"
-    ? Object.fromEntries(Object.entries(rawProgram.trainingMaxes as Record<string, unknown>).flatMap(([key, value]) => Number(value) > 0 ? [[key, Number(value)]] : []))
+    ? Object.fromEntries(Object.entries(rawProgram.trainingMaxes as Record<string, unknown>).flatMap(([key, value]) => Number.isFinite(Number(value)) && Number(value) > 0 ? [[key, Number(value)]] : []))
     : {};
+  const trainingMaxReviews = Array.isArray(rawProgram.trainingMaxReviews) ? rawProgram.trainingMaxReviews.flatMap((value) => {
+    const review = value as Partial<NonNullable<ProgramState["trainingMaxReviews"]>[number]> | null;
+    return review && typeof review.id === "string" && typeof review.at === "string" && Number.isFinite(Date.parse(review.at)) && isValidDateOnly(review.date)
+      && (review.unit === "kg" || review.unit === "lb") && review.values && typeof review.values === "object" && !Array.isArray(review.values)
+      ? [{ id: review.id, at: new Date(review.at).toISOString(), date: review.date, unit: review.unit, values: Object.fromEntries(Object.entries(review.values).filter(([key, number]) => key.length <= 160 && Number.isFinite(number) && number > 0 && number <= 2_000)) }] : [];
+  }) : undefined;
   const rawWeighIns = Array.isArray(source.weighIns) ? source.weighIns : [];
   const weighIns: WeighIn[] = rawWeighIns.flatMap((item, index) => {
     if (!item || typeof item !== "object") return [];
     const entry = item as Record<string, unknown>;
     const weight = numeric(entry.weight);
-    const entryUnit: Unit = entry.unit === "lb" ? "lb" : fallbackUnit;
+    const entryUnit: Unit = entry.unit === "lb" || entry.unit === "kg" ? entry.unit : fallbackUnit;
     if (!isValidDateOnly(entry.date) || weight < 25 || weight > (entryUnit === "kg" ? 300 : 660)) return [];
     const fallbackTime = `${entry.date}T08:00:00.000Z`;
     return [{
@@ -1901,6 +1955,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       phase2UnlockedAt,
       weekRecords,
       trainingMaxes,
+      trainingMaxReviews,
       returnPlan,
     },
   };
@@ -1941,6 +1996,11 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     const existing = exerciseRecovery.get(record.id);
     if (!existing || record.updatedAt >= existing.updatedAt) exerciseRecovery.set(record.id, record);
   });
+  const resetTrack = newer.program.activeId === "phase1" && !newer.program.phase2UnlockedAt && !newer.program.trainingMaxReviews;
+  const trainingMaxReviews = resetTrack ? undefined : [...new Map([
+    ...(newer === left ? right : left).program.trainingMaxReviews ?? [],
+    ...newer.program.trainingMaxReviews ?? [],
+  ].map((review) => [review.id, review])).values()].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
   return recalculatePhase2Progression({
     version: 9,
     updatedAt: new Date(Math.max(Date.parse(left.updatedAt), Date.parse(right.updatedAt))).toISOString(),
@@ -1949,7 +2009,7 @@ export function mergeTrainingData(left: TrainingData, right: TrainingData): Trai
     profile: newer.profile,
     swaps: newer.swaps,
     loadProfiles: Object.fromEntries(loadProfiles),
-    program: newer.program,
+    program: { ...newer.program, trainingMaxReviews },
     planHistory: [...planChanges.values()].sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt)).slice(-2_000),
     absences: [...absences.values()].sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(-2_000),
     exerciseRecovery: [...exerciseRecovery.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-10_000),

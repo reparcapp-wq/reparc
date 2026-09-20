@@ -59,6 +59,7 @@ import { exerciseGuidance } from "@/lib/exercise-guidance";
 import { buildExposurePlan, calibrationSetCount, CALIBRATION_LABELS, constrainCalibrationAdjustment, exerciseCalibration, loadAtOrBelow, preserveLegacyDraft, restrictActiveExposure } from "@/lib/exercise-calibration";
 import { nextSessionAdjustment, nextSetAdjustment, type LoadAdjustment } from "@/lib/autoregulation";
 import { buildDailyReport, buildScheduleAdherence } from "@/lib/daily-report";
+import { comparablePerformanceScore, performanceScorePoint } from "@/lib/performance-score";
 import { measuredSessionDuration, sessionTiming } from "@/lib/session-duration";
 import { ProgressAnalysisView } from "@/components/progress-analysis";
 import { TrainingGuide } from "@/components/training-guide";
@@ -74,14 +75,11 @@ import {
   absenceDayIds,
   buildReturnPlan,
   buildSessionPlanSnapshot,
-  bodyweightForSession,
   comparableExerciseHistory,
   convertWeight,
   CURRENT_TERMS_VERSION,
-  effectiveExerciseLoad,
   emptyData,
   detectMissedTraining,
-  estimatedOneRepMax,
   exerciseNeedsLoad,
   exerciseFromKey,
   exerciseKey,
@@ -99,13 +97,12 @@ import {
   resolvedSessionScheduleDates,
   recordPlanChange,
   resolveExerciseVariant,
-  resolveAvailableLoad,
   roundLoad,
   sbsPrescription,
   sessionCountsAsCompletedDay,
   sessionEntriesForDay,
   sessionLogicalKey,
-  supportsEstimatedMax,
+  sessionInUnit,
   phase2DataConfidence,
   phaseTwoProgrammedExercises,
   suggestedTrainingMax,
@@ -748,29 +745,21 @@ export function ProgressView({
   const activeWeeks = new Set(sessions.map((session) => weekKey(session.date))).size;
 
   const series = useMemo(() => {
-    const byExercise: Record<string, { name: string; points: Array<{ date: string; value: number }> }> = {};
+    const byExercise: Record<string, { name: string; points: Array<NonNullable<ReturnType<typeof performanceScorePoint>>> }> = {};
     [...sessions]
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .sort((left, right) => left.date.localeCompare(right.date) || left.createdAt.localeCompare(right.createdAt))
       .forEach((session) => {
-        Object.entries(session.entries).forEach(([key, entries]) => {
+        Object.keys(session.entries).forEach((key) => {
           const exercise = storedExercise(session, key);
-          const best = entries.reduce((maximum, entry) => {
-            if (!isFilledSet(entry, exercise)) return maximum;
-            const reps = numeric(entry.r);
-            if (reps < 4 || reps > 10 || !supportsEstimatedMax(exercise)) return maximum;
-            const external = convertWeight(numeric(entry.w), session.unit, profile.unit);
-            const bodyweight = bodyweightForSession(data, session, profile.unit);
-            const load = exercise ? effectiveExerciseLoad(exercise, external, bodyweight) : external;
-            return Math.max(maximum, estimatedOneRepMax(load, reps));
-          }, 0);
-          if (!best || !exercise) return;
+          const point = performanceScorePoint(session, key, profile.unit);
+          if (!point || !exercise) return;
           const identity = loadProfileId(exercise);
           if (!byExercise[identity]) byExercise[identity] = { name: exercise.name, points: [] };
-          byExercise[identity].points.push({ date: session.date, value: best });
+          byExercise[identity].points.push(point);
         });
       });
     return byExercise;
-  }, [data, sessions, profile.unit]);
+  }, [sessions, profile.unit]);
 
   const addWeighIn = async () => {
     const weight = Number(weighValue);
@@ -938,7 +927,7 @@ export function ProgressView({
           <p className="eyebrow text-amber-300">Performance archive</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em]">Your progress</h1>
           <p className="mt-2 text-sm leading-6 text-stone-500">Every session becomes a clearer next target. Trends use the unit selected in Setup.</p>
-          {onAnalysis && <Button type="button" onClick={onAnalysis} className="mt-4 min-h-12 w-full rounded-2xl bg-amber-300 text-[#0b0d0c] hover:bg-amber-200"><BarChart3 className="size-5" />Open progress analysis<ArrowUpRight className="size-4" /></Button>}
+          {onAnalysis && <Button type="button" onClick={onAnalysis} className="brand-action mt-4 min-h-12 w-full rounded-2xl"><BarChart3 className="size-5" />Open progress analysis<ArrowUpRight className="size-4" /></Button>}
 
           <div className="motion-stagger mt-6 grid grid-cols-3 gap-2 lg:grid-cols-1">
             {[
@@ -1139,7 +1128,9 @@ export function ProgressView({
                       </summary>
                       <div className="border-t border-white/[0.07]">
                       {movements.map(([identity, name]) => {
-                        const points = (series[identity]?.points ?? []).map((point) => point.value).slice(-12);
+                        const candidates = (series[identity]?.points ?? []).filter((point) => point.date >= bounds.start && point.date <= bounds.end);
+                        const anchor = candidates.at(-1) ?? null;
+                        const points = [...new Map(candidates.filter((point) => comparablePerformanceScore(anchor, point)).map((point) => [point.date, point.value])).values()].slice(-12);
                         const first = points[0] ?? 0;
                         const latest = points.at(-1) ?? 0;
                         const delta = latest - first;
@@ -1148,7 +1139,7 @@ export function ProgressView({
                           <div key={identity} className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-3 border-t border-white/[0.07] px-4 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_6rem_4.5rem] sm:px-5">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium">{name}</p>
-                              <p className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-stone-600">Estimated strength trend</p>
+                              <p className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-stone-600">First-set load–rep score · same reported effort, not measured strength</p>
                             </div>
                             <div className="hidden sm:block"><Sparkline points={points} /></div>
                             <span className={`text-right font-mono text-[11px] ${deltaPercent >= 5 ? "text-amber-300" : deltaPercent <= -5 ? "text-red-300" : "text-stone-600"}`}>
@@ -1344,7 +1335,7 @@ function SettingsView({
     const now = new Date().toISOString();
     const next = recordPlanChange({
       ...data,
-      program: { ...data.program, activeId: "phase2" as const, week: data.program.phase2UnlockedAt ? data.program.week : 1, trainingMaxes, calibrationRequired: true, phase1CompletedAt: data.program.phase1CompletedAt ?? now, phase2UnlockedAt: data.program.phase2UnlockedAt ?? now },
+      program: { ...data.program, activeId: "phase2" as const, week: data.program.phase2UnlockedAt ? data.program.week : 1, trainingMaxes, trainingMaxReviews: [...(data.program.trainingMaxReviews ?? []), { id: globalThis.crypto.randomUUID(), at: now, date: isoDate(new Date()), unit: profile.unit, values: { ...trainingMaxes } }], calibrationRequired: true, phase1CompletedAt: data.program.phase1CompletedAt ?? now, phase2UnlockedAt: data.program.phase2UnlockedAt ?? now },
       updatedAt: now,
     }, "program", now);
     const saved = await onUpdate(next, "Phase 2 unlocked — review complete");
@@ -1407,7 +1398,7 @@ function SettingsView({
     if (gender === profile.gender) return;
     const programTrack = trainingTrack(gender);
     const now = new Date().toISOString();
-    const next = recordPlanChange({ ...data, profile: { ...profile, gender, programTrack }, program: { ...data.program, activeId: "phase1" as const, week: 1, status: "active" as const, calibrationRequired: true, phase1CompletedAt: undefined, phase2UnlockedAt: undefined, trainingMaxes: {} }, updatedAt: now }, "profile", now);
+    const next = recordPlanChange({ ...data, profile: { ...profile, gender, programTrack }, program: { ...data.program, activeId: "phase1" as const, week: 1, status: "active" as const, calibrationRequired: true, phase1CompletedAt: undefined, phase2UnlockedAt: undefined, trainingMaxes: {}, trainingMaxReviews: undefined }, updatedAt: now }, "profile", now);
     const saved = await onUpdate(next, "Gender and automatic training track updated");
     setMessage(saved ? "Gender updated. The matching Foundation track is now active; history remains available." : "The profile change could not be saved.");
   };
@@ -2309,15 +2300,16 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const storedTrainingMax = data.program.trainingMaxes[key];
       const trainingMax = storedTrainingMax || estimatedTrainingMax(exercise, key);
       const theoreticalLoad = trainingMax * prescription.intensity;
-      const value = availableLoads.length ? resolveAvailableLoad(theoreticalLoad, availableLoads, "nearest") : null;
+      const value = availableLoads.length ? loadAtOrBelow(theoreticalLoad, availableLoads) : null;
       return {
         value,
         tag: storedTrainingMax ? "hold" : "estimate",
         reason: !availableLoads.length
           ? `Add this equipment’s weight choices so RepArc can turn the ${Math.round(prescription.intensity * 100)}% Phase 2 target into a weight you can actually select.`
+          : value === null ? "All saved equipment weights exceed this target. Add a lighter available weight; do not round up to a heavier load."
           : prescription.deload
-            ? `Easier week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% of the planning number · nearest equipment weight · no final effort set`
-            : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · nearest available load · final set ${prescription.repOutTarget}+`,
+            ? `Easier week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% of the planning number · equipment weight at or below target · no final effort set`
+            : `Week ${workingWeek} · ${Math.round(prescription.intensity * 100)}% TM · equipment weight at or below target · final set ${prescription.repOutTarget}+`,
       };
     }
     const lastHistory = historyFor(exercise).at(-1);
@@ -2563,7 +2555,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const calibrationSession = !editingSession && currentSession?.completionStatus !== "completed" && (data.program.calibrationRequired || Boolean(data.program.returnPlan));
     const calibrationCompleted = calibrationSession && completionStatus === "completed";
     const affectsProgression = (currentSession?.affectsProgression ?? !calibrationSession) && completionStatus === "completed" && (!readiness || readiness === "normal");
-    const exerciseExposures = currentSession?.exerciseExposures ?? (exposurePlan || lockedDraftPlan ? Object.fromEntries(day.exercises.map((exercise, index) => {
+    const currentSessionInUnit = currentSession ? sessionInUnit(currentSession, profile.unit) : undefined;
+    const exerciseExposures = currentSessionInUnit?.exerciseExposures ?? (exposurePlan || lockedDraftPlan ? Object.fromEntries(day.exercises.map((exercise, index) => {
       const key = keyForExercise(exercise, index);
       const resolved = resolvedForExercise(exercise, index);
       const prescription = prescriptionFor(resolved);
@@ -2575,14 +2568,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         targetRepHigh: captured?.targetRepHigh ?? prescription?.normalReps ?? exercise.repHigh,
       }];
     })) : undefined);
-    const trainingMaxesBefore = { ...(currentSession?.trainingMaxesBefore ?? {}) };
+    const trainingMaxesBefore = { ...(currentSessionInUnit?.trainingMaxesBefore ?? {}) };
     const trainingMaxesAfter = { ...data.program.trainingMaxes };
     if (workingProgramId === "phase2") {
       planSnapshot.exercises.forEach((snapshot) => {
         const exercise = { ...snapshot, alternatives: [] } as Exercise;
         if (!exercise.sbsRole) return;
         const key = snapshot.key;
-        const baseTrainingMax = currentSession?.trainingMaxesBefore?.[key]
+        const baseTrainingMax = currentSessionInUnit?.trainingMaxesBefore?.[key]
           ?? data.program.trainingMaxes[key]
           ?? estimatedTrainingMax(exercise, key);
         if (!baseTrainingMax) return;
@@ -2611,7 +2604,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       completionStatus,
       skippedExerciseKeys: [...skippedExerciseKeys],
       affectsProgression,
-      bodyweightAtSession: currentSession?.bodyweightAtSession ?? profile.bodyweight,
+      bodyweightAtSession: currentSession ? currentSessionInUnit?.bodyweightAtSession : profile.bodyweight,
       planSnapshot,
       exerciseExposures,
       logicalKey: currentSession?.logicalKey ?? sessionLogicalKey(workingScheduledDate, workingProgramId, workingProgramId === "phase2" ? workingWeek : undefined, workingFrequency, day.id),
@@ -2781,7 +2774,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const availableLoads = loadProfileValues(data.loadProfiles[equipmentProfileKey] ?? data.loadProfiles[key], profile.unit);
     return <section className="notice-section">
       <h3 className="text-base font-semibold">{exercise.name}</h3>
-                          {exposure && exposure.stateAtStart !== "calibrated" && <div className="mt-3 rounded-xl bg-amber-300/[0.05] p-3 text-sm leading-5 text-stone-300"><p>Stop with at least {exposure.targetRir} good reps left. Do {exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} today; warm-up sets do not count.</p>{exposure.relatedHistory && <p className="mt-2 text-stone-400">Experience with a similar exercise helps, but choose a fresh weight for this exact equipment.</p>}{!currentSession && <Button type="button" variant="ghost" className="mt-2 h-auto min-h-11 whitespace-normal px-0 text-amber-200" disabled={Boolean(knownLoadOverrides[`${draftKey}:${key}`])} onClick={() => { if (window.confirm("Use a starting weight you already know is comfortable on this exact exercise? The reduced sets and recovery checks still apply.")) setKnownLoadOverrides((value) => ({ ...value, [`${draftKey}:${key}`]: true })); }}>{knownLoadOverrides[`${draftKey}:${key}`] ? "Starting weight confirmed — close notices and enter it in the exercise fields" : "I know a comfortable starting weight"}</Button>}</div>}
+                          {exposure && exposure.stateAtStart !== "calibrated" && <div className="mt-3 rounded-xl bg-amber-300/[0.05] p-3 text-sm leading-5 text-stone-300"><p>{exposure.targetRir === undefined ? "The original effort target was not saved." : `Stop with at least ${exposure.targetRir} good reps left.`} Do {exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"}; warm-up sets do not count.</p>{exposure.relatedHistory && <p className="mt-2 text-stone-400">Experience with a similar exercise helps, but choose a fresh weight for this exact equipment.</p>}{!currentSession && <Button type="button" variant="ghost" className="mt-2 h-auto min-h-11 whitespace-normal px-0 text-amber-200" disabled={Boolean(knownLoadOverrides[`${draftKey}:${key}`])} onClick={() => { if (window.confirm("Use a starting weight you already know is comfortable on this exact exercise? The reduced sets and recovery checks still apply.")) setKnownLoadOverrides((value) => ({ ...value, [`${draftKey}:${key}`]: true })); }}>{knownLoadOverrides[`${draftKey}:${key}`] ? "Starting weight confirmed — close notices and enter it in the exercise fields" : "I know a comfortable starting weight"}</Button>}</div>}
                           {!savedSession && calibration.latest && <details open={calibration.recoveryPending} className="mt-3 rounded-xl border border-white/10 p-3 text-sm leading-5"><summary className="cursor-pointer font-semibold">Recovery from {prettyDate(calibration.latest.session.date)}{calibration.recoveryPending ? " · needed before increases" : " · review"}</summary><p className="mt-2 text-stone-400">Over the following days, how did this exercise affect you? Confirm normal or mild recovery after at least 48 hours. Missing feedback holds increases.</p><div className="mt-3 grid grid-cols-2 gap-2">{([{ id: "recovered", label: "Normal movement" }, { id: "mild", label: "Mild and improving" }, { id: "limiting", label: "Limited daily movement" }, { id: "severe", label: "Severe / unusual symptoms" }] as const).map((option) => <Button key={option.id} type="button" variant="outline" data-selected={calibration.latestRecovery?.status === option.id} disabled={syncState === "saving" || ((option.id === "recovered" || option.id === "mild") && recoveryClock - Date.parse(calibration.latest!.session.completedAt ?? calibration.latest!.session.createdAt) < 48 * 3_600_000)} className="selection-button h-auto min-h-11 whitespace-normal rounded-lg px-2 py-2 text-xs" onClick={() => void recordRecovery(exercise, option.id)}>{option.label}</Button>)}</div>{(calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p className="mt-3 text-red-200">Wait until normal movement returns. Dark urine, marked swelling, unusual weakness or severe pain needs urgent medical assessment.</p>}</details>}
       {exerciseNeedsLoad(exercise) && <div className="mt-4">
         {!availableLoads.length ? <details className="rounded-xl border border-white/10 p-3"><summary className="min-h-11 cursor-pointer text-sm font-semibold">Tell RepArc your equipment’s weight choices</summary><LoadProfileEditor key={`${equipmentProfileKey}:${profile.unit}`} name={exercise.name} unit={profile.unit} values={availableLoads} hint={loadEntryHint(exercise)} onSave={(values) => saveLoadProfile(equipmentProfileKey, values)} /></details>
@@ -3027,7 +3020,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                                 {exercise.perSide ? " · each side" : ""} · {formatTimer(exercise.restSeconds)} rest{prescription?.calibration ? " · finding your starting level" : prescription?.deload ? " · easier recovery week" : exercise.note ? ` · ${exercise.note}` : ""}
                               </p>
 
-                          {exposure && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{CALIBRATION_LABELS[exposure.stateAtStart]}</span><span className="text-stone-300">{exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} · {prescription && !prescription.deload ? "final effort set" : `leave at least ${exposure.targetRir} good reps`}</span></div>}
+                          {exposure && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{CALIBRATION_LABELS[exposure.stateAtStart]}</span><span className="text-stone-300">{exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} · {prescription && !prescription.deload ? "final effort set" : exposure.targetRir === undefined ? "original effort target not saved" : `leave at least ${exposure.targetRir} good reps`}</span></div>}
                           {!savedSession && (calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p role="alert" className="mt-3 rounded-xl border border-red-300/30 p-3 text-sm leading-6 text-red-200">Recovery check: normal movement was affected. Wait until it returns; seek urgent care for dark urine, marked swelling, unusual weakness or severe pain.</p>}
                           {!savedSession && calibration.recoveryPending && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-amber-200"><BellRing className="size-4 shrink-0" />Recovery check needed before increases</Button>}
 

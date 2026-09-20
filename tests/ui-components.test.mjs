@@ -53,8 +53,8 @@ test("keeps selected controls legible against the dark interface", async () => {
 
   assert.match(css, /\.choice-card:has\(\[data-state="checked"\]\)[^{]*\{[^}]*background:\s*#f7c66b/s);
   assert.match(css, /\.choice-card:has\(\[data-state="checked"\]\)[^{]*\{[^}]*color:\s*#0b0d0c/s);
-  assert.match(css, /\.selection-button\[data-selected="true"\][^{]*\{[^}]*background:\s*#f7c66b\s*!important/s);
-  assert.match(css, /\[data-slot="tabs-trigger"\]\[data-state="active"\][^{]*\{[^}]*color:\s*#0b0d0c\s*!important/s);
+  assert.match(css, /\.selection-button\[data-selected="true"\][^{]*\{[^}]*background:\s*var\(--brand-gold\)\s*!important/s);
+  assert.match(css, /\[data-slot="tabs-trigger"\]\[data-state="active"\][^{]*\{[^}]*color:\s*var\(--brand-ink\)\s*!important/s);
 });
 
 test("prevents iPhone focus zoom without disabling accessible page zoom", async () => {
