@@ -2,7 +2,7 @@ import {
   activeSessions, buildSessionPlanSnapshot, comparableExerciseHistory, exerciseFromKey, exerciseKey, isFilledSet,
   loadProfileId, numeric, programDays, resolveExerciseVariant, returnPlanSetCount, slugify,
   type Exercise, type ExerciseCalibrationState, type ExerciseExposureSnapshot,
-  type ExerciseNoveltyRisk, type ExerciseRecoveryStatus, type Readiness, type SetEntry, type TrainingData, type TrainingDay,
+  type ExerciseNoveltyRisk, type ExerciseRecoveryStatus, type Readiness, type ReturnPlan, type SetEntry, type TrainingData, type TrainingDay,
 } from "./training";
 import type { LoadAdjustment } from "./autoregulation";
 
@@ -171,6 +171,34 @@ export const exposureAllowsProgression = (exposure?: ExerciseExposureSnapshot) =
 export function restrictActiveExposure(exposure: ExerciseExposureSnapshot | undefined, currentState: ExerciseCalibrationState, readiness?: Readiness | null) {
   return exposure && (currentState === "recalibration" || Boolean(readiness && readiness !== "normal"))
     ? { ...exposure, progressionEligible: false } : exposure;
+}
+
+/** Display context only: preserve the saved/effective effort target without mutating calibration. */
+export function calibrationForGuidance(current: Calibration, exposure?: ExerciseExposureSnapshot): Calibration {
+  return {
+    ...(exposure && exposure.progressionEligible === false
+      ? { ...current, state: current.state === "recalibration" ? "recalibration" as const : exposure.stateAtStart, recoveryPending: true }
+      : current),
+    targetRir: exposure?.targetRir ?? current.targetRir,
+  };
+}
+
+/** Existing return-load reduction, with wording aligned to the exercise's effective target. */
+export function returnWorkoutSuggestion<T extends { value: number | null; tag: string; reason: string }>(
+  suggestion: T | null,
+  returnPlan: ReturnPlan | undefined,
+  exposure: ExerciseExposureSnapshot | undefined,
+  availableLoads: number[],
+  editingSession: boolean,
+) {
+  return !editingSession && returnPlan && suggestion?.value
+    ? {
+        ...suggestion,
+        value: loadAtOrBelow(suggestion.value * returnPlan.loadFactor, availableLoads),
+        tag: "hold" as const,
+        reason: `Easier return workout ${returnPlan.totalSessions - returnPlan.sessionsRemaining + 1} of ${returnPlan.totalSessions}. Use a conservative starting weight and finish with about ${exposure?.targetRir ?? returnPlan.targetRir} good reps left.`,
+      }
+    : suggestion;
 }
 
 export function constrainCalibrationAdjustment(adjustment: LoadAdjustment | null, calibration: Calibration): LoadAdjustment | null {

@@ -56,7 +56,7 @@ import { MuscleVolume } from "@/components/muscle-volume";
 import { ExerciseActionCard } from "@/components/exercise-action-card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { exerciseGuidance } from "@/lib/exercise-guidance";
-import { buildExposurePlan, calibrationSetCount, CALIBRATION_LABELS, constrainCalibrationAdjustment, exerciseCalibration, loadAtOrBelow, preserveLegacyDraft, restrictActiveExposure } from "@/lib/exercise-calibration";
+import { buildExposurePlan, calibrationForGuidance, calibrationSetCount, CALIBRATION_LABELS, constrainCalibrationAdjustment, exerciseCalibration, loadAtOrBelow, preserveLegacyDraft, restrictActiveExposure, returnWorkoutSuggestion } from "@/lib/exercise-calibration";
 import { nextSessionAdjustment, nextSetAdjustment, type LoadAdjustment } from "@/lib/autoregulation";
 import { buildDailyReport, buildScheduleAdherence } from "@/lib/daily-report";
 import { comparablePerformanceScore, performanceScorePoint } from "@/lib/performance-score";
@@ -2292,7 +2292,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (!profile || !day) return null;
     const currentCalibration = calibrationFor(exercise);
     const capturedExposure = exposureFor(exercise, key);
-    const calibration = capturedExposure && capturedExposure.progressionEligible === false ? { ...currentCalibration, state: currentCalibration.state === "recalibration" ? "recalibration" as const : capturedExposure.stateAtStart, recoveryPending: true } : currentCalibration;
+    const calibration = calibrationForGuidance(currentCalibration, capturedExposure);
     const prescription = prescriptionFor(exercise);
     const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit);
     if (prescription) {
@@ -2840,7 +2840,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               </div>
             </div>
           )}
-          {!editingSession && data.program.calibrationRequired && data.program.status !== "paused" && <div className="mb-4 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><p className="font-semibold text-sky-200">{data.program.returnPlan ? `Easier return workout ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions}` : "First workout back"}</p><p className="mt-1 text-xs text-stone-400">{data.program.returnPlan ? `Sets and starting weights are temporarily reduced. Finish with about ${data.program.returnPlan.targetRir} good reps left. RepArc will not increase programmed weights until the return period ends.` : "Use conservative weights. This workout will not increase Phase 2 planning numbers; recovery checks still apply afterward."}</p></div>}
+          {!editingSession && data.program.calibrationRequired && data.program.status !== "paused" && <div className="mb-4 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><p className="font-semibold text-sky-200">{data.program.returnPlan ? `Easier return workout ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions}` : "First workout back"}</p><p className="mt-1 text-xs text-stone-400">{data.program.returnPlan ? `Keep this workout easy. Leave at least ${data.program.returnPlan.targetRir} good reps left, or more if the exercise shows a higher target. Programmed weights will not increase during these return workouts.` : "Use conservative weights. This workout will not increase Phase 2 planning numbers; recovery checks still apply afterward."}</p></div>}
           {exposurePlan && Object.values(exposurePlan.exposures).some((item) => item.prescribedSets < item.originalSets) && <div className="mb-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.04] p-4 text-sm leading-6"><p className="font-semibold text-amber-200">Ease into unfamiliar exercises</p><p className="mt-1 text-stone-400">Today has fewer working sets. Start comfortably light, keep the displayed reps in reserve, and record recovery before building up. This applies at every experience level.</p></div>}
           {exposurePlan && exposurePlan.deferred.length > 0 && <details className="mb-4 rounded-2xl border border-white/10 p-4 text-sm leading-6"><summary className="cursor-pointer font-semibold">{noveltyOverrides[draftKey ?? ""] ? "Extra exercises included" : `${exposurePlan.deferred.length} exercises held for a later exposure`}</summary><p className="mt-2 text-stone-400">{exposurePlan.deferred.join(" · ")}. RepArc limits unfamiliar work in one session; these remain in your program. You can include their reduced sets if you already tolerate similar training.</p>{!noveltyOverrides[draftKey ?? ""] && <Button type="button" variant="outline" className="mt-3 h-auto min-h-11 whitespace-normal" onClick={() => { if (draftKey && window.confirm("Include the extra exercises with reduced sets? This exceeds the first-exposure limit. Keep effort comfortable and stop if technique or normal movement is affected.")) setNoveltyOverrides((value) => ({ ...value, [draftKey]: true })); }}>Include reduced extras</Button>}</details>}
 
@@ -2978,14 +2978,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit);
                   const sets = log[key] ?? Array.from({ length: exercise.sets }, emptySet);
                   const baseSuggestion = suggestionFor(exercise, key);
-                  const suggestion = !editingSession && data.program.returnPlan && baseSuggestion?.value
-                    ? {
-                        ...baseSuggestion,
-                        value: loadAtOrBelow(baseSuggestion.value * data.program.returnPlan.loadFactor, availableLoads),
-                        tag: "hold" as const,
-                        reason: `Easier return workout ${data.program.returnPlan.totalSessions - data.program.returnPlan.sessionsRemaining + 1} of ${data.program.returnPlan.totalSessions}. Use a conservative starting weight and finish with about ${data.program.returnPlan.targetRir} good reps left.`,
-                      }
-                    : baseSuggestion;
+                  const suggestion = returnWorkoutSuggestion(baseSuggestion, data.program.returnPlan, exposure, availableLoads, Boolean(editingSession));
                   const lastHistory = historyFor(exercise).at(-1);
                   const last = lastHistory?.session;
                   const lastEntries = lastHistory?.entries;
