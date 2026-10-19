@@ -35,7 +35,7 @@ export function ReturnCheckInPanel({ data, date, onClose, onSave, onPause }: {
     finally { setBusy(false); }
   };
   return <Sheet open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-    <SheetContent showCloseButton={false} className="return-check-in w-full max-w-full gap-0 bg-background text-foreground data-[state=open]:duration-200 data-[state=closed]:duration-150 sm:max-w-lg">
+    <SheetContent showCloseButton={false} className="return-check-in z-[60] w-full max-w-full gap-0 bg-background text-foreground data-[state=open]:duration-200 data-[state=closed]:duration-150 sm:max-w-lg">
       <SheetHeader className="shrink-0 border-b p-4">
         <div className="flex items-center justify-between gap-3"><SheetTitle>{preview ? "Your next workouts" : "Welcome back"}</SheetTitle><Button type="button" variant="ghost" size="icon" aria-label="Close return check-in" disabled={busy} onClick={onClose}><X className="size-5" /></Button></div>
         <SheetDescription>{context.lastRecorded ? `Your last recorded workout was ${prettyDate(context.lastRecorded, { month: "short", day: "numeric" })}. Tell RepArc what happened since then.` : "Tell RepArc how you have been training before resuming."}</SheetDescription>
