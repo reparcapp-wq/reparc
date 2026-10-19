@@ -3,13 +3,15 @@
 import { Button } from "@/components/ui/button";
 import { isFilledSet, type Exercise, type Readiness, type SetEntry, type Unit } from "@/lib/training";
 import type { LoadAdjustment } from "@/lib/autoregulation";
+import type { HistoryStartSuggestion } from "@/lib/history-start";
 
 type Props = {
   exercise: Exercise;
   entries: SetEntry[];
   unit: Unit;
   adjustment: LoadAdjustment | null;
-  suggestion: { value: number | null; reason: string; confidence?: string } | null;
+  suggestion: ({ value: number | null; reason: string; confidence?: string }
+    & Partial<Pick<HistoryStartSuggestion, "startReps" | "historyReference" | "blocked" | "rehearsal" | "loadBound">>) | null;
   targetRir: number;
   readiness?: Readiness | null;
   skipped: boolean;
@@ -23,7 +25,7 @@ type Props = {
 export function ExerciseActionCard({ exercise, entries, unit, adjustment, suggestion, targetRir, readiness, skipped, recoveryPending, recovering, prescribed, onApply }: Props) {
   const completed = entries.filter((entry) => isFilledSet(entry, exercise));
   const finished = completed.length >= exercise.sets;
-  const unsafe = readiness === "pain" || readiness === "severe-soreness" || adjustment?.action === "stop";
+  const unsafe = readiness === "pain" || readiness === "severe-soreness" || adjustment?.action === "stop" || Boolean(suggestion?.blocked);
   const weightLabel = (value: number) => exercise.loadingType === "assisted-bodyweight"
     ? `${value} ${unit} assistance`
     : exercise.loadingType === "bodyweight" || exercise.bodyweight
@@ -40,7 +42,7 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
   if (unsafe) {
     label = "Safety first";
     title = "Stop this exercise";
-    message = adjustment?.action === "stop" ? adjustment.reason : "Do not continue while pain or soreness affects normal movement. Review how you feel before resuming.";
+    message = adjustment?.action === "stop" ? adjustment.reason : suggestion?.blocked ? suggestion.reason : "Do not continue while pain or soreness affects normal movement. Review how you feel before resuming.";
   } else if (skipped) {
     label = "Exercise skipped or stopped";
     title = "No further sets planned";
@@ -65,7 +67,12 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
     message = prescribed ? "Use the weight and reps shown for this workout. This is not a recommendation for your next workout."
       : "Follow the displayed reps and effort target. There is not enough guidance to recommend a different weight yet.";
   } else {
-    title = numericLoad(suggestion?.value) ? `Start with ${weightLabel(suggestion.value)}`
+    if (suggestion?.rehearsal) label = "Warm-up rehearsal · not a working set";
+    else if (suggestion?.startReps && numericLoad(suggestion.value)) label = "First set · starting estimate";
+    title = suggestion?.rehearsal ? numericLoad(suggestion.rehearsal.value)
+      ? `Try ${weightLabel(suggestion.rehearsal.value)} × ${suggestion.rehearsal.reps} easy reps`
+      : `Rehearse ${suggestion.rehearsal.reps} easy reps`
+      : numericLoad(suggestion?.value) ? suggestion?.startReps ? `Try ${weightLabel(suggestion.value)} × ${suggestion.startReps} reps` : `Start with ${weightLabel(suggestion.value)}`
       : recovering ? "Rebuild with a comfortable load"
       : exercise.loadingType === "assisted-bodyweight" ? "Start with comfortable assistance"
       : exercise.loadingType === "unloaded" ? "No external load required"
@@ -80,10 +87,13 @@ export function ExerciseActionCard({ exercise, entries, unit, adjustment, sugges
   return <section aria-label="Exercise guidance" className={`target-panel min-w-0 self-start rounded-2xl border p-4 ${unsafe ? "border-red-300/30 bg-red-300/[0.06]" : "border-white/10 bg-black/20"}`}>
     <p className="text-sm font-semibold text-stone-400">{label}</p>
     <h3 className="mt-2 text-xl font-semibold leading-snug text-stone-100">{title}</h3>
+    {!finished && !skipped && suggestion?.historyReference && <p className="mt-2 text-xs leading-5 text-stone-400">Previous first set: {suggestion.historyReference}</p>}
     {lastLogged && finished && <p className="mt-2 text-sm leading-6 text-stone-300">{completed.length} working sets logged · last set: {exercise.loadingType === "unloaded" ? "" : `${weightLabel(Number(lastLogged.w || 0))} × `}{lastLogged.r} reps. Logged result, not a new prescription.</p>}
     <p className="mt-2 text-sm leading-6 text-stone-300" role={unsafe ? "alert" : undefined}>{message}</p>
+    {!unsafe && !skipped && !finished && suggestion?.rehearsal?.value === null && <p className="mt-2 text-sm leading-6 text-stone-300">Rehearsal limit: {suggestion.rehearsal.bound}. Choose an available setting within that limit.</p>}
+    {!unsafe && !skipped && !finished && !suggestion?.rehearsal && suggestion?.loadBound && <p className="mt-2 text-sm leading-6 text-stone-300">Starting limit: {suggestion.loadBound}. Choose an available setting within that limit.</p>}
     {!unsafe && !skipped && !finished && <p className="mt-2 text-sm leading-6 text-stone-300">{prescribed ? "Follow the reps and any final-effort or starting-level instructions shown above." : `Aim for ${exercise.repLow}–${exercise.repHigh} reps and stop with at least ${targetRir} good reps left.`}</p>}
     {applyLoad !== undefined && <Button type="button" variant="outline" className="mt-3 min-h-11 w-full whitespace-normal text-sm" onClick={() => onApply(applyLoad)}>Fill {completed.length ? "next" : "first"} set · {weightLabel(applyLoad)}</Button>}
-    {(detail || confidence) && <details className="mt-3 text-sm text-stone-400"><summary className="min-h-6 cursor-pointer">Why this guidance?</summary>{detail && <p className="mt-2 leading-6">{detail}</p>}{confidence && <p className="mt-2">This is based on {confidence === "high" ? "more" : confidence === "moderate" ? "some" : "limited"} usable data. It is an estimate, not a guarantee.</p>}</details>}
+    {(detail || confidence) && <details className="mt-3 text-sm text-stone-400"><summary className="min-h-6 cursor-pointer">Why this guidance?</summary>{detail && <p className="mt-2 leading-6">{detail}</p>}{confidence && <p className="mt-2">This is based on {confidence === "high" ? "more" : confidence === "moderate" ? "some" : "limited"} usable data. It is an estimate, not a guarantee.</p>}{suggestion?.historyReference && <p className="mt-2 leading-6">Use past weights only with a consistent exercise, machine and setup. A different machine can feel different at the same displayed weight. Only record reps and reps left after you perform the set.</p>}</details>}
   </section>;
 }

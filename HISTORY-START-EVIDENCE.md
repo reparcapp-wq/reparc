@@ -1,0 +1,31 @@
+# History-based starting estimates — policy 5 / v12.2.0
+
+## What the evidence supports
+
+- [NSCA/CSCCa transition consensus (2019)](https://www.nsca.com/about-us/position-statements/safe-return-to-training/): a conservative transition after inactivity. Written for organized athletic settings, not a validated individual consumer-app algorithm.
+- [Halonen et al. (2024), randomized trial](https://pubmed.ncbi.nlm.nih.gov/39364857/): 55 randomized, 42 completing; ten weeks off followed by retraining. Some strength/size declined during detraining and returned rapidly during retraining. Does not identify an exact reduction for one month away or for each exercise.
+- [Halperin et al. (2022), review/meta-analysis](https://pubmed.ncbi.nlm.nih.gov/34542869/): 12 studies, 414 participants; repetitions-to-failure predictions were imperfect, with substantial heterogeneity. RIR is a subjective input, not an exact conversion between rep ranges.
+- [Ruiz-Alias et al., published online 2024](https://pmc.ncbi.nlm.nih.gov/articles/PMC11556642/): 26 recreational lifters, free-weight/Smith bench press at 65/75/85% 1RM. Error depended on load/equipment. Does not validate all lifts or a universal sex-based loading adjustment.
+
+The consensus page and Ruiz-Alias full text were inspected; the Halonen and Halperin findings above were checked against their indexed abstracts. No claim of independent clinical/program validation is made.
+
+## Explicit engineering policy, not a research finding
+
+1. Use the latest active matching exercise record before today's date, via the same canonical loading identity used by calibration/history. Different equipment or movement identities do not share loads. A name match does not establish that two physical machines have equivalent resistance.
+2. Display the first valid working set's paired load/reps/RIR, date and age. Do not combine a personal-best weight with reps from another set. Convert units, preserve per-side and added/assistance meaning.
+3. Retain existing return factors: 14–27 days .90; 28–55 days .85; 56+ days .80. Protected calibration without a stronger return reduction uses .90. Choose the smallest applicable factor ONCE; never multiply exercise and global reductions together. Repeat, rather than discount again, a protected exposure from fewer than 14 days ago that completed its sets, met today's reps and RIR, and had ordinary readiness, provided it belongs to the current return period (if any). A new return period, adverse readiness or harder effort does not qualify. These are conservative product choices, not measured strength-loss percentages. Existing volume/RIR/return-session logic remains authoritative.
+4. History must be no older than 180 days and no more than 30 reps. For external load, a latest first-set weight outside a 1.5x band around the lower median of at least two earlier distinct-day records is reference-only, pending a unit/setup check. These are data-quality guards, not scientific thresholds.
+5. A working estimate requires a full prior exposure, recorded effort of at least 2 RIR on every source set, ordinary historical readiness, and at least today's requested reps on the source first set. Missing effort, harder effort, partial exposures or fewer old reps produce a short warm-up rehearsal (at most 5 reps), NOT a working-load prescription. No rep-max formula invents a higher-rep capacity.
+6. External loads round DOWN to saved positive equipment choices. Without a usable choice, show an upper bound, not a fabricated selectable setting. Do not automatically fill unperformed reps/RIR or count rehearsal sets as work.
+7. Assisted bodyweight: approximate old resistance as old bodyweight minus assistance. Apply the reduction to resistance, account for current bodyweight, never reduce assistance below its previous value, and round assistance UP. Weighted bodyweight similarly uses old bodyweight plus added weight and current bodyweight; if bodyweight alone exceeds the estimate, suggest an easier variation. Missing historical bodyweight means no numeric prediction. These approximations do not model machine mechanics or exact biomechanical load.
+8. Pain, movement-limiting soreness, a stopped source exercise, or adverse recovery linked to that latest exposure suppress numerical guidance. A later green answer for the same exposure does not erase the adverse report. A subsequent suitable recorded exposure can establish a new reference.
+9. After a protected working set, hold or reduce observed weight/difficulty; no automatic increase merely because the intended return target is 4 RIR. Assisted exercises invert assistance direction; harder steps require known effort, usable bodyweight and a step no greater than 10% of estimated resistance. That 10% cap is an engineering limit, not a proven safety boundary.
+10. The same finalized suggestion feeds the visible card and saved recommendation snapshots. The `returnAdjusted` marker prevents a second reduction. Preserve existing snapshots, raw records, training maxes, confidence-state transitions and return counts. Normal established Phase 2 SBS percentages/AMRAP rules are unchanged; calibration sessions remain progression-neutral.
+
+## Scope and limitations
+
+Applies across training tracks, equivalent exercise swaps, Phase 1 return/familiarization, Phase 2 entry calibration and accessories. Established ordinary progression keeps its existing rules. Historical edits do not rewrite earlier prescriptions using today's return state. New recorded recommendation metadata uses `12.2.0-policy5`.
+
+An estimate is a starting check, not a guarantee of safety, an individual strength-loss measurement, a recovery diagnosis or proof of accuracy. Stop earlier if the displayed reps would violate the reps-left target. No bulk-specific multiplier, sex-based strength guess, load inferred from bodyweight ratios or automatic promotion of calibration confidence is introduced.
+
+Regression coverage includes paired-history identity, units/per-side, stale/deleted/future data, low-rep rehearsals, missing effort, adverse recovery, outliers, assistance direction/bodyweight changes, protected next-set behavior, both tracks/phases, snapshot equality and read-only history. Automated tests do not substitute for qualified independent review or real-device acceptance.

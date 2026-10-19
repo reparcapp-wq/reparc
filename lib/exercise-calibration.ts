@@ -184,18 +184,19 @@ export function calibrationForGuidance(current: Calibration, exposure?: Exercise
 }
 
 /** Existing return-load reduction, with wording aligned to the exercise's effective target. */
-export function returnWorkoutSuggestion<T extends { value: number | null; tag: string; reason: string }>(
+export function returnWorkoutSuggestion<T extends { value: number | null; tag: string; reason: string; returnAdjusted?: boolean }>(
   suggestion: T | null,
   returnPlan: ReturnPlan | undefined,
   exposure: ExerciseExposureSnapshot | undefined,
   availableLoads: number[],
   editingSession: boolean,
 ) {
-  return !editingSession && returnPlan && suggestion?.value
+  return !editingSession && returnPlan && suggestion?.value && !suggestion.returnAdjusted
     ? {
         ...suggestion,
         value: loadAtOrBelow(suggestion.value * returnPlan.loadFactor, availableLoads),
         tag: "hold" as const,
+        returnAdjusted: true as const,
         reason: `Easier return workout ${returnPlan.totalSessions - returnPlan.sessionsRemaining + 1} of ${returnPlan.totalSessions}. Use a conservative starting weight and finish with about ${exposure?.targetRir ?? returnPlan.targetRir} good reps left.`,
       }
     : suggestion;

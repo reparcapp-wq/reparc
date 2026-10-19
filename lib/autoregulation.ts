@@ -26,6 +26,9 @@ type AdjustmentInput = {
   unit: Unit;
   readiness?: Readiness | null;
   availableLoads?: number[];
+  targetRir?: number;
+  allowIncrease?: boolean;
+  bodyweight?: number;
 };
 
 const completedEntries = (exercise: Exercise, entries: SetEntry[]) =>
@@ -48,7 +51,10 @@ const confidenceFor = (exercise: Exercise, completed: SetEntry[]): AdjustmentCon
 const conservativeReadiness = (readiness?: Readiness | null) =>
   readiness === "low" || readiness === "sore" || readiness === "symptoms";
 
-export function nextSetAdjustment({ exercise, entries, unit, readiness, availableLoads }: AdjustmentInput): LoadAdjustment | null {
+export function nextSetAdjustment(input: AdjustmentInput): LoadAdjustment | null {
+  const { exercise, entries, unit, readiness, availableLoads, targetRir = 2, allowIncrease = true } = input;
+  if (exercise.loadingType === "assisted-bodyweight") return assistedAdjustment(input, false);
+  if (exercise.loadingType === "unloaded") return null;
   const completed = completedEntries(exercise, entries);
   if (!completed.length || completed.length >= exercise.sets) return null;
   const latest = completed.at(-1)!;
@@ -92,6 +98,17 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness, availabl
     };
   }
 
+  if (targetRir >= 3 && rir !== null && rir <= targetRir - 2) {
+    return { action: "decrease", nextLoad: exercise.bodyweight ? null : lowerLoad, confidence: "moderate",
+      reason: `This set was harder than today's target of at least ${targetRir} good reps left. ${lowerLoad === null || exercise.bodyweight ? "Choose an easier weight or variation." : "Use the next lower available weight."} Stop earlier if needed.`,
+      evidence: [...evidence, `${targetRir} good reps left targeted`] };
+  }
+  if (!allowIncrease) {
+    return { action: "hold", nextLoad: exercise.bodyweight && load === 0 ? null : load, confidence: rir === null ? "low" : "moderate",
+      reason: `Keep this weight or reduce it during return and calibration. Aim for the displayed reps with at least ${targetRir} good reps left; stop earlier if needed. No automatic increase is suggested.`,
+      evidence: [...evidence, `${targetRir} good reps left targeted`] };
+  }
+
   if (rir !== null && rir >= 4 && reps >= exercise.repLow && !conservativeReadiness(readiness)
     && completed.every((entry) => entry.rir !== "" && numeric(entry.rir) >= 1)) {
     if (!exercise.bodyweight && !practicalIncrease) {
@@ -125,7 +142,10 @@ export function nextSetAdjustment({ exercise, entries, unit, readiness, availabl
   };
 }
 
-export function nextSessionAdjustment({ exercise, entries, unit, readiness, availableLoads }: AdjustmentInput): LoadAdjustment | null {
+export function nextSessionAdjustment(input: AdjustmentInput): LoadAdjustment | null {
+  const { exercise, entries, unit, readiness, availableLoads } = input;
+  if (exercise.loadingType === "assisted-bodyweight") return assistedAdjustment(input, true);
+  if (exercise.loadingType === "unloaded") return null;
   const completed = completedEntries(exercise, entries);
   if (!completed.length) return null;
   const loads = completed.map((entry) => loadFrom(entry, exercise));
@@ -254,4 +274,40 @@ export function nextSessionAdjustment({ exercise, entries, unit, readiness, avai
       : "Repeat the same weight and build reps while keeping about one to three good reps left.",
     evidence,
   };
+}
+
+/** Assistance runs in the opposite direction to external load. A reduction of
+ * assistance is only offered when its estimated resistance increase is bounded. */
+function assistedAdjustment({ exercise, entries, readiness, availableLoads = [], targetRir = 2, allowIncrease = true, bodyweight }: AdjustmentInput, nextSession: boolean): LoadAdjustment | null {
+  const completed = completedEntries(exercise, entries);
+  if (!completed.length || (!nextSession && completed.length >= exercise.sets)) return null;
+  const latest = completed.at(-1)!;
+  const assistance = numeric(latest.w);
+  const harder = resolveAvailableLoad(assistance, availableLoads, "lower");
+  const easier = resolveAvailableLoad(assistance, availableLoads, "higher");
+  const effort = completed.map((entry) => entry.rir === "" ? null : numeric(entry.rir));
+  const lastEffort = effort.at(-1)!;
+  const evidence = [`${completed.length}/${exercise.sets} sets`, `${latest.r} reps`, lastEffort === null ? "reps left not recorded" : `${lastEffort} reps left`, `${targetRir} good reps left targeted`];
+  if (readiness === "pain" || readiness === "severe-soreness") return { action: "stop", nextLoad: null, confidence: "high", reason: "Stop while pain or soreness limits normal movement.", evidence };
+  const tooHard = (nextSession ? completed : [latest]).some((entry) => entry.rir !== "" && (numeric(entry.rir) === 0
+    || (numeric(entry.r) < exercise.repLow && numeric(entry.rir) <= 1)
+    || (!nextSession && targetRir >= 3 && numeric(entry.rir) <= targetRir - 2)));
+  if (tooHard) return { action: "decrease", nextLoad: easier, confidence: "moderate",
+    reason: easier === null ? "Use more assistance or an easier variation. No higher assistance setting is saved; update the equipment choices for an exact number."
+      : `Use more assistance to make the next ${nextSession ? "workout" : "set"} easier. Leave at least ${targetRir} good reps.`, evidence };
+  const ready = !conservativeReadiness(readiness);
+  const complete = completed.length >= exercise.sets;
+  const equalAssistance = completed.every((entry) => numeric(entry.w) === assistance);
+  const allEffortKnown = effort.every((value) => value !== null && value >= 1);
+  const shouldProgress = nextSession ? complete && equalAssistance && allEffortKnown
+    && (completed.every((entry) => numeric(entry.r) >= exercise.repHigh) || effort.every((value) => value !== null && value >= 4))
+    : lastEffort !== null && lastEffort >= 4 && numeric(latest.r) >= exercise.repLow && allEffortKnown;
+  const resistance = bodyweight === undefined ? null : bodyweight - assistance;
+  const bounded = harder !== null && resistance !== null && resistance > 0 && (assistance - harder) / resistance <= 0.1;
+  if (allowIncrease && ready && shouldProgress && bounded) return { action: "increase", nextLoad: harder, confidence: "moderate",
+    reason: "The work was comfortably within target. The next lower assistance setting makes the exercise harder without exceeding the estimated 10% resistance-step limit.", evidence };
+  return { action: "hold", nextLoad: assistance, confidence: allEffortKnown ? "moderate" : "low",
+    reason: !allowIncrease ? `Keep this assistance or use more during return and calibration. Leave at least ${targetRir} good reps; no automatic increase in difficulty.`
+      : shouldProgress && !bounded ? "Keep this assistance. A smaller assistance step and a usable bodyweight record are needed before suggesting more difficulty."
+      : "Keep the same assistance and build repetitions while leaving the displayed number of good reps.", evidence };
 }

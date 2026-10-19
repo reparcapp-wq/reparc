@@ -65,7 +65,7 @@ test("Train wires every starting-effort message to effective guidance and preser
   const f = fixture();
   const suggestionSource = source.slice(source.indexOf("const suggestionFor ="), source.indexOf("const startRestTimer ="));
   assert.match(suggestionSource, /const calibration = calibrationForGuidance\(currentCalibration, capturedExposure\)/);
-  assert.equal((suggestionSource.match(/\$\{calibration.targetRir\}/g) ?? []).length, 4, "Phase 2, recalibration, bodyweight and first-exposure wording share the effective target");
+  assert.equal((suggestionSource.match(/\$\{calibration.targetRir\}/g) ?? []).length, 5, "Phase 2, recalibration, assistance, bodyweight and first-exposure wording share the effective target");
   assert.doesNotMatch(suggestionSource, /\$\{currentCalibration.targetRir\}/);
   assert.match(source, /returnWorkoutSuggestion\(baseSuggestion, data.program.returnPlan, exposure, availableLoads, Boolean\(editingSession\)\)/);
   assert.match(source, /or more if the exercise shows a higher target/, "The general return notice must not override stricter exercise targets");

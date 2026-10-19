@@ -53,6 +53,7 @@ import { lastAccessibleExercise, normalizeSkippedExercises } from "@/lib/trainin
 import { FirstSetupOverview } from "@/components/reparc-overview";
 import { ReturnCheckInPanel } from "@/components/return-check-in";
 import { applyReturnCheckIn, restrictReturnDraft, returnCheckInContext } from "@/lib/return-check-in";
+import { historyStartingSuggestion, type HistoryStartSuggestion } from "@/lib/history-start";
 import { ImprovementSettings } from "@/components/improvement-settings";
 import { MuscleVolume } from "@/components/muscle-volume";
 import { ExerciseActionCard } from "@/components/exercise-action-card";
@@ -1659,7 +1660,8 @@ function SettingsView({
   );
 }
 
-type Suggestion = { value: number | null; tag: "up" | "down" | "hold" | "bodyweight" | "estimate"; reason: string; confidence?: LoadAdjustment["confidence"] };
+type Suggestion = { value: number | null; tag: "up" | "down" | "hold" | "bodyweight" | "estimate"; reason: string; confidence?: LoadAdjustment["confidence"] }
+  & Partial<Pick<HistoryStartSuggestion, "returnAdjusted" | "startReps" | "historyReference" | "blocked" | "rehearsal" | "loadBound">>;
 
 export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { account: Account; onSignOut: () => Promise<void>; onDeleteAccount: () => Promise<void>; pwa: PwaLifecycle }) {
   const [stage, setStage] = useState<Stage>("loading");
@@ -2332,6 +2334,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const calibration = calibrationForGuidance(currentCalibration, capturedExposure);
     const prescription = prescriptionFor(exercise);
     const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit);
+    if (!editingSession && (prescription?.calibration || data.program.returnPlan || data.program.calibrationRequired || calibration.state !== "calibrated" || calibration.recoveryPending)) {
+      const starting = historyStartingSuggestion({ data, exercise, date: activeDate, unit: profile.unit, calibration,
+        targetReps: prescription?.normalReps ?? exercise.repLow, targetRir: calibration.targetRir, availableLoads, readiness });
+      if (starting) return starting;
+    }
     if (prescription) {
       if (prescription.calibration) return { value: null, tag: "estimate", reason: `Choose a comfortable weight and finish with at least ${calibration.targetRir} good reps left. This workout is finding your starting level, so it will not increase your Phase 2 planning number.` };
       const storedTrainingMax = data.program.trainingMaxes[key];
@@ -2354,7 +2361,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (lastHistory) {
       const { session: last, entries: lastEntries } = lastHistory;
       const normalizedEntries = lastEntries.map((entry) => entry.w === "" ? entry : { ...entry, w: String(convertWeight(numeric(entry.w), last.unit, profile.unit)) });
-      const adjustment = constrainCalibrationAdjustment(nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness, availableLoads }), calibration);
+      const adjustment = constrainCalibrationAdjustment(nextSessionAdjustment({ exercise, entries: normalizedEntries, unit: profile.unit, readiness: last.readiness, availableLoads, bodyweight: profile.bodyweight }), calibration);
       if (calibration.state === "recalibration") return { value: null, tag: "hold", reason: `Rebuild with a comfortable weight and at least ${calibration.targetRir} good reps left. Do not train this area while soreness limits normal movement.` };
       if (adjustment) return {
         value: adjustment.nextLoad,
@@ -2364,8 +2371,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       };
     }
 
+    if (exercise.loadingType === "assisted-bodyweight") return { value: null, tag: "estimate", reason: `Choose enough assistance to leave at least ${calibration.targetRir} good reps. More assistance makes this exercise easier; start comfortably and do not copy an unassisted exercise's weight.` };
     if (exercise.loadingType === "bodyweight" || exercise.bodyweight) return { value: null, tag: "bodyweight", reason: `Use assistance or an easier variation if needed to leave at least ${calibration.targetRir} good reps. Bodyweight alone can still be too heavy.` };
     return { value: null, tag: "estimate", reason: `Start at the light end of this equipment and leave at least ${calibration.targetRir} good reps. Rehearse first; your bodyweight and experience cannot determine a safe machine load.` };
+  };
+
+  // Rendering and captured recommendation metadata must use the identical load.
+  const finalSuggestionFor = (exercise: Exercise, key: string): Suggestion | null => {
+    const baseSuggestion = suggestionFor(exercise, key);
+    const exposure = exposureFor(exercise, key);
+    const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile?.unit ?? "kg");
+    return returnWorkoutSuggestion(baseSuggestion, data.program.returnPlan, exposure, availableLoads, Boolean(editingSession));
   };
 
   const startRestTimer = (exercise: Exercise) => {
@@ -2435,9 +2451,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const exposures = Object.fromEntries(snapshot.exercises.map((item) => {
         const resolved = { ...item, alternatives: [] };
         const prescription = prescriptionFor(resolved);
-        const suggested = suggestionFor(resolved, item.key)?.value ?? null;
+        const suggested = finalSuggestionFor(resolved, item.key)?.value ?? null;
         return [item.key, { ...exposurePlan.exposures[item.id], startingLoadSource: knownLoadOverrides[`${draftKey}:${item.key}`] ? "user" as const : "guided" as const,
-          suggestedLoad: suggested !== null && data.program.returnPlan ? loadAtOrBelow(suggested * data.program.returnPlan.loadFactor, loadProfileValues(data.loadProfiles[loadProfileId(resolved)] ?? data.loadProfiles[item.key], profile?.unit ?? "kg")) : suggested,
+          suggestedLoad: suggested,
           targetRepLow: prescription?.normalReps ?? item.repLow, targetRepHigh: prescription?.normalReps ?? item.repHigh,
         }];
       }));
@@ -2600,9 +2616,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const resolved = resolvedForExercise(exercise, index);
       const prescription = prescriptionFor(resolved);
       const captured = lockedDraftPlan?.exposures[key];
-      const suggested = captured?.suggestedLoad !== undefined ? captured.suggestedLoad : suggestionFor(resolved, key)?.value ?? null;
+      const suggested = captured?.suggestedLoad !== undefined ? captured.suggestedLoad : finalSuggestionFor(resolved, key)?.value ?? null;
       return [key, { ...exposureFor(resolved, key)!, startingLoadSource: knownLoadOverrides[`${draftKey}:${key}`] || lockedDraftPlan?.exposures[key]?.startingLoadSource === "user" ? "user" as const : "guided" as const,
-        suggestedLoad: captured?.suggestedLoad !== undefined ? captured.suggestedLoad : suggested !== null && data.program.returnPlan ? loadAtOrBelow(suggested * data.program.returnPlan.loadFactor, loadProfileValues(data.loadProfiles[loadProfileId(resolved)] ?? data.loadProfiles[key], profile.unit)) : suggested,
+        suggestedLoad: suggested,
         targetRepLow: captured?.targetRepLow ?? prescription?.normalReps ?? exercise.repLow,
         targetRepHigh: captured?.targetRepHigh ?? prescription?.normalReps ?? exercise.repHigh,
       }];
@@ -3019,15 +3035,16 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const exposure = exposureFor(exercise, key);
                   const availableLoads = loadProfileValues(data.loadProfiles[loadProfileId(exercise)] ?? data.loadProfiles[key], profile.unit);
                   const sets = log[key] ?? Array.from({ length: exercise.sets }, emptySet);
-                  const baseSuggestion = suggestionFor(exercise, key);
-                  const suggestion = returnWorkoutSuggestion(baseSuggestion, data.program.returnPlan, exposure, availableLoads, Boolean(editingSession));
+                  const suggestion = finalSuggestionFor(exercise, key);
                   const lastHistory = historyFor(exercise).at(-1);
                   const last = lastHistory?.session;
                   const lastEntries = lastHistory?.entries;
                   const displayName = exercise.name;
                   const guidance = exerciseGuidance(displayName);
                   const prescription = prescriptionFor(exercise);
-                  const rawAdjustment = !skippedExerciseKeys.includes(key) && data.program.activeId === "phase1" ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads }) : null;
+                  const protectedSets = exposure?.progressionEligible === false || calibration.state !== "calibrated" || calibration.recoveryPending || Boolean(data.program.returnPlan);
+                  const rawAdjustment = !skippedExerciseKeys.includes(key) && (workingProgramId === "phase1" || !exercise.sbsRole || prescription?.calibration)
+                    ? nextSetAdjustment({ exercise, entries: sets, unit: profile.unit, readiness, availableLoads, targetRir: exposure?.targetRir ?? calibration.targetRir, allowIncrease: !protectedSets, bodyweight: profile.bodyweight }) : null;
                   const liveAdjustment = rawAdjustment?.action === "increase" && (exposure?.progressionEligible === false || calibration.state !== "calibrated" || calibration.recoveryPending || Boolean(data.program.returnPlan))
                     ? { ...rawAdjustment, action: "hold" as const, nextLoad: null, reason: `Keep this workout comfortable with about ${exposure?.targetRir ?? calibration.targetRir} good reps left. Do not increase the weight while learning the exercise or checking recovery.` }
                     : rawAdjustment;
@@ -3112,9 +3129,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
                           {exerciseNeedsLoad(exercise) && !availableLoads.length && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-stone-300"><Settings className="size-4 shrink-0" />Tell RepArc your equipment’s weight choices</Button>}
 
-                          {last && (
-                            <p className="ml-7 mt-3 truncate font-mono text-[10px] text-stone-600">
-                              Last · {prettyDate(last.date)} · {lastEntries!.filter((entry) => isFilledSet(entry, lastHistory!.exercise)).map((entry) => `${entry.w || 0}×${entry.r}${entry.rir !== "" ? ` @${entry.rir}` : ""}`).join("  /  ")}
+                          {last && !suggestion?.historyReference && (
+                            <p className="ml-7 mt-3 break-words font-mono text-xs text-stone-500">
+                              Last · {prettyDate(last.date)} · {lastEntries!.filter((entry) => isFilledSet(entry, lastHistory!.exercise)).map((entry) => `${Math.round(convertWeight(numeric(entry.w), last.unit, profile.unit) * 100) / 100} ${profile.unit}×${entry.r}${entry.rir !== "" ? ` @${entry.rir}` : ""}`).join("  /  ")}
                             </p>
                           )}
                         </div>

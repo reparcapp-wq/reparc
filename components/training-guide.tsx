@@ -132,6 +132,20 @@ const references = [
     href: "https://www.nsca.com/about-us/position-statements/safe-return-to-training/",
   },
   {
+    grade: "Randomized trial",
+    title: "A training break and retraining in adults",
+    result: "In a 2024 trial, some strength and muscle-size gains declined during a ten-week break and returned rapidly during retraining.",
+    limitation: "This does not establish an exact weight reduction for a one-month break or validate RepArc’s individual starting estimates.",
+    href: "https://pubmed.ncbi.nlm.nih.gov/39364857/",
+  },
+  {
+    grade: "Measurement study",
+    title: "Reps-left estimates depend on load and equipment",
+    result: "A study of 26 recreational lifters found that repetitions-in-reserve errors varied with load and bench-press equipment.",
+    limitation: "A bench-press study cannot validate all exercises. RepArc does not convert a low-rep record into a supposedly exact higher-rep working weight.",
+    href: "https://pmc.ncbi.nlm.nih.gov/articles/PMC11556642/",
+  },
+  {
     grade: "Clinical safety",
     title: "CDC rhabdomyolysis signs and symptoms",
     result: "Muscle pain more severe than expected, dark tea- or cola-colored urine, and unusual weakness or exercise intolerance are warning signs that require immediate medical attention.",
@@ -283,6 +297,7 @@ export function TrainingGuide() {
           <p><strong className="text-stone-200">Phase 2 · Personalized hypertrophy:</strong> a RepArc adaptation of the Stronger by Science Hypertrophy Template: 21 weeks in three seven-week blocks. Each programmed lift uses its own conservative planning number, called a training max, and a final performance set. Weeks 7, 14 and 21 use four sets of five at a lighter weight without a final effort set.</p>
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions. Foundation supports equipment substitutions; Phase 2 currently requires its programmed full-gym lifts because each lift needs its own training max.</p>
           <p><strong className="text-stone-200">Coming back:</strong> Resuming a pause or a long gap in recorded workouts opens a short check-in. Say whether you stopped lifting, trained less, or kept lifting without logging. Confirm when you last lifted, how you feel and your weight goal, then review your next workouts before saving. Review these answers in Training notices. RepArc uses your actual time away to select easier return workouts; exercise familiarity and recovery checks still apply. The exact reductions are cautious app rules, not individually validated recovery predictions.</p>
+          <p><strong className="text-stone-200">Past weights as a starting point:</strong> Return and calibration guidance can show a recent matching record, a reduced starting weight and a rep target. Use the same machine and setup. If the old reps or effort do not support a working-weight estimate, RepArc shows an easy warm-up rehearsal instead. Save your equipment’s weight choices for an exact selectable setting. Rehearsals are not working sets; only record reps and reps left after performing a set. Starting estimates do not prove how much strength you lost, and pain or movement-limiting soreness overrides them.</p>
           <p><strong className="text-stone-200">One missed workout:</strong> Reschedule it, skip it or record training elsewhere. RepArc continues with the next unfinished workout and does not stack missed workouts into today.</p>
           <p><strong className="text-stone-200">Unfamiliar exercises:</strong> everyone starts with reduced working volume, usually one set with at least four good reps remaining. Related training may allow two comfortable sets. Each exercise builds up with comparable performance and recovery feedback; an experienced lifter can still be unfamiliar with a movement.</p>
           <p>RepArc limits unfamiliar work in one session and names any exercises held for later. You can deliberately include their reduced sets. Return mode and familiarization use the smaller set allowance once. Phase 2 lifts without established history skip AMRAPs and cannot change their training maxes.</p>
