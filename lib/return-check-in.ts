@@ -47,18 +47,20 @@ export function assessReturnCheckIn(data: TrainingData, answer: ReturnCheckIn, d
   if (!isValidDateOnly(date) || !normalizeReturnCheckIn(answer, date)) throw new Error("Check your last workout date and answers.");
   const gapDays = daysBetween(answer.lastLiftDate, date);
   const blocked = answer.readiness === "pain" || answer.readiness === "severe-soreness";
+  const previousReadiness = returnCheckInContext(data, date).lastAnswer?.readiness;
+  const returningAfterSymptoms = previousReadiness === "pain" || previousReadiness === "severe-soreness";
   const reason = answer.readiness === "sore" || answer.readiness === "severe-soreness" ? "soreness" as const
     : answer.readiness === "pain" ? "injury" as const : "planned" as const;
   // The short reduced-training check uses the existing 14-day plan, a product guardrail,
   // not an estimate of strength lost. Continued training does not fabricate exercise history.
-  const needsShortReturn = answer.activity === "reduced" || answer.readiness === "low" || answer.readiness === "sore";
+  const needsShortReturn = answer.activity === "reduced" || answer.readiness === "low" || answer.readiness === "sore" || returningAfterSymptoms;
   const requested = blocked ? undefined : buildReturnPlan(needsShortReturn ? Math.max(14, gapDays) : gapDays, reason, now);
   // Older releases inferred a break from a pause alone. A confirmed logging-only gap
   // may remove that unused plan, but never erase a return workout already performed
   // or independent exercise/Phase 2 calibration requirements.
   const unusedLegacyPlan = data.program.returnPlan && !data.absences.some((record) => record.checkIn)
     && !activeSessions(data).some((session) => session.createdAt >= data.program.returnPlan!.startedAt);
-  const correctedLoggingGap = Boolean(unusedLegacyPlan && answer.activity === "continued" && gapDays < 14 && answer.readiness === "normal");
+  const correctedLoggingGap = Boolean(unusedLegacyPlan && !returningAfterSymptoms && answer.activity === "continued" && gapDays < 14 && answer.readiness === "normal");
   return { gapDays, blocked, correctedLoggingGap, plan: combinePlans(correctedLoggingGap ? undefined : data.program.returnPlan, requested) };
 }
 

@@ -124,6 +124,20 @@ test("answers survive normalization, backup restore and merge; malformed and fut
   assert.throws(() => r.applyReturnCheckIn(data, answer(), date, now, "completed"), /active program/);
 });
 
+test("resuming after a pain or limiting-soreness check keeps a conservative return even after a short gap", () => {
+  for (const readiness of ["pain", "severe-soreness"]) {
+    const { data } = fixture();
+    const paused = r.applyReturnCheckIn(data, answer({ lastLiftDate: "2026-10-18", readiness }), date, now, readiness);
+    assert.equal(paused.program.status, "paused");
+    const resumed = r.applyReturnCheckIn(paused, answer({ activity: "continued", lastLiftDate: "2026-10-18" }), date, now, "feels-ready");
+    assert.equal(resumed.program.status, "active");
+    assert.equal(resumed.program.returnPlan.sessionsRemaining, 1);
+    assert.equal(resumed.program.returnPlan.targetRir, 3);
+    assert.equal(resumed.program.calibrationRequired, true);
+    assert.deepEqual(resumed.sessions, data.sessions);
+  }
+});
+
 test("paused date is not mistaken for last lifting date, and legacy return plans request clarification only once", () => {
   const { data } = fixture();
   data.program.pausedAt = "2026-10-17T00:00:00Z";
