@@ -57,6 +57,15 @@ export type ReturnPlan = {
   targetRir: number;
 };
 
+export type ReturnCheckIn = {
+  version: 1;
+  activity: "stopped" | "reduced" | "continued";
+  lastLiftDate: string;
+  approximate: boolean;
+  readiness: Readiness;
+  weightGoal: WeightGoal;
+};
+
 export type AbsenceRecord = {
   id: string;
   startDate: string;
@@ -70,6 +79,7 @@ export type AbsenceRecord = {
   resolvedDayIds: string[];
   createdAt: string;
   updatedAt: string;
+  checkIn?: ReturnCheckIn;
 };
 
 export type SetEntry = {
@@ -1517,6 +1527,7 @@ export function trainingDataValidationIssues(raw: unknown) {
       if (!Array.isArray(record.missedDates) || record.missedDates.length > 366 || !record.missedDates.every(isValidDateOnly)) issues.push(`Time-away record ${index + 1} has invalid missed dates.`);
       if (record.resolution !== "continue" && record.resolution !== "trained-elsewhere" && record.resolution !== "skip" && record.resolution !== "pause") issues.push(`Time-away record ${index + 1} has an invalid resolution.`);
       if (!Array.isArray(record.resolvedDayIds) || record.resolvedDayIds.length > 50 || !record.resolvedDayIds.every((id) => typeof id === "string")) issues.push(`Time-away record ${index + 1} has invalid workout references.`);
+      if (record.checkIn !== undefined && !normalizeReturnCheckIn(record.checkIn, record.endDate as string)) issues.push(`Time-away record ${index + 1} has an invalid return check-in.`);
     });
   }
   if (Array.isArray(source.sessionRevisions) && source.sessionRevisions.length > 5_000) issues.push("Session revision history exceeds 5,000 entries.");
@@ -1534,6 +1545,18 @@ export function trainingDataValidationIssues(raw: unknown) {
     });
   }
   return [...new Set(issues)].slice(0, 20);
+}
+
+export function normalizeReturnCheckIn(raw: unknown, endDate: string): ReturnCheckIn | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== 1 || typeof value.activity !== "string" || !["stopped", "reduced", "continued"].includes(value.activity)
+    || !isValidDateOnly(value.lastLiftDate) || value.lastLiftDate > endDate
+    || typeof value.approximate !== "boolean"
+    || typeof value.readiness !== "string" || !["normal", "low", "sore", "severe-soreness", "symptoms", "pain"].includes(value.readiness)
+    || typeof value.weightGoal !== "string" || !["cut", "maintain", "bulk"].includes(value.weightGoal)) return undefined;
+  return { version: 1, activity: value.activity as ReturnCheckIn["activity"], lastLiftDate: value.lastLiftDate,
+    approximate: value.approximate, readiness: value.readiness as Readiness, weightGoal: value.weightGoal as WeightGoal };
 }
 
 export const recordPlanChange = (data: TrainingData, kind: PlanChange["kind"], effectiveAt = new Date().toISOString()): TrainingData => {
@@ -1889,6 +1912,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
       resolvedDayIds: Array.isArray(record.resolvedDayIds) ? record.resolvedDayIds.filter((id): id is string => typeof id === "string").slice(0, 50) : [],
       createdAt,
       updatedAt: validIso(record.updatedAt, createdAt),
+      checkIn: normalizeReturnCheckIn(record.checkIn, record.endDate),
     }];
   }).slice(-2_000) : [];
   const exerciseRecovery: ExerciseRecoveryCheck[] = Array.isArray(source.exerciseRecovery) ? source.exerciseRecovery.flatMap((item, index) => {

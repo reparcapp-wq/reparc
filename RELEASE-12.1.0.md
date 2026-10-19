@@ -1,0 +1,18 @@
+# RepArc 12.1.0 — return-to-training check-in
+
+- Resume opens a short check-in. An unexplained gap of at least 14 days after recorded lifting also prompts it; a single missed day keeps the existing reschedule/skip workflow. Paused accounts resume explicitly. Existing unreviewed return plans receive a clarification prompt.
+- Ask whether lifting stopped, decreased, or continued without logs; collect the actual last lifting date (with an explicitly approximate fallback), current readiness and a separate weight-goal confirmation. Users may keep training paused.
+- Preview the outcome before saving. Pain or movement-limiting soreness keeps training paused. A logging gap alone does not create a new return reduction when recent continued lifting is confirmed. Existing exercise history, unfamiliar-movement and recovery safeguards still apply.
+- Reuse the existing 14/28/56-day return plans. Reduced training or low energy/soreness can select the existing short conservative return. These thresholds and exact factors are product guardrails, not individually validated clinical cutoffs.
+- Combine an existing return plan once, using stricter set/load/effort limits. Reviewing the same break preserves completed return workouts. Never clear independent Phase 2 entry calibration, raise planning numbers, invent performance, advance program weeks or stack missed workouts into today.
+- A confirmed recent logging-only gap can correct an unused return plan inferred by an older release. An underway return plan and independent exercise/Phase 2 calibration are retained.
+- Restrict unfinished drafts/partial-session guidance while preserving entered rows and historical records; an explicit later save keeps the prior session revision. Historical editing uses its original saved targets.
+- Store a versioned answer in existing time-away records so normal owner-scoped sync, backup, export and account deletion apply. No new table, consent change, evaluation-data collection or database migration. Saved answers suppress repeated prompts for the same break; a fresh extended gap can prompt again. Review is available in Training notices.
+- Existing per-exercise recovery checks continue to hold increases until eligible feedback is recorded; completing the return-session counter does not bypass them.
+- New/updated unfinished recommendations use `12.1.0-policy4`; previous completed-session recommendation versions are retained.
+
+Evidence context: [CSCCa/NSCA consensus on return after inactivity](https://www.nsca.com/about-us/position-statements/safe-return-to-training/) supports a gradual return. The college-athlete guidance does not establish RepArc's exact percentages, session count, or effectiveness for every individual.
+
+Verification (2026-10-19): 230/230 regression tests passed; after the final legacy-plan correction the 10 focused return tests passed again. Lint, static security scan (205 text files), production Next build including TypeScript, 37 isolated PostgreSQL checks, and production dependency audit (zero known vulnerabilities) passed. Synthetic browser checks exercised saving a stopped-lifting return and continued-lifting logging gap, plus dark/light layouts at 512px and 320px panel widths. This is not physical-device, clinical, new live-RLS, or independent-coach validation. Production service-worker stamp: `6678107e4b52`.
+
+The previously documented unpatched development-only `braces` advisory remains a known limitation; do not describe the full development dependency audit as clean. No production account answers or workout records were changed during synthetic verification.
