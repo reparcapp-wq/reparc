@@ -68,7 +68,14 @@ test("repository security automation and hardened headers are configured", async
   ]);
   assert.doesNotMatch(verify, /actions\/checkout@v4/);
   assert.match(securityWorkflow, /npm run security:static/);
-  assert.match(securityWorkflow, /npm audit --omit=dev --audit-level=high/);
+  assert.match(securityWorkflow, /npm run security:dependencies/);
+  assert.match(verify, /npm run security:dependencies/);
+  const audit = await read("scripts/audit-dependencies.mjs");
+  assert.match(audit, /hardenTooling\(\{ check: true \}\)/);
+  assert.match(audit, /"--omit=dev"/);
+  assert.match(audit, /"--include=dev"/);
+  const netlify = await read("netlify.toml");
+  assert.match(netlify, /npm run security:dependencies && npm run verify:sync && npm run build:netlify/);
   assert.match(dependabot, /package-ecosystem: npm/);
   assert.match(config, /Strict-Transport-Security/);
   assert.match(config, /Cross-Origin-Opener-Policy/);

@@ -3,11 +3,14 @@ updates:
   - package-ecosystem: npm
     directory: "/"
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 5
     groups:
       production-patches:
         dependency-type: production
+        update-types: ["patch"]
+      development-patches:
+        dependency-type: development
         update-types: ["patch"]
   - package-ecosystem: github-actions
     directory: "/"

@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build:netlify"
+  command = "npm run security:dependencies && npm run verify:sync && npm run build:netlify"
 
 [build.environment]
   NODE_VERSION = "22"

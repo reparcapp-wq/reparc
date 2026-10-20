@@ -22,8 +22,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run security:dependencies
       - run: npm run lint
       - run: npm test
       - run: npm run security:database
       - run: npm run build:netlify
-      - run: npm audit --omit=dev --audit-level=high

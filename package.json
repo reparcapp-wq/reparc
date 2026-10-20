@@ -1,11 +1,15 @@
 {
   "name": "reparc",
-  "version": "12.2.3",
+  "version": "12.2.4",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
+    "postinstall": "node scripts/harden-tooling.mjs",
+    "security:dependencies": "node scripts/audit-dependencies.mjs",
+    "verify:release": "npm run security:dependencies && npm run security:static && npm run lint && npm test && npm run security:database && npm run build:netlify",
+    "verify:sync": "node --test --test-concurrency=1 tests/cloud-history-validation.test.mjs tests/cloud-sync-status.test.mjs",
     "install:ci": "npm ci",
     "dev": "vite",
     "prepare:pwa": "node scripts/prepare-service-worker.mjs",
@@ -64,7 +68,7 @@
     "tw-animate-css": "^1.4.0",
     "typescript": "5.9.3",
     "vinext": "^1.0.0-beta.8",
-    "vite": "^8.2.2",
+    "vite": "8.2.4",
     "wrangler": "^4.127.1"
   },
   "overrides": {
