@@ -18,6 +18,7 @@ import {
 import { normalizeTrainingData, slugify, type TrainingData } from "@/lib/training";
 import { reconcileTrainingData } from "@/lib/sync-merge";
 import { joinArchive, splitArchive, validArchive } from "@/lib/cloud-archive";
+import { CloudSyncError, cloudResponseError, syncIssueFromError, type CloudSyncIssue } from "@/lib/cloud-sync-status";
 
 const CURRENT_KEY = "training-app-v5";
 const LEGACY_KEY = "training-app-v4";
@@ -41,11 +42,20 @@ export type TrainingSyncResult = {
   synced: boolean;
   pending: boolean;
   lastSyncedAt?: string;
+  issue?: CloudSyncIssue;
+};
+
+export type TrainingLoadResult = {
+  data: TrainingData | null;
+  cloudAvailable: boolean;
+  pending: boolean;
+  lastSyncedAt?: string;
+  issue?: CloudSyncIssue;
 };
 
 type RemoteResult =
   | { available: true; data: TrainingData | null; revision: number }
-  | { available: false; data: null; revision: number };
+  | { available: false; data: null; revision: number; issue: CloudSyncIssue };
 
 const activeSyncs = new Map<string, Promise<TrainingSyncResult>>();
 
@@ -334,41 +344,57 @@ async function timedFetch(input: RequestInfo | URL, init?: RequestInit, timeoutM
   }
 }
 
+async function readCloudPayload(response: Response): Promise<{ data?: unknown; archive?: unknown; updatedAt?: string; revision?: unknown }> {
+  try {
+    const payload = await response.json();
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) || !Number.isSafeInteger(payload.revision) || payload.revision < 0) throw new Error("Invalid cloud response");
+    if (payload.archive === undefined && (!payload.data || typeof payload.data !== "object" || Array.isArray(payload.data) || !Array.isArray(payload.data.sessions) || !payload.data.program || typeof payload.data.program !== "object")) throw new Error("Missing cloud record");
+    return payload;
+  } catch {
+    throw new CloudSyncError({ kind: "server", status: response.status, message: "The cloud returned an incomplete response. Your local record has not been replaced; retry sync." });
+  }
+}
+
 async function hydrateCloudPayload(payload: { data?: unknown; archive?: unknown; updatedAt?: string }) {
   if (payload.archive !== undefined) {
-    if (!validArchive(payload.archive)) throw new Error("Invalid cloud archive");
-    const data = await joinArchive(payload.archive, async (id) => {
-      const response = await timedFetch(`/api/training/chunks?id=${encodeURIComponent(id)}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Incomplete cloud history");
-      return (await response.json() as { text: string }).text;
-    });
-    return normalizeTrainingData(data, payload.updatedAt);
+    if (!validArchive(payload.archive)) throw new CloudSyncError({ kind: "archive", message: "Cloud history could not be verified. Retry sync; do not clear app storage." });
+    try {
+      const data = await joinArchive(payload.archive, async (id) => {
+        const response = await timedFetch(`/api/training/chunks?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+        if (response.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));
+        if (!response.ok) throw await cloudResponseError(response);
+        return (await response.json() as { text: string }).text;
+      });
+      return normalizeTrainingData(data, payload.updatedAt);
+    } catch (error) {
+      if (error instanceof CloudSyncError || error instanceof TypeError || (error instanceof Error && error.name === "AbortError")) throw error;
+      throw new CloudSyncError({ kind: "archive", message: "Cloud history could not be verified. Retry sync; do not clear app storage." });
+    }
   }
   return payload.data ? normalizeTrainingData(payload.data, payload.updatedAt) : null;
 }
 
 async function readRemote(): Promise<RemoteResult> {
-  if (!navigator.onLine) return { available: false, data: null, revision: 0 };
   try {
     const response = await timedFetch("/api/training", { cache: "no-store", headers: { "x-reparc-history": "11" } });
     if (response.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));
     if (response.status === 404) return { available: true, data: null, revision: 0 };
-    if (!response.ok) return { available: false, data: null, revision: 0 };
-    const payload = await response.json();
+    if (!response.ok) throw await cloudResponseError(response);
+    const payload = await readCloudPayload(response);
     return { available: true, data: await hydrateCloudPayload(payload), revision: Math.max(0, Math.trunc(Number(payload.revision) || 0)) };
-  } catch {
-    return { available: false, data: null, revision: 0 };
+  } catch (error) {
+    return { available: false, data: null, revision: 0, issue: syncIssueFromError(error) };
   }
 }
 
 async function uploadProfile(data: TrainingData, mode: SyncMode, baseRevision = 0) {
-  if (!navigator.onLine) throw new Error("Offline");
   const useArchive = new TextEncoder().encode(JSON.stringify(data)).byteLength > 600_000;
   const prepared = useArchive ? await splitArchive(data) : null;
   if (prepared) {
     for (const chunk of prepared.chunks) {
       const staged = await timedFetch("/api/training/chunks", { method: "PUT", headers: { "Content-Type": "application/json", "x-reparc-request": "1" }, body: JSON.stringify(chunk) });
-      if (!staged.ok) throw new Error("Archive upload incomplete");
+      if (staged.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));
+      if (!staged.ok) throw await cloudResponseError(staged);
     }
   }
   const response = await timedFetch("/api/training", {
@@ -378,19 +404,20 @@ async function uploadProfile(data: TrainingData, mode: SyncMode, baseRevision = 
   }, prepared ? 60_000 : 15_000);
   if (response.status === 401) window.dispatchEvent(new Event("my-progress-auth-required"));
   if (response.status === 409) {
-    const payload = await response.json();
+    const payload = await readCloudPayload(response);
     return {
       conflict: true as const,
       data: await hydrateCloudPayload(payload) ?? data,
       revision: Math.max(0, Math.trunc(Number(payload.revision) || 0)),
     };
   }
-  if (!response.ok) throw new Error("Cloud save unavailable");
-  const payload = await response.json();
+  if (!response.ok) throw await cloudResponseError(response);
+  const payload = await readCloudPayload(response);
+  if (Number(payload.revision) <= baseRevision) throw new CloudSyncError({ kind: "server", status: response.status, message: "The cloud did not confirm a newer saved revision. Your changes are still queued; retry sync." });
   return {
     conflict: false as const,
     data: prepared && validArchive(payload.archive) && JSON.stringify(payload.archive) === JSON.stringify(prepared.manifest) ? normalizeTrainingData(data, payload.updatedAt) : await hydrateCloudPayload(payload) ?? data,
-    revision: Math.max(0, Math.trunc(Number(payload.revision) || baseRevision + 1)),
+    revision: Number(payload.revision),
   };
 }
 
@@ -407,12 +434,12 @@ async function runSync(identity: string): Promise<TrainingSyncResult> {
         continue;
       }
       latest = await commitSyncRecord(identity, latest.revision, remote.data, remote.revision, latest.data);
-    } catch {
+    } catch (error) {
       latest = await readLocalRecord(identity) ?? latest;
-      return { data: latest.data, saved: true, synced: false, pending: true, lastSyncedAt: latest.lastSyncedAt };
+      return { data: latest.data, saved: true, synced: false, pending: true, lastSyncedAt: latest.lastSyncedAt, issue: syncIssueFromError(error) };
     }
   }
-  return { data: latest.data, saved: true, synced: false, pending: latest.dirty, lastSyncedAt: latest.lastSyncedAt };
+  return { data: latest.data, saved: true, synced: !latest.dirty, pending: latest.dirty, lastSyncedAt: latest.lastSyncedAt, issue: latest.dirty ? { kind: "conflict", message: "Another device is updating this record. Your changes are queued; retry sync." } : undefined };
 }
 
 export async function syncTrainingData(identity: string): Promise<TrainingSyncResult> {
@@ -421,7 +448,10 @@ export async function syncTrainingData(identity: string): Promise<TrainingSyncRe
   if (active) {
     const completed = await active;
     const latest = await readLocalRecord(identity);
-    if (latest?.dirty) return syncTrainingData(identity);
+    // Share a failed attempt instead of immediately repeating it for every waiter.
+    // A later explicit/foreground retry still uploads the newest durable record.
+    if (latest?.dirty && !completed.issue) return syncTrainingData(identity);
+    if (latest) return { ...completed, data: latest.data, pending: latest.dirty, synced: !latest.dirty && completed.synced };
     return completed;
   }
   const sync = runSync(identity).finally(() => activeSyncs.delete(key));
@@ -429,11 +459,11 @@ export async function syncTrainingData(identity: string): Promise<TrainingSyncRe
   return sync;
 }
 
-export async function loadTrainingData(identity: string, legacyName?: string) {
+export async function loadTrainingData(identity: string, legacyName?: string): Promise<TrainingLoadResult> {
   void requestPersistentStorage();
   const local = await readLocalRecord(identity, legacyName);
   const remote = await readRemote();
-  if (!remote.available) return { data: local?.data ?? null, cloudAvailable: false, pending: local?.dirty ?? false, lastSyncedAt: local?.lastSyncedAt };
+  if (!remote.available) return { data: local?.data ?? null, cloudAvailable: false, pending: local?.dirty ?? false, lastSyncedAt: local?.lastSyncedAt, issue: remote.issue };
   if (!local && !remote.data) return { data: null, cloudAvailable: true, pending: false, lastSyncedAt: undefined };
   if (!local && remote.data) {
     const record = await storeMergedRecord(identity, remote.data, { dirty: false, lastSyncedAt: new Date().toISOString(), serverRevision: remote.revision, expectedRevision: 0 });
@@ -446,7 +476,7 @@ export async function loadTrainingData(identity: string, legacyName?: string) {
   const record = await storeMergedRecord(identity, merged, { dirty: needsUpload, lastSyncedAt: local!.lastSyncedAt, serverRevision: remote.revision, baseData: remote.data ?? undefined, conflictBackup: reconciliation?.conflicts.length ? local!.data : undefined, expectedRevision: local!.revision, observedData: local!.data });
   if (!record.dirty) return { data: record.data, cloudAvailable: true, pending: false, lastSyncedAt: record.lastSyncedAt };
   const result = await syncTrainingData(identity);
-  return { data: result.data, cloudAvailable: result.synced, pending: result.pending, lastSyncedAt: result.lastSyncedAt };
+  return { data: result.data, cloudAvailable: result.synced, pending: result.pending, lastSyncedAt: result.lastSyncedAt, issue: result.issue };
 }
 
 async function saveWithMode(identity: string, data: TrainingData, mode: SyncMode): Promise<TrainingSyncResult> {

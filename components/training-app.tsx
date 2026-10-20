@@ -156,6 +156,8 @@ import {
 import { downloadTrainingBackup, type RestoreMode } from "@/lib/backup";
 import type { Account } from "@/lib/account-client";
 import type { PwaLifecycle } from "@/hooks/use-pwa";
+import { syncIssueFromError, type CloudSyncIssue } from "@/lib/cloud-sync-status";
+import { MakeupWorkoutNotice } from "@/components/makeup-workout-notice";
 
 type Stage = "loading" | "name" | "profile" | "consent" | "improvement" | "app";
 type SyncState = "loading" | "saving" | "synced" | "pending" | "local";
@@ -276,13 +278,13 @@ function SyncBadge({ state, lastSyncedAt, onSync }: { state: SyncState; lastSync
     loading: { label: "Loading", icon: RefreshCw, className: "text-stone-400" },
     saving: { label: "Saving", icon: RefreshCw, className: "text-amber-300" },
     synced: { label: syncedTime ? `Cloud saved · ${syncedTime}` : "Cloud saved", icon: Cloud, className: "text-emerald-300" },
-    pending: { label: "Saved offline · 1 change pending", icon: CloudOff, className: "text-amber-300" },
+    pending: { label: "Sync pending", icon: CloudOff, className: "text-amber-300" },
     local: { label: "Saved on device", icon: CloudOff, className: "text-stone-400" },
   }[state];
   const Icon = content.icon;
   return (
     <button type="button" data-sync-state={state} onClick={onSync} disabled={!onSync || state === "saving" || state === "loading"} className={`sync-badge inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-default ${content.className}`} aria-live="polite" aria-label={`${content.label}. ${onSync ? "Activate to sync now." : ""}`} title={onSync ? "Sync now" : undefined}>
-      <Icon className={`size-3.5 ${state === "saving" || state === "loading" ? "animate-spin" : ""}`} />
+      <Icon className={`size-3.5 shrink-0 ${state === "saving" || state === "loading" ? "animate-spin" : ""}`} />
       <span>{content.label}</span>
     </button>
   );
@@ -1678,6 +1680,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const [draftPlans, setDraftPlans] = useState<Record<string, { snapshot: SessionPlanSnapshot; exposures: Record<string, ExerciseExposureSnapshot>; recommendationVersion?: string }>>({});
   const [openSwap, setOpenSwap] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("loading");
+  const [syncIssue, setSyncIssue] = useState<CloudSyncIssue | undefined>();
   const [lastSyncedAt, setLastSyncedAt] = useState<string | undefined>();
   const [notice, setNotice] = useState("");
   const [view, setView] = useState<View>("train");
@@ -1769,6 +1772,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setActiveDate(today());
     selectScheduledDay(next.program.activeId, next.program.frequency, next.program.preferredWeekdays, next.profile, today(), next);
     setLastSyncedAt(loaded.lastSyncedAt);
+    setSyncIssue(loaded.issue);
     setSyncState(loaded.pending ? "pending" : loaded.cloudAvailable ? "synced" : "local");
     await waitForRepArcLoader(loaderStartedAt);
     setStage(next.profile ? next.consent?.termsVersion === CURRENT_TERMS_VERSION ? "app" : "consent" : "profile");
@@ -1954,11 +1958,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const loaded = await loadTrainingData(account.id, name);
       if (loaded.data) setData(loaded.data);
       setLastSyncedAt(loaded.lastSyncedAt);
+      setSyncIssue(loaded.issue);
       setSyncState(loaded.pending ? "pending" : loaded.cloudAvailable ? "synced" : "local");
-      if (announce) setNotice(loaded.pending ? "Still offline — your latest change remains safely queued" : loaded.cloudAvailable ? "Offline changes are now cloud saved" : "Cloud is unavailable — your data remains on this device");
-    } catch {
+      if (announce) setNotice(loaded.issue ? `Cloud sync not complete. ${loaded.issue.message}` : loaded.pending ? "Your latest changes are saved on this device and waiting to sync" : loaded.cloudAvailable ? "Your changes are cloud saved" : "Cloud is unavailable — your data remains on this device");
+    } catch (error) {
       setSyncState("pending");
-      if (announce) setNotice("Cloud is unavailable — your latest change remains safely queued");
+      const issue = syncIssueFromError(error);
+      setSyncIssue(issue);
+      if (announce) setNotice(issue.message);
     } finally {
       syncAttemptRef.current = false;
     }
@@ -2033,6 +2040,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       : await saveTrainingData(account.id, next);
     if (optimistic || result.saved) setData(result.data);
     setLastSyncedAt(result.lastSyncedAt);
+    setSyncIssue(result.issue);
     setSyncState(result.pending ? "pending" : result.synced ? "synced" : "local");
     setNotice(result.saved ? result.pending ? `${successMessage ?? "Changes saved"} · queued for cloud sync` : successMessage ?? "Changes saved" : "Could not save. Keep this page open and try again.");
     return result.saved;
@@ -2859,6 +2867,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         </div>
         {restTimer && <div className="border-t border-white/[0.07] px-4 py-2 sm:px-7"><div ref={restTimerAnchorRef} className="mx-auto max-w-7xl scroll-mt-2"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} compact onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} /></div></div>}
       </header>
+      {syncIssue && <div className="mx-auto max-w-7xl px-4 pt-3 sm:px-7"><details className="rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5"><summary className="min-h-7 cursor-pointer font-semibold text-amber-200">Cloud sync needs attention{syncState === "pending" ? " · changes saved on this device" : ""}</summary><p className="mt-1 break-words text-stone-300" role="status">{syncIssue.message}</p><Button type="button" variant="ghost" disabled={syncState === "saving" || syncState === "loading"} onClick={() => void attemptCloudSync(true)} className="mt-1 min-h-11 rounded-lg px-2 text-xs text-amber-200">{syncState === "saving" ? "Syncing…" : "Retry sync"}</Button></details></div>}
       {returnCheckInOpen && <ReturnCheckInPanel data={data} date={today()} onClose={closeReturnCheckIn} onSave={saveReturnCheckIn} onPause={pauseFromCheckIn} />}
       {view === "train" && !editingSession && !makeupScheduledDate && (returnContext.due || data.program.status === "paused") && <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-7"><div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><div><p className="text-sm font-semibold">{data.program.status === "paused" ? "Ready to return?" : "Before your next workout"}</p><p className="mt-1 text-xs text-stone-400">Tell RepArc whether you stopped lifting or only stopped logging.</p></div><Button type="button" onClick={openReturnCheckIn} className="min-h-11 shrink-0 rounded-xl bg-amber-300 text-[#0b0d0c]">Check in</Button></div></div>}
       <Sheet open={noticesOpen && view === "train"} onOpenChange={setNoticesOpen}>
@@ -2992,7 +3001,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
         <section className="min-w-0">
           {editingSession && <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><div><p className="font-semibold text-sky-200">Editing {prettyDate(editingSession.date)}{workingScheduledDate !== editingSession.date ? ` · scheduled ${prettyDate(workingScheduledDate)}` : ""}</p><p className="mt-1 text-xs text-stone-400">This uses the saved historical plan and cannot change your current program, week, schedule, or training status.</p></div><Button type="button" variant="ghost" onClick={cancelHistoricalEdit} className="h-9 shrink-0 rounded-xl text-xs text-sky-200 hover:bg-white/10">Cancel</Button></div>}
-          {!editingSession && workingScheduledDate < activeDate && <div className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4"><div><p className="font-semibold text-amber-200">Make-up workout for {prettyDate(workingScheduledDate)}</p><p className="mt-1 text-xs leading-5 text-stone-400">This workout and its full report will appear under {prettyDate(workingScheduledDate)} only. RepArc keeps {prettyDate(activeDate)} privately as the date you actually performed it for recovery timing.</p></div><Button type="button" variant="ghost" onClick={() => { setMakeupScheduledDate(null); selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, activeDate, data); }} className="h-9 shrink-0 rounded-xl px-3 text-xs text-stone-300 hover:bg-white/10">Train today instead</Button></div>}
+          {!editingSession && workingScheduledDate < activeDate && <MakeupWorkoutNotice scheduledDate={prettyDate(workingScheduledDate)} performedDate={prettyDate(activeDate)} onTrainToday={() => { setMakeupScheduledDate(null); selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, activeDate, data); }} />}
           {data.program.status === "paused" && <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><p className="font-semibold text-amber-200">Training is paused</p><p className="mt-1 text-xs text-stone-400">Use the return check-in above when you are ready to resume.</p></div>}
           {!day ? (
             <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-white/15 bg-white/[0.025] px-6 text-center">
