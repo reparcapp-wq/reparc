@@ -244,3 +244,42 @@ test("a write acknowledgement must advance the server revision before clearing p
   assert.match(result.issue.message, /newer saved revision/);
   assert.equal(local(identity).dirty, true);
 });
+
+test("the queued Session 2 completion-label rejection retries successfully without rewriting history", async () => {
+  for (const tombstone of [false, true]) {
+    const identity = id();
+    const queued = { ...data(), profile: { displayName: "Synthetic", bodyweight: 70, unit: "kg", gender: "man", programTrack: "current", level: "experienced", goal: "balanced", equipment: "full", weightGoal: "bulk", weightTrackingEnabled: true } };
+    const day = training.programDays("phase1", 5, "current")[0];
+    const snapshot = training.buildSessionPlanSnapshot(queued, day);
+    queued.sessions = ["2026-09-01", "2026-09-02"].map((date) => ({ id: `synthetic-${date}`, date, dayId: day.id, programId: "phase1", unit: "kg", planSnapshot: structuredClone(snapshot), completionStatus: "completed", revision: 1,
+      createdAt: `${date}T02:00:00.000Z`, updatedAt: `${date}T02:00:00.000Z`,
+      entries: Object.fromEntries(snapshot.exercises.map((exercise) => [exercise.key, Array.from({ length: exercise.sets }, () => ({ w: "20", r: "10", rir: "3" }))])) }));
+    if (tombstone) queued.sessions[1].deletedAt = "2026-10-21T02:00:00.000Z";
+    else delete queued.sessions[1].entries[snapshot.exercises.at(-1).key];
+    const originalHistory = structuredClone(queued.sessions);
+    globalThis.fetch = async () => json({ error: "Session 2 is marked complete but required sets are missing." }, 422);
+    const rejected = await storage.saveTrainingData(identity, queued);
+    assert.equal(rejected.saved, true);
+    assert.equal(rejected.pending, true);
+    assert.equal(rejected.issue.status, 422);
+    globalThis.fetch = async (_url, init) => {
+      if (init?.method !== "PUT") return json({ error: "No saved data." }, 404);
+      const body = JSON.parse(init.body);
+      const issues = training.trainingDataValidationIssues(body.data);
+      return issues.length ? json({ error: issues[0] }, 422) : json({ data: body.data, revision: 1 });
+    };
+    const retried = await storage.loadTrainingData(identity);
+    assert.equal(retried.cloudAvailable, true);
+    assert.equal(retried.pending, false);
+    assert.equal(retried.issue, undefined);
+    assert.equal(local(identity).dirty, false);
+    assert.equal(retried.data.weighIns[0].weight, 72.3);
+    for (let index = 0; index < originalHistory.length; index++) {
+      assert.deepEqual(retried.data.sessions[index].entries, originalHistory[index].entries);
+      assert.equal(retried.data.sessions[index].completionStatus, originalHistory[index].completionStatus);
+      assert.equal(retried.data.sessions[index].deletedAt, originalHistory[index].deletedAt);
+      assert.equal(retried.data.sessions[index].revision, originalHistory[index].revision);
+    }
+    assert.equal(training.sessionCountsAsCompletedDay(retried.data.sessions[1], retried.data), false);
+  }
+});

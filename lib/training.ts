@@ -1577,13 +1577,10 @@ export function trainingDataValidationIssues(raw: unknown) {
     if (typeof consent.adultConfirmedAt !== "string" || Number.isNaN(Date.parse(consent.adultConfirmedAt))) issues.push("Adult confirmation date is invalid.");
     if (typeof consent.safetyAcceptedAt !== "string" || Number.isNaN(Date.parse(consent.safetyAcceptedAt))) issues.push("Safety confirmation date is invalid.");
   }
-  if (!issues.length && Array.isArray(source.sessions)) {
-    const rawSessions = source.sessions as unknown[];
-    const normalized = normalizeTrainingData(source);
-    normalized.sessions.forEach((session, index) => {
-      if ((rawSessions[index] as Record<string, unknown>)?.completionStatus === "completed" && !sessionCountsAsCompletedDay(session, normalized)) issues.push(`Session ${index + 1} is marked complete but required sets are missing.`);
-    });
-  }
+  // Historical completion labels are not a structural validity boundary. Older
+  // releases used different completion rules, and deletion tombstones retain the
+  // original label. Persist that history without inventing sets or rewriting it;
+  // reports/adherence still compute completion from prescribed set positions.
   return [...new Set(issues)].slice(0, 20);
 }
 
