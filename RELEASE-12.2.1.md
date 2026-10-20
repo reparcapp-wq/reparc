@@ -1,0 +1,15 @@
+# RepArc 12.2.1 — calculation audit fixes
+
+- Clarify first-use guidance: matching personal exercise history follows across program slots; a genuinely unseen exercise still needs a light calibration, not a guessed cross-exercise kg conversion. Reps remain program/return targets rather than a claimed exact capacity prediction. Added the large repetitions/%1RM review to the guide.
+- Use one prescribed-position completion count for save, daily/period reports and completed-day/adherence checks. Extra work stays recorded but cannot replace a missing movement.
+- Exclude assistance counterweight, unloaded and unidentified work from external-load volume. Added-weight bodyweight work counts added load only.
+- Assisted difficulty cannot increase after a rep-range miss; saved assistance >= known bodyweight is not prescribed. With mixed weights, do not turn the median into one fixed next-session load. A reduction anchors below the failed weight; for assistance it anchors above the failed assistance setting.
+- Deduplicate weigh-in revisions/dates, respect tombstones, exclude future measurements and require three distinct dates in both comparison windows. Missing percent change is unknown, not zero. Disclose the latest-record window's ending date.
+- A historical weigh-in changes history only, not current recommendation bodyweight. Today's accepted entry can update current mass. Bodyweight upper limits preserve equivalent physical values during kg/lb conversion instead of dropping values above the old 660 lb cutoff.
+- Protected exposures remain calibration in performance comparisons. Raw workout records, old saved prescriptions, program templates, SBS tables and existing return factors are not rewritten.
+
+Full findings, numerical test inventory, source boundaries and remaining limitations: [MATH-SAFETY-AUDIT-12.2.1.md](MATH-SAFETY-AUDIT-12.2.1.md). This is software verification, not an independently validated injury-prevention or capacity-prediction model. A qualified independent program review and prospective user-outcome validation remain separate work.
+
+Local verification: **266/266 tests passed** (19 new math-oracle groups), final production Next build including TypeScript, lint, production dependency audit (zero reported vulnerabilities) and 37 isolated PostgreSQL checks passed. Synthetic browser checks exercised partial completion despite extra work, current versus historical weigh-in behavior, light/dark and 320/390px viewports without horizontal overflow. Temporary fixtures were removed. No production account answers or workout sets were saved during testing. Static security and hosted verification results are recorded at publication handoff. Service-worker stamp: `35939decaa58`.
+
+No database migration, new dependency, new collection or consent change. New recommendation provenance is `12.2.1-policy6`; detailed report version is `12.2.1-review3`. The previously documented development-only `braces` advisory remains; the production-only audit must not be described as a clean full development audit.

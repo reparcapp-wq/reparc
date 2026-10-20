@@ -185,14 +185,21 @@ export function nextSessionAdjustment(input: AdjustmentInput): LoadAdjustment | 
   }
 
   if (completed.some((entry) => numeric(entry.r) < exercise.repLow && entry.rir !== "" && numeric(entry.rir) <= 1)) {
+    const failedLoad = Math.min(...completed.filter((entry) => numeric(entry.r) < exercise.repLow && entry.rir !== "" && numeric(entry.rir) <= 1).map((entry) => loadFrom(entry, exercise)));
+    const failedLower = availableLoads?.length ? resolveAvailableLoad(failedLoad, availableLoads, "lower") : null;
     return {
       action: "decrease",
-      nextLoad: exercise.bodyweight ? null : lowerLoad,
+      nextLoad: exercise.bodyweight ? null : failedLower,
       confidence,
-      reason: exercise.bodyweight ? "Use assistance or an easier variation next time." : lowerLoad === null ? hasAvailableLoads ? "At least one set missed the range at high effort at the lowest configured load. Use an easier variation or update the equipment list." : "At least one set missed the range at high effort. Use the next lower available load; configure this exercise’s equipment loads for an exact value." : "At least one set missed the range at high effort. Use the next lower load available on this equipment.",
+      reason: exercise.bodyweight ? "Use assistance or an easier variation next time." : failedLower === null ? hasAvailableLoads ? "At least one set missed the range at high effort at the lowest configured load. Use an easier variation or update the equipment list." : "At least one set missed the range at high effort. Use the next lower available load; configure this exercise’s equipment loads for an exact value." : "At least one set missed the range at high effort. Use a lower weight than that failed set, not the median of the other sets.",
       evidence,
     };
   }
+
+  if (loadSpread > .0001 && !exercise.bodyweight) return {
+    action: "hold", nextLoad: null, confidence: "low",
+    reason: "Your sets used different weights. Keep each set's own comfortable weight and meet the rep and effort targets before using one fixed recommendation; the heavier sets do not establish a weight for the lighter sets.", evidence,
+  };
 
   if (anyBelow || !allPlannedSets) {
     return {
@@ -283,15 +290,17 @@ function assistedAdjustment({ exercise, entries, readiness, availableLoads = [],
   if (!completed.length || (!nextSession && completed.length >= exercise.sets)) return null;
   const latest = completed.at(-1)!;
   const assistance = numeric(latest.w);
-  const harder = resolveAvailableLoad(assistance, availableLoads, "lower");
-  const easier = resolveAvailableLoad(assistance, availableLoads, "higher");
+  const validLoads = availableLoads.filter((load) => load > 0 && (bodyweight === undefined || load < bodyweight));
+  const harder = resolveAvailableLoad(assistance, validLoads, "lower");
   const effort = completed.map((entry) => entry.rir === "" ? null : numeric(entry.rir));
   const lastEffort = effort.at(-1)!;
   const evidence = [`${completed.length}/${exercise.sets} sets`, `${latest.r} reps`, lastEffort === null ? "reps left not recorded" : `${lastEffort} reps left`, `${targetRir} good reps left targeted`];
   if (readiness === "pain" || readiness === "severe-soreness") return { action: "stop", nextLoad: null, confidence: "high", reason: "Stop while pain or soreness limits normal movement.", evidence };
-  const tooHard = (nextSession ? completed : [latest]).some((entry) => entry.rir !== "" && (numeric(entry.rir) === 0
+  const failedEntries = (nextSession ? completed : [latest]).filter((entry) => entry.rir !== "" && (numeric(entry.rir) === 0
     || (numeric(entry.r) < exercise.repLow && numeric(entry.rir) <= 1)
     || (!nextSession && targetRir >= 3 && numeric(entry.rir) <= targetRir - 2)));
+  const tooHard = failedEntries.length > 0;
+  const easier = resolveAvailableLoad(Math.max(assistance, ...failedEntries.map((entry) => numeric(entry.w))), validLoads, "higher");
   if (tooHard) return { action: "decrease", nextLoad: easier, confidence: "moderate",
     reason: easier === null ? "Use more assistance or an easier variation. No higher assistance setting is saved; update the equipment choices for an exact number."
       : `Use more assistance to make the next ${nextSession ? "workout" : "set"} easier. Leave at least ${targetRir} good reps.`, evidence };
@@ -299,7 +308,7 @@ function assistedAdjustment({ exercise, entries, readiness, availableLoads = [],
   const complete = completed.length >= exercise.sets;
   const equalAssistance = completed.every((entry) => numeric(entry.w) === assistance);
   const allEffortKnown = effort.every((value) => value !== null && value >= 1);
-  const shouldProgress = nextSession ? complete && equalAssistance && allEffortKnown
+  const shouldProgress = nextSession ? complete && equalAssistance && allEffortKnown && completed.every((entry) => numeric(entry.r) >= exercise.repLow)
     && (completed.every((entry) => numeric(entry.r) >= exercise.repHigh) || effort.every((value) => value !== null && value >= 4))
     : lastEffort !== null && lastEffort >= 4 && numeric(latest.r) >= exercise.repLow && allEffortKnown;
   const resistance = bodyweight === undefined ? null : bodyweight - assistance;

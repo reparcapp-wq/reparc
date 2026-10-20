@@ -75,9 +75,12 @@ import {
   PROGRAMS,
   activeSessions,
   activeWeighIns,
+  applyWeighIn,
   absenceDayIds,
   buildReturnPlan,
   buildSessionPlanSnapshot,
+  bodyweightInputRange,
+  completedPlanSets,
   comparableExerciseHistory,
   convertWeight,
   CURRENT_TERMS_VERSION,
@@ -88,6 +91,8 @@ import {
   exerciseKey,
   exerciseName,
   isFilledSet,
+  isValidDateOnly,
+  isBodyweightInRange,
   isoDate,
   numeric,
   loadProfileValues,
@@ -470,8 +475,8 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
     if (step === 1 && !gender) return "Select Man or Woman to assign your program.";
     if (step === 1 && !adultConfirmed) return "Confirm that you are 18 or older to use this adult program.";
     const value = Number(bodyweight);
-    const maximum = unit === "kg" ? 300 : 660;
-    if (step === 2 && (!value || value < 25 || value > maximum)) return `Enter a bodyweight between 25 and ${maximum} ${unit}.`;
+    const { minimum, maximum } = bodyweightInputRange(unit);
+    if (step === 2 && !isBodyweightInRange(value, unit)) return `Enter a bodyweight between ${minimum} and ${maximum} ${unit}.`;
     if (step === 2 && !level) return "Choose how long you have been lifting.";
     if (step === 3 && !frequency) return "Choose how many days you can train.";
     if (step === 3 && preferredWeekdays.length !== frequency) return `Choose exactly ${frequency} preferred training days.`;
@@ -498,8 +503,7 @@ function ProfileSetup({ accountId, name, onSave }: { accountId: string; name: st
       return;
     }
     const value = Number(bodyweight);
-    const maximum = unit === "kg" ? 300 : 660;
-    if (!level || !value || value < 25 || value > maximum) {
+    if (!level || !isBodyweightInRange(value, unit)) {
       setStep(2);
       setError("Complete your valid starting point first.");
       return;
@@ -767,13 +771,13 @@ export function ProgressView({
 
   const addWeighIn = async () => {
     const weight = Number(weighValue);
-    const maximum = profile.unit === "kg" ? 300 : 660;
-    if (!weighDate || !weight || weight < 25 || weight > maximum) {
-      setMessage(`Enter a date and a weight between 25 and ${maximum} ${profile.unit}.`);
+    const { minimum, maximum } = bodyweightInputRange(profile.unit);
+    if (!isValidDateOnly(weighDate) || weighDate > today() || !isBodyweightInRange(weight, profile.unit)) {
+      setMessage(`Enter a date no later than today and a weight between ${minimum} and ${maximum} ${profile.unit}.`);
       return;
     }
     const now = new Date().toISOString();
-    const existing = data.weighIns.find((entry) => entry.date === weighDate && !entry.deletedAt);
+    const existing = activeWeighIns(data).filter((entry) => entry.date === weighDate).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.id.localeCompare(b.id)).at(-1);
     const entry = {
       id: existing?.id ?? globalThis.crypto?.randomUUID?.() ?? `weight-${weighDate}-${now}`,
       date: weighDate,
@@ -783,9 +787,7 @@ export function ProgressView({
       updatedAt: now,
     };
     const next = {
-      ...data,
-      weighIns: existing ? data.weighIns.map((item) => item.id === existing.id ? entry : item) : [...data.weighIns, entry],
-      profile: { ...profile, bodyweight: weight },
+      ...applyWeighIn(data, entry, today()),
       updatedAt: now,
     };
     const saved = await onUpdate(next, existing ? "Weigh-in updated" : "Weigh-in saved");
@@ -1009,15 +1011,15 @@ export function ProgressView({
                 <div>
                   <p className="eyebrow text-amber-300">Bodyweight trend</p>
                   <h2 className="mt-2 text-2xl font-semibold">{trend.latestAverage ? `${trend.latestAverage.toFixed(1)} ${profile.unit}` : "Start your baseline"}</h2>
-                  <p className="mt-1 text-xs text-stone-500">7-day average · goal: {profile.weightGoal}</p>
+                  <p className="mt-1 text-xs text-stone-500">7-day average{trend.latestDate ? ` ending ${prettyDate(trend.latestDate, { month: "short", day: "numeric" })}` : ""} · goal: {profile.weightGoal}</p>
                 </div>
                 <Sparkline points={trend.entries.slice(-14).map((entry) => entry.weight)} />
               </div>
-              {trend.recentCount >= 3 && trend.previousAverage > 0 ? (
+              {trend.weeklyChangePercent !== null ? (
                 <p className={`mt-3 text-xs ${Math.abs(trend.weeklyChangePercent) < 0.1 ? "text-stone-400" : trend.weeklyChangePercent > 0 ? "text-amber-300" : "text-sky-300"}`}>
                   {trend.weeklyChangePercent > 0 ? "+" : ""}{trend.weeklyChangePercent.toFixed(2)}% versus the prior 7 days. Treat this as a trend, not a daily verdict.
                 </p>
-              ) : <p className="mt-3 text-xs text-stone-500">Log at least three recent measurements to show a trend. Daily fluctuations are normal.</p>}
+              ) : <p className="mt-3 text-xs text-stone-500">A comparison needs measurements on at least three separate days in each 7-day window. Daily fluctuations are normal.</p>}
               <details className="mt-4 border-t border-white/10 pt-4">
                 <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-stone-300">Log or review weigh-ins<ChevronDown className="size-4 text-stone-500" /></summary>
                 <div className="mt-4 grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_auto]">
@@ -1050,9 +1052,9 @@ export function ProgressView({
                 const periodReports = range === "day"
                   ? []
                   : [...new Set(sessions.map((session) => sessionScheduleDates.get(session.id) ?? session.date))].map((date) => buildDailyReport(data, date));
-                const completedSets = periodReports.reduce((sum, report) => sum + report.completedSets, 0);
+                const completedPlannedSets = periodReports.reduce((sum, report) => sum + report.completedPlannedSets, 0);
                 const plannedSets = periodReports.reduce((sum, report) => sum + report.plannedSets, 0);
-                const completionPercent = plannedSets ? Math.min(100, Math.round((completedSets / plannedSets) * 100)) : sessions.length ? 100 : 0;
+                const completionPercent = plannedSets ? Math.min(100, Math.round((completedPlannedSets / plannedSets) * 100)) : 0;
                 const measuredDurations = sessions.flatMap((session) => { const duration = measuredSessionDuration(session); return duration === null ? [] : [duration]; });
                 const totalDurationSeconds = measuredDurations.reduce((sum, duration) => sum + duration, 0);
                 const effortRatings = sessions.flatMap((session) => typeof session.sessionRpe === "number" ? [session.sessionRpe] : []);
@@ -1390,9 +1392,9 @@ function SettingsView({
 
   const saveBodyweight = async () => {
     const value = Number(bodyweight);
-    const maximum = profile.unit === "kg" ? 300 : 660;
-    if (!value || value < 25 || value > maximum) {
-      setMessage(`Enter a bodyweight between 25 and ${maximum} ${profile.unit}.`);
+    const { minimum, maximum } = bodyweightInputRange(profile.unit);
+    if (!isBodyweightInRange(value, profile.unit)) {
+      setMessage(`Enter a bodyweight between ${minimum} and ${maximum} ${profile.unit}.`);
       return;
     }
     await updateProfile({ bodyweight: value }, "Bodyweight updated");
@@ -2601,11 +2603,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const timing = sessionTiming(currentSession ?? undefined, sessionStartedAt, now, Boolean(editingSession));
     const planSnapshot = selectedSnapshot ?? buildSessionPlanSnapshot(data, day, workingProgramId, workingWeek, workingFrequency);
     const plannedSets = planSnapshot.exercises.reduce((sum, exercise) => sum + exercise.sets, 0);
-    const completedSetCount = Object.entries(entries).reduce((sum, [key, sets]) => {
-      const snapshot = planSnapshot.exercises.find((exercise) => exercise.key === key);
-      const exercise = snapshot ? { ...snapshot, alternatives: [] } as Exercise : exerciseFromKey(key);
-      return sum + sets.filter((entry) => isFilledSet(entry, exercise)).length;
-    }, 0);
+    const completedSetCount = completedPlanSets(planSnapshot, entries);
     const completionStatus = !skippedExerciseKeys.length && completedSetCount >= plannedSets ? "completed" as const : "partial" as const;
     const calibrationSession = !editingSession && currentSession?.completionStatus !== "completed" && (data.program.calibrationRequired || Boolean(data.program.returnPlan));
     const calibrationCompleted = calibrationSession && completionStatus === "completed";

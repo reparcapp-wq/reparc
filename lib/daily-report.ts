@@ -13,6 +13,7 @@ import {
   numeric,
   resolvedSessionScheduleDates,
   sessionPlannedSets,
+  sessionCompletedPlannedSets,
   sessionCountsAsCompletedDay,
   type Session,
   type TrainingData,
@@ -106,6 +107,7 @@ export type DailyReport = {
   completedSets: number;
   plannedSets: number;
   completionPercent: number;
+  completedPlannedSets: number;
   totalReps: number;
   loadedVolume: number;
   averageRir: number | null;
@@ -210,7 +212,8 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     };
   });
 
-  const completionPercent = plannedSets ? Math.min(100, Math.round((completedSets / plannedSets) * 100)) : sessions.length ? 100 : 0;
+  const completedPlannedSets = sessions.reduce((sum, session) => sum + sessionCompletedPlannedSets(session, data), 0);
+  const completionPercent = plannedSets ? Math.min(100, Math.round((completedPlannedSets / plannedSets) * 100)) : 0;
   const averageRir = rirValues.length ? rirValues.reduce((sum, value) => sum + value, 0) / rirValues.length : null;
   const rirCoveragePercent = completedEntries.length ? Math.round((rirValues.length / completedEntries.length) * 100) : 0;
   const averageSessionRpe = sessionRpes.length ? sessionRpes.reduce((sum, value) => sum + value, 0) / sessionRpes.length : null;
@@ -251,10 +254,10 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
         ? "You recorded movement-limiting soreness. No performance was invented; the scheduled session remains visible in adherence context and the next session uses conservative return mode."
         : "Recovery days are part of the program. RepArc does not grade rest as a missed workout."
     : performedOnDates.length
-      ? `${completedSets} of ${plannedSets || completedSets} planned sets are filed under this missed workout date. You actually trained on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" })).join(" and ")}; the workout is shown here only, not duplicated on that day.`
+      ? `${completedPlannedSets} of ${plannedSets} planned sets are filed under this missed workout date. You actually trained on ${performedOnDates.map((value) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" })).join(" and ")}; the workout is shown here only, not duplicated on that day.`
     : sessions.length > 1
       ? `${sessionNames.join(" and ")} remain separate workout records. These totals combine only the work actually performed on this date; RepArc does not require missed sessions to be doubled up.`
-      : `${completedSets} of ${plannedSets || completedSets} planned sets were recorded${averageRir === null ? ". Reps-left estimates were not recorded consistently, so weight advice remains conservative." : ` with ${averageRir.toFixed(1)} good reps left on average.`}`;
+      : `${completedPlannedSets} of ${plannedSets} planned sets were recorded${completedSets > completedPlannedSets ? `, plus ${completedSets - completedPlannedSets} extra sets that do not replace missing planned work` : ""}${averageRir === null ? ". Reps-left estimates were not recorded consistently, so weight advice remains conservative." : ` with ${averageRir.toFixed(1)} good reps left on average.`}`;
 
   return {
     date,
@@ -262,6 +265,7 @@ export function buildDailyReport(data: TrainingData, date: string): DailyReport 
     label,
     sessions: sessions.length,
     completedSets,
+    completedPlannedSets,
     plannedSets,
     completionPercent,
     totalReps,

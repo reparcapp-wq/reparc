@@ -1,5 +1,5 @@
 import {
-  buildReturnPlan, comparableExerciseHistory, convertWeight, isFilledSet, loadProfileId, numeric, prettyDate,
+  buildReturnPlan, comparableExerciseHistory, convertWeight, isBodyweightInRange, isFilledSet, loadProfileId, numeric, prettyDate,
   type Exercise, type Readiness, type TrainingData, type Unit,
 } from "./training";
 import { loadAtOrBelow, type Calibration } from "./exercise-calibration";
@@ -83,7 +83,7 @@ export function historyStartingSuggestion({ data, exercise, date, unit, calibrat
     return { ...base, reason: `No external weight is needed. Start at ${targetReps} reps and stop with at least ${targetRir} good reps left. Use an easier variation if needed.` };
   }
   if (kind === "bodyweight" || kind === "assisted-bodyweight") {
-    if (sourceBodyweight === null || currentBodyweight === null || sourceBodyweight <= 0 || currentBodyweight <= 0) {
+    if (sourceBodyweight === null || currentBodyweight === null || !isBodyweightInRange(sourceBodyweight, unit) || !isBodyweightInRange(currentBodyweight, unit)) {
       return { ...base, reason: `Start at ${targetReps} controlled reps with an easier variation or comfortable assistance. The old workout has no usable bodyweight record, so RepArc will not guess an added-weight or assistance target.` };
     }
     if (kind === "assisted-bodyweight") {

@@ -718,8 +718,11 @@ export const supportsEstimatedMax = (exercise?: Exercise | null) => {
     && exerciseMetadata(exercise.name)?.estimatedMax === true;
 };
 
-export const externalLoadVolume = (exercise: Exercise | null | undefined, externalLoad: number, reps: number) =>
-  Math.max(0, externalLoad) * Math.max(0, reps) * (exercise?.perSide ? 2 : 1);
+export const externalLoadVolume = (exercise: Exercise | null | undefined, externalLoad: number, reps: number) => {
+  const kind = exercise?.loadingType ?? (exercise?.bodyweight ? "bodyweight" : "external");
+  if (!exercise || kind === "assisted-bodyweight" || kind === "unloaded" || !Number.isFinite(externalLoad) || !Number.isFinite(reps)) return 0;
+  return Math.max(0, externalLoad) * Math.max(0, reps) * (exercise.perSide ? 2 : 1);
+};
 
 export const exerciseNeedsLoad = (exercise?: Exercise | null) => {
   const loadingType = exercise?.loadingType ?? (exercise?.bodyweight ? "bodyweight" : "external");
@@ -834,6 +837,14 @@ export const convertWeight = (value: number, from: Unit, to: Unit) => {
   if (from === to) return value;
   return from === "kg" ? value / 0.45359237 : value * 0.45359237;
 };
+
+// Input/data-quality bounds, not clinical or exercise-safety thresholds.
+export const bodyweightInputRange = (unit: Unit) => ({
+  minimum: Math.ceil(convertWeight(25, "kg", unit) * 100) / 100,
+  maximum: Math.floor(convertWeight(300, "kg", unit) * 100) / 100,
+});
+export const isBodyweightInRange = (value: number, unit: Unit) => Number.isFinite(value)
+  && convertWeight(value, unit, "kg") >= 25 - 1e-8 && convertWeight(value, unit, "kg") <= 300 + 1e-8;
 
 export const roundLoad = (value: number, unit: Unit) => {
   if (!Number.isFinite(value) || value <= 0) return 0;
@@ -991,10 +1002,25 @@ export const sessionCompletedSets = (session: Session) => Object.entries(session
   return sum + entries.filter((entry) => isFilledSet(entry, exercise)).length;
 }, 0);
 
+/** Completed prescribed positions, not interchangeable total sets. Extras remain
+ * performed work but cannot stand in for an omitted movement or blank row. */
+export const completedPlanSets = (snapshot: SessionPlanSnapshot, entries: Record<string, SetEntry[]>) => snapshot.exercises.reduce((sum, exercise) =>
+  sum + (entries[exercise.key] ?? []).slice(0, exercise.sets).filter((entry) => isFilledSet(entry, { ...exercise, alternatives: [] })).length, 0);
+export const sessionCompletedPlannedSets = (session: Session, data?: TrainingData) => {
+  if (session.planSnapshot) return completedPlanSets(session.planSnapshot, session.entries);
+  const day = data?.profile ? programDays(session.programId ?? data.program.activeId, session.programFrequency ?? data.program.frequency,
+    data.profile.programTrack, data.profile.goal, data.profile.equipment).find((item) => item.id === session.dayId) : undefined;
+  return (day?.exercises ?? []).reduce((sum, exercise) => {
+    const match = Object.entries(session.entries).find(([key]) => exerciseFromKey(key)?.id === exercise.id);
+    const resolved = match ? exerciseFromKey(match[0]) : null;
+    return sum + (match?.[1] ?? []).slice(0, exercise.sets).filter((entry) => isFilledSet(entry, resolved)).length;
+  }, 0);
+};
+
 export const sessionCountsAsCompletedDay = (session: Session, data?: TrainingData) => {
   if (session.deletedAt || session.skippedExerciseKeys?.length || session.completionStatus === "partial" || session.completionStatus === "skipped") return false;
   const planned = sessionPlannedSets(session, data);
-  return planned > 0 && sessionCompletedSets(session) >= planned;
+  return planned > 0 && sessionCompletedPlannedSets(session, data) >= planned;
 };
 
 const dateValue = (value: string) => new Date(`${value}T12:00:00.000Z`).valueOf();
@@ -1240,7 +1266,21 @@ export function currentSessionRecords(data: Pick<TrainingData, "sessions">) {
   return [...logical.values()];
 }
 export const activeSessions = (data: Pick<TrainingData, "sessions">) => currentSessionRecords(data).filter(isActiveSession);
-export const activeWeighIns = (data: Pick<TrainingData, "weighIns">) => data.weighIns.filter((entry) => !entry.deletedAt);
+export const activeWeighIns = (data: Pick<TrainingData, "weighIns">) => {
+  const byId = new Map<string, WeighIn>();
+  for (const entry of data.weighIns) {
+    const old = byId.get(entry.id);
+    if (!old || entry.updatedAt > old.updatedAt || entry.updatedAt === old.updatedAt && !!entry.deletedAt && !old.deletedAt) byId.set(entry.id, entry);
+  }
+  return [...byId.values()].filter((entry) => !entry.deletedAt);
+};
+
+/** Backdating changes recorded history, never silently changes today's mass. */
+export function applyWeighIn(data: TrainingData, entry: WeighIn, asOf = isoDate()): TrainingData {
+  if (!isValidDateOnly(entry.date) || entry.date > asOf || !isBodyweightInRange(entry.weight, entry.unit)) throw new Error("Check the weigh-in date and weight.");
+  return { ...data, weighIns: [...data.weighIns.filter((old) => old.id !== entry.id), entry],
+    profile: data.profile && entry.date === asOf ? { ...data.profile, bodyweight: convertWeight(entry.weight, entry.unit, data.profile.unit) } : data.profile };
+}
 
 const shiftDate = (date: string, days: number) => {
   const value = new Date(`${date}T12:00:00.000Z`);
@@ -1501,7 +1541,7 @@ export function trainingDataValidationIssues(raw: unknown) {
       const entry = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
       const unit = entry?.unit === "lb" ? "lb" : "kg";
       const weight = Number(entry?.weight);
-      if (!entry || !isValidDateOnly(entry.date) || !Number.isFinite(weight) || weight < 25 || weight > (unit === "kg" ? 300 : 660)) issues.push(`Weigh-in ${index + 1} is invalid.`);
+      if (!entry || !isValidDateOnly(entry.date) || !Number.isFinite(weight) || weight < 25 || weight > convertWeight(300, "kg", unit) + 1e-8) issues.push(`Weigh-in ${index + 1} is invalid.`);
     });
   }
   if (source.loadProfiles !== undefined && (!source.loadProfiles || typeof source.loadProfiles !== "object" || Array.isArray(source.loadProfiles))) {
@@ -1618,12 +1658,18 @@ export const phase2DataConfidence = (data: TrainingData, track: ProgramTrack = d
   } as const;
 };
 
-export const weightTrend = (data: TrainingData, unit: Unit) => {
-  const entries = activeWeighIns(data)
-    .map((entry) => ({ ...entry, weight: convertWeight(entry.weight, entry.unit, unit) }))
+export const weightTrend = (data: TrainingData, unit: Unit, asOf = isoDate()) => {
+  const byDate = new Map<string, WeighIn>();
+  for (const entry of activeWeighIns(data)) {
+    const kg = convertWeight(entry.weight, entry.unit, "kg");
+    if (!isValidDateOnly(entry.date) || entry.date > asOf || !Number.isFinite(kg) || kg < 25 || kg > 300) continue;
+    const old = byDate.get(entry.date);
+    if (!old || entry.updatedAt > old.updatedAt || entry.updatedAt === old.updatedAt && entry.id > old.id) byDate.set(entry.date, entry);
+  }
+  const entries = [...byDate.values()].map((entry) => ({ ...entry, weight: convertWeight(entry.weight, entry.unit, unit) }))
     .sort((left, right) => left.date.localeCompare(right.date));
   const latestDate = entries.at(-1)?.date;
-  if (!latestDate) return { entries, latestAverage: 0, previousAverage: 0, weeklyChangePercent: 0, recentCount: 0 };
+  if (!latestDate) return { entries, latestDate, latestAverage: 0, previousAverage: 0, weeklyChangePercent: null, recentCount: 0, previousCount: 0 };
   const latest = new Date(`${latestDate}T12:00:00Z`).valueOf();
   const recent = entries.filter((entry) => {
     const age = latest - new Date(`${entry.date}T12:00:00Z`).valueOf();
@@ -1638,10 +1684,12 @@ export const weightTrend = (data: TrainingData, unit: Unit) => {
   const previousAverage = average(previous);
   return {
     entries,
+    latestDate,
     latestAverage,
     previousAverage,
-    weeklyChangePercent: latestAverage && previousAverage ? ((latestAverage - previousAverage) / previousAverage) * 100 : 0,
+    weeklyChangePercent: recent.length >= 3 && previous.length >= 3 && latestAverage && previousAverage ? ((latestAverage - previousAverage) / previousAverage) * 100 : null,
     recentCount: recent.length,
+    previousCount: previous.length,
   };
 };
 
@@ -1732,7 +1780,7 @@ const normalizeSession = (item: unknown, index: number, fallbackUnit: Unit): Ses
     completionStatus: session.completionStatus === "completed" || session.completionStatus === "adjusted" || session.completionStatus === "skipped" || session.completionStatus === "partial" ? session.completionStatus : undefined,
     skippedExerciseKeys: normalizeSkippedExercises(session.skippedExerciseKeys),
     affectsProgression: session.affectsProgression !== false,
-    bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= ((session.unit === "lb" || session.unit === "kg" ? session.unit : fallbackUnit) === "kg" ? 300 : 660) ? Number(session.bodyweightAtSession) : undefined,
+    bodyweightAtSession: Number(session.bodyweightAtSession) >= 25 && Number(session.bodyweightAtSession) <= convertWeight(300, "kg", session.unit === "lb" || session.unit === "kg" ? session.unit : fallbackUnit) + 1e-8 ? Number(session.bodyweightAtSession) : undefined,
     planSnapshot: normalizePlanSnapshot(session.planSnapshot),
     exerciseExposures,
     logicalKey: typeof session.logicalKey === "string" ? session.logicalKey : undefined,
@@ -1749,7 +1797,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
   const rawProfile = source.profile as Record<string, unknown> | null;
   const profileUnit: Unit = rawProfile?.unit === "lb" ? "lb" : "kg";
   const normalizedBodyweight = numeric(rawProfile?.bodyweight ?? rawProfile?.bw);
-  const validBodyweight = normalizedBodyweight >= 25 && normalizedBodyweight <= (profileUnit === "kg" ? 300 : 660);
+  const validBodyweight = normalizedBodyweight >= 25 && normalizedBodyweight <= convertWeight(300, "kg", profileUnit) + 1e-8;
   const normalizedLevel: Level = rawProfile?.level === "new"
     ? "new"
     : rawProfile?.level === "beginner"
@@ -1818,7 +1866,7 @@ export function normalizeTrainingData(raw: unknown, remoteUpdatedAt?: string): T
     const entry = item as Record<string, unknown>;
     const weight = numeric(entry.weight);
     const entryUnit: Unit = entry.unit === "lb" || entry.unit === "kg" ? entry.unit : fallbackUnit;
-    if (!isValidDateOnly(entry.date) || weight < 25 || weight > (entryUnit === "kg" ? 300 : 660)) return [];
+    if (!isValidDateOnly(entry.date) || weight < 25 || weight > convertWeight(300, "kg", entryUnit) + 1e-8) return [];
     const fallbackTime = `${entry.date}T08:00:00.000Z`;
     return [{
       id: typeof entry.id === "string" ? entry.id : `weight-${entry.date}-${index}`,

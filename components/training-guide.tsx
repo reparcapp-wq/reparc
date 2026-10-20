@@ -6,6 +6,13 @@ import { Activity, BookOpen, ExternalLink, ShieldCheck, WifiOff } from "lucide-r
 
 const references = [
   {
+    grade: "Large meta-regression",
+    title: "Repetitions possible at a percentage of maximum",
+    result: "A 2024 review analysed 952 tests from 7,289 people and found substantial individual variation, with different results for bench press and leg press.",
+    limitation: "Population averages do not identify an exact starting kg for a new exercise or guarantee an individual's reps at a given weight.",
+    href: "https://link.springer.com/article/10.1007/s40279-023-01937-7",
+  },
+  {
     grade: "Moderate · mechanism",
     title: "Repeated exposure and muscle-damage responses",
     result: "A 2023 review of 20 studies found less soreness and smaller performance disruption after a repeated exercise bout. This supports gradual familiarization with unfamiliar movements.",
@@ -298,6 +305,7 @@ export function TrainingGuide() {
           <p>Three-, four- and five-day schedules distribute the work differently. Changing frequency or program does not erase earlier sessions. Foundation supports equipment substitutions; Phase 2 currently requires its programmed full-gym lifts because each lift needs its own training max.</p>
           <p><strong className="text-stone-200">Coming back:</strong> Resuming a pause or a long gap in recorded workouts opens a short check-in. Say whether you stopped lifting, trained less, or kept lifting without logging. Confirm when you last lifted, how you feel and your weight goal, then review your next workouts before saving. Review these answers in Training notices. RepArc uses your actual time away to select easier return workouts; exercise familiarity and recovery checks still apply. The exact reductions are cautious app rules, not individually validated recovery predictions.</p>
           <p><strong className="text-stone-200">Past weights as a starting point:</strong> Return and calibration guidance can show a recent matching record, a reduced starting weight and a rep target. Use the same machine and setup. If the old reps or effort do not support a working-weight estimate, RepArc shows an easy warm-up rehearsal instead. Save your equipment’s weight choices for an exact selectable setting. Rehearsals are not working sets; only record reps and reps left after performing a set. Starting estimates do not prove how much strength you lost, and pain or movement-limiting soreness overrides them.</p>
+          <p><strong className="text-stone-200">First time in this program:</strong> RepArc can reuse your history of the identical exercise from another day or program. If you have never recorded it, similar-exercise experience helps with familiarization but does not establish its weight. Start light, follow the displayed reps-left target and record what you actually perform. A known starting weight is your own confirmed estimate, not a validated prediction. Rep targets come from your program and current return/calibration rules—not a claimed exact test of your capacity.</p>
           <p><strong className="text-stone-200">One missed workout:</strong> Reschedule it, skip it or record training elsewhere. RepArc continues with the next unfinished workout and does not stack missed workouts into today.</p>
           <p><strong className="text-stone-200">Unfamiliar exercises:</strong> everyone starts with reduced working volume, usually one set with at least four good reps remaining. Related training may allow two comfortable sets. Each exercise builds up with comparable performance and recovery feedback; an experienced lifter can still be unfamiliar with a movement.</p>
           <p>RepArc limits unfamiliar work in one session and names any exercises held for later. You can deliberately include their reduced sets. Return mode and familiarization use the smaller set allowance once. Phase 2 lifts without established history skip AMRAPs and cannot change their training maxes.</p>

@@ -9,7 +9,7 @@ import type { LoadAdjustment } from "./autoregulation";
 import { exerciseMetadata, MUSCLES, type Muscle } from "./exercise-metadata";
 import { measuredSessionDuration } from "./session-duration";
 
-export const REVIEW_VERSION = "12.0.3-review2";
+export const REVIEW_VERSION = "12.2.1-review3";
 // Published product thresholds for data sufficiency; these are not accuracy probabilities.
 export const REVIEW_RULES = { highExposures: 3, highRirCoverage: 80, moderateRirCoverage: 60, monthlyWeeks: 3, weeklySessions: 2, weeklySetCoverage: 70 } as const;
 export type ReviewPeriod = "day" | "week" | "month";
@@ -129,7 +129,7 @@ function exerciseReview(data: TrainingData, items: Occurrence[], all: Occurrence
   let trend: ExerciseReview["trend"] = "insufficient";
   let trendReason = "Record this exercise on another day to compare performance.";
   const familiar = exposure?.stateAtStart === "calibrated" || exposure?.stateAtStart === "developing";
-  if (exposure && !familiar || latest.session.affectsProgression === false) { trend = "calibration"; trendReason = "The recorded plan reduced or protected progression. Fewer sets or reps do not establish lost strength."; }
+  if (exposure && (!familiar || exposure.progressionEligible === false) || latest.session.affectsProgression === false) { trend = "calibration"; trendReason = "The recorded plan reduced or protected progression. Fewer sets or reps do not establish lost strength."; }
   else if (previous && currentPoint && previousPoint) {
     const previousExposure = previous.session.exerciseExposures?.[previous.key];
     const protocolsMatch = !!latest.session.planSnapshot && !!previous.session.planSnapshot
@@ -138,6 +138,7 @@ function exerciseReview(data: TrainingData, items: Occurrence[], all: Occurrence
       && exercise.repLow === previous.exercise.repLow && exercise.repHigh === previous.exercise.repHigh
       && latest.session.programWeek === previous.session.programWeek
       && previous.session.affectsProgression !== false
+      && previousExposure?.progressionEligible !== false
       && (!previousExposure || previousExposure.stateAtStart === "developing" || previousExposure.stateAtStart === "calibrated");
     const effortMatches = currentPoint.rir !== null && previousPoint.rir !== null && Math.abs(currentPoint.rir - previousPoint.rir) <= 1;
     if (!protocolsMatch || !effortMatches || exercise.loadingType !== "external" || exercise.sbsRole) {
@@ -282,12 +283,12 @@ export function buildProgressAnalysis(data: TrainingData, period: ReviewPeriod, 
       : status === "insufficient" ? "An effort target was not available for comparison." : "Saved rep and effort targets were met, with acceptable reported recovery. This is not a muscle-growth measurement.";
     return { muscle, direct, indirect, planned, inferred, status, reason };
   });
-  const weightsByDate = new Map<string, { date: string; weight: number; updatedAt: string }>();
+  const weightsByDate = new Map<string, { id: string; date: string; weight: number; updatedAt: string }>();
   for (const entry of activeWeighIns(data)) {
     const kg = convertWeight(entry.weight, entry.unit, "kg");
     if (!isValidDateOnly(entry.date) || entry.date > through || kg < 25 || kg > 300 || !Number.isFinite(kg)) continue;
     const old = weightsByDate.get(entry.date);
-    if (!old || entry.updatedAt > old.updatedAt) weightsByDate.set(entry.date, { date: entry.date, weight: convertWeight(entry.weight, entry.unit, data.profile?.unit ?? "kg"), updatedAt: entry.updatedAt });
+    if (!old || entry.updatedAt > old.updatedAt || entry.updatedAt === old.updatedAt && entry.id > old.id) weightsByDate.set(entry.date, { id: entry.id, date: entry.date, weight: convertWeight(entry.weight, entry.unit, data.profile?.unit ?? "kg"), updatedAt: entry.updatedAt });
   }
   const weights = [...weightsByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   const weightWindow = (low: string, high: string) => weights.filter((entry) => entry.date >= low && entry.date <= high);
