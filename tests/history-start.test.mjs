@@ -60,10 +60,36 @@ test("a low-rep record supplies a warm-up rehearsal, never a fabricated higher-r
   assert.equal(suggestion.rehearsal.value, 40);
   assert.equal(suggestion.rehearsal.reps, 5);
   const html = card(f, suggestion, { prescribed: true });
-  assert.match(html, /Warm-up rehearsal · not a working set/);
-  assert.match(html, /40 kg × 5 easy reps/);
+  assert.match(html, /First working set/);
+  assert.match(html, /10 reps · 4\+ reps left/);
+  assert.match(html, /Weight not yet established/);
+  assert.match(html, /Optional warm-up/);
+  assert.match(html, /Warm-up reference: 40 kg/);
+  assert.match(html, /Up to 5 easy reps · not a working set/);
   assert.match(html, /today calls for 10/);
   assert.doesNotMatch(html, /Fill first set|Try 40 kg × 10/);
+});
+
+test("screenshot case: 25 per side at six reps after 38 days yields only a separate 20-per-side rehearsal", () => {
+  const press = { ...row, id: "press", name: "Incline dumbbell press", perSide: true, sets: 1, repLow: 12, repHigh: 12 };
+  const f = fixture(press, { sourceDate: "2026-09-15", load: "25", reps: "6", rir: "2" });
+  f.data.program.returnPlan = t.buildReturnPlan(38, "planned", "2026-10-23T01:00:00Z");
+  const before = JSON.stringify(f.data);
+  const suggestion = recommend(f, { date: "2026-10-23", targetReps: 12, availableLoads: [10, 15, 20, 22.5, 25] });
+  assert.equal(suggestion.value, null, "Six reps cannot establish a twelve-rep working weight");
+  assert.equal(suggestion.startReps, 12);
+  assert.equal(suggestion.rehearsal.value, 20, "25 × .85 = 21.25, rounded down once to 20 per side");
+  assert.equal(suggestion.rehearsal.reps, 5, "min(5, 6, 12), not today's working reps");
+  assert.match(suggestion.historyReference, /38 days ago/);
+  const html = card(f, suggestion, { prescribed: true });
+  const [working, warmup] = html.split('</section>');
+  assert.match(working, /12 reps · 4\+ reps left/);
+  assert.match(working, /Weight not yet established/);
+  assert.doesNotMatch(working, /20 kg|5 easy reps|Fill first set/);
+  assert.match(warmup, /Warm-up reference: 20 kg per side/);
+  assert.match(warmup, /Up to 5 easy reps/);
+  assert.doesNotMatch(warmup, /<details[^>]*\sopen(?:\s|=|>)/);
+  assert.equal(JSON.stringify(f.data), before);
 });
 
 test("successive comfortable protected sessions do not repeatedly discount an already reduced weight", () => {

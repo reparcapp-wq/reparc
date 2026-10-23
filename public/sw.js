@@ -1,5 +1,5 @@
 // BUILD_ID is stamped from the app source before every production build.
-const BUILD_ID = "7f71e1d8daac";
+const BUILD_ID = "a1a2040b26b6";
 const CACHE_NAME = `reparc-shell-${BUILD_ID}`;
 const CORE_ASSETS = ["/", "/manifest.webmanifest", "/favicon.svg", "/icon-192.png", "/icon-512.png"];
 

@@ -85,3 +85,27 @@ test("Train uses only one guidance component and guards the fill action", async 
   assert.doesNotMatch(source, /Choose load|Next session target|Next-set adjustment/);
   assert.match(source, /if \(nextSetIndex >= 0\) setField\(key, nextSetIndex/);
 });
+
+test("warm-up stays separate, collapsed and cannot fill a working-set weight", () => {
+  const suggestion = { value: 20, startReps: 12, reason: "Six recorded reps cannot establish twelve.", rehearsal: { value: 20, reps: 5, bound: "at most 21.2 kg" } };
+  // A conflicting numeric field must not turn rehearsal guidance into an apply action.
+  const html = render({ targetRir: 4, suggestion });
+  const [working, warmup] = html.split('</section>');
+  assert.match(working, /First working set/);
+  assert.match(working, /12 reps · 4\+ reps left/);
+  assert.doesNotMatch(working, /20 kg|Fill first set/);
+  assert.match(warmup, /aria-label="Optional warm-up"/);
+  assert.doesNotMatch(warmup, /<button|\sopen=/);
+  for (const patch of [{ readiness: "pain" }, { skipped: true }, { entries: [entry(), entry(), entry()] }, { entries: [entry()], adjustment: { action: "hold", nextLoad: 43, reason: "Hold", evidence: [] } }]) {
+    assert.doesNotMatch(render({ suggestion, ...patch }), /Optional warm-up|Warm-up reference/);
+  }
+});
+
+test("warm-up bounds retain unit, assistance direction and unknown equipment limits", () => {
+  const html = render({ exercise: { ...exercise, loadingType: "assisted-bodyweight" }, unit: "lb", targetRir: 4,
+    suggestion: { value: null, startReps: 12, reason: "More history needed", rehearsal: { value: null, reps: 5, bound: "at least 60 lb assistance" } } });
+  const [working, warmup] = html.split('</section>');
+  assert.doesNotMatch(working, /60 lb|Warm-up limit/);
+  assert.match(warmup, /Warm-up limit: at least 60 lb assistance/);
+  assert.doesNotMatch(html, /Fill first set/);
+});
