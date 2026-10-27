@@ -465,7 +465,7 @@ const PHASE_TWO_EXERCISE_SOURCE: TrainingDay[] = [
     lower: false,
     exercises: [
       { id: "p2-ohp", name: "Standing overhead press", sets: 4, repLow: 10, repHigh: 12, restSeconds: 180, ratio: 0.55, sbsRole: "main", historyIds: ["ua3"], note: "Last set AMRAP", alternatives: ["Seated barbell press", "Machine shoulder press"] },
-      { id: "p2-hack-squat", name: "Hack squat", sets: 4, repLow: 12, repHigh: 15, restSeconds: 180, ratio: 1.7, sbsRole: "auxiliary", historyIds: ["lb1", "la2"], note: "Last set AMRAP", alternatives: ["Pendulum squat", "Smith squat"] },
+      { id: "p2-hack-squat", name: "Hack squat", sets: 4, repLow: 12, repHigh: 15, restSeconds: 180, ratio: 1.7, sbsRole: "auxiliary", historyIds: ["lb1", "la2"], note: "Last set AMRAP", alternatives: ["Pendulum squat", "Smith squat", "Leg press", "Linear leg press"] },
       { id: "p2-d4-pullup", name: "Pull-up", sets: 3, repLow: 6, repHigh: 10, restSeconds: 120, bodyweight: true, historyIds: ["ub1"], alternatives: ["Lat pulldown", "Assisted pull-up"] },
       { id: "p2-d4-leg-curl", name: "Lying leg curl", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.55, historyIds: ["lb4", "la3"], alternatives: ["Seated leg curl", "Nordic curl"] },
       { id: "p2-d4-abs", name: "Cable crunch", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.5, historyIds: ["lb6", "la6"], alternatives: ["Hanging leg raise", "Machine crunch"] },
@@ -688,8 +688,11 @@ export const equipmentForExerciseName = (name: string): Equipment[] => {
 export const resolveExerciseVariant = (exercise: Exercise, variantName = exercise.name): Exercise => {
   const metadata = exerciseMetadata(variantName);
   const loadingType: LoadingType = metadata?.loadingType ?? (variantName === exercise.name ? exercise.loadingType : undefined) ?? "external";
+  const auxiliaryReplacement = exercise.sbsRole === "auxiliary" && variantName !== exercise.name;
   return {
     ...exercise,
+    // Substitutes use their own calibrated rep-range progression, never the old lift's max.
+    ...(auxiliaryReplacement ? { sbsRole: undefined, note: "Equipment substitute · separate weight history" } : {}),
     name: variantName,
     ratio: variantName === exercise.name ? exercise.ratio : undefined,
     bodyweight: loadingType === "bodyweight" || loadingType === "assisted-bodyweight",
@@ -1114,7 +1117,8 @@ export const nextUnfinishedProgramDay = (data: TrainingData): TrainingDay | null
     const resolvedIds = new Set(data.absences
       .filter((record) => record.programId === "phase2" && record.programWeek === data.program.week && record.resolution !== "continue")
       .flatMap((record) => record.resolvedDayIds));
-    return days.find((day) => !completedIds.has(day.id) && !resolvedIds.has(day.id)) ?? days[0];
+    // A finished week needs an explicit close, never another empty Day 1.
+    return days.find((day) => !completedIds.has(day.id) && !resolvedIds.has(day.id)) ?? null;
   }
   const events: Array<{ at: string; dayId: string }> = activeSessions(data)
     .filter((session) => session.programId !== "phase2" && sessionCountsAsCompletedDay(session, data))
@@ -1133,6 +1137,7 @@ export const absenceDayIds = (data: TrainingData, count: number) => {
   if (!data.profile || count <= 0) return [];
   const days = programDays(data.program.activeId, data.program.frequency, data.profile.programTrack, data.profile.goal, data.profile.equipment);
   const first = nextUnfinishedProgramDay(data);
+  if (!first) return [];
   const start = Math.max(0, days.findIndex((day) => day.id === first?.id));
   return Array.from({ length: count }, (_, index) => days[(start + index) % days.length].id);
 };

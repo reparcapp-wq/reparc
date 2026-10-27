@@ -679,6 +679,26 @@ select {
   color: var(--brand-ink) !important;
 }
 
+/* Recovery answers use disabled controls only for the timed normal/mild window.
+   Concern options remain visibly actionable at any time. */
+.recovery-check .selection-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none !important;
+}
+
+.selection-button.recovery-problem:not(:disabled):not([data-selected="true"]) {
+  border-color: rgb(251 113 133 / 0.48) !important;
+  background: rgb(251 113 133 / 0.08) !important;
+  color: #fecdd3 !important;
+}
+
+.selection-button.recovery-problem:not(:disabled):not([data-selected="true"]):hover {
+  border-color: rgb(251 113 133 / 0.75) !important;
+  background: rgb(251 113 133 / 0.14) !important;
+  color: #ffe4e6 !important;
+}
+
 .brand-action {
   background: var(--brand-gold);
   color: var(--brand-ink);
@@ -812,6 +832,11 @@ html.light .selection-button[data-selected="true"] {
   border-color: #d99b2b !important;
   background: var(--brand-gold) !important;
   color: var(--brand-ink) !important;
+}
+html.light .selection-button.recovery-problem:not(:disabled):not([data-selected="true"]) {
+  border-color: rgb(190 24 93 / 0.48) !important;
+  background: rgb(190 24 93 / 0.06) !important;
+  color: #9d174d !important;
 }
 html.light .progress-ring { background: conic-gradient(#d99b2b var(--progress), rgb(28 33 29 / 0.1) 0); }
 html.light .exercise-card { box-shadow: 0 1rem 2.5rem rgb(28 33 29 / 0.08); }

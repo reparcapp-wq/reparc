@@ -46,6 +46,9 @@ import { BrandLockup, RepArcLoader } from "@/components/brand-lockup";
 import { Button } from "@/components/ui/button";
 import { SettingsTools } from "@/components/settings-tools";
 import { ExerciseSwap, LoadProfileEditor, EquipmentSettings } from "@/components/training-tools";
+import { RecoveryCheck, recoveryWait } from "@/components/recovery-check";
+import { createTrainingSyncGate } from "@/lib/training-sync-gate";
+import { canRefreshTrainingDate, phaseTwoWeekStatus } from "@/lib/training-session-status";
 import { loadEntryHint } from "@/lib/load-profile-editor";
 import { RECOMMENDATION_VERSION } from "@/lib/improvement";
 import { exerciseSwapOptions, isDirectSwap } from "@/lib/exercise-swaps";
@@ -219,6 +222,8 @@ function ConditioningEditor({ kind, value, onChange }: { kind: "warmup" | "post"
 
 const formatTimer = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
+
 
 function RestTimerPanel({ timer, remaining, permission, wakeLockState, compact = false, className = "", onClose, onAdd, onEnable }: {
   timer: RestTimer;
@@ -1718,14 +1723,15 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   const restoredSessionStartKeyRef = useRef<string | null>(null);
   const hydratedSessionKeyRef = useRef<string | null>(null);
   const restTimerAnchorRef = useRef<HTMLDivElement | null>(null);
-  const syncAttemptRef = useRef(false);
+  const syncGate = useRef(createTrainingSyncGate());
+  const [savingChanges, setSavingChanges] = useState(false);
 
   const selectScheduledDay = (programId: ProgramId, frequency: TrainingFrequency, preferredWeekdays: number[], selectedProfile?: Profile | null, date = today(), selectedData?: TrainingData) => {
     const days = programDays(programId, frequency, selectedProfile?.programTrack ?? trainingTrack(selectedProfile?.gender ?? "man"), selectedProfile?.goal ?? "balanced", selectedProfile?.equipment ?? "full");
     const weekday = new Date(`${date}T12:00:00`).getDay();
     const scheduledIndex = preferredWeekdays.indexOf(weekday);
     const nextUnfinished = selectedData ? nextUnfinishedProgramDay(selectedData) : null;
-    const match = nextUnfinished ?? days[scheduledIndex];
+    const match = selectedData && programId === "phase2" ? nextUnfinished : nextUnfinished ?? days[scheduledIndex];
     pendingRestSetsRef.current.clear();
     setReadiness(null);
     setReadinessOpen(false);
@@ -1745,7 +1751,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const initial = window.setTimeout(refresh, 0);
     const interval = window.setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
-    return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [noticesOpen]);
 
   const openForUser = async (trainingName: string) => {
@@ -1951,30 +1958,37 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   }, [restEndsAt, restExerciseId, restExerciseName, restRemaining, triggerRestAlert]);
 
   const attemptCloudSync = useCallback(async (announce = false) => {
-    if (!name || stage !== "app" || syncAttemptRef.current) return;
-    syncAttemptRef.current = true;
-    setSyncState("saving");
+    if (!name || stage !== "app") return;
+    // Keep an unfinished form on its current plan; explicit retry remains available.
+    if (!announce && (sessionStartedAt || editingSessionId)) return;
+    const ticket = syncGate.current.beginRead();
+    if (ticket === null) return;
+    if (announce) setSyncState("saving");
     try {
       const loaded = await loadTrainingData(account.id, name);
+      if (!syncGate.current.acceptsRead(ticket)) return;
       if (loaded.data) setData(loaded.data);
       setLastSyncedAt(loaded.lastSyncedAt);
       setSyncIssue(loaded.issue);
       setSyncState(loaded.pending ? "pending" : loaded.cloudAvailable ? "synced" : "local");
       if (announce) setNotice(loaded.issue ? `Cloud sync not complete. ${loaded.issue.message}` : loaded.pending ? "Your latest changes are saved on this device and waiting to sync" : loaded.cloudAvailable ? "Your changes are cloud saved" : "Cloud is unavailable — your data remains on this device");
     } catch (error) {
+      if (!syncGate.current.acceptsRead(ticket)) return;
       setSyncState("pending");
       const issue = syncIssueFromError(error);
       setSyncIssue(issue);
       if (announce) setNotice(issue.message);
     } finally {
-      syncAttemptRef.current = false;
+      syncGate.current.endRead();
     }
-  }, [account.id, name, stage]);
+  }, [account.id, name, stage, sessionStartedAt, editingSessionId]);
 
   useEffect(() => {
     const syncWhenOnline = () => void attemptCloudSync(true);
     const syncWhenFocused = () => {
-      if (document.visibilityState === "visible" && (syncState === "pending" || syncState === "local")) void attemptCloudSync();
+      // A second device may have saved a completed workout while this app was already open.
+      // Reloading on every return makes the current schedule catch up without waiting for a manual sync.
+      if (document.visibilityState === "visible") void attemptCloudSync();
     };
     window.addEventListener("online", syncWhenOnline);
     window.addEventListener("focus", syncWhenFocused);
@@ -1986,11 +2000,12 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       document.removeEventListener("visibilitychange", syncWhenFocused);
       window.clearInterval(interval);
     };
-  }, [attemptCloudSync, syncState]);
+  }, [attemptCloudSync]);
 
   useEffect(() => {
-    const refreshDateAfterResume = () => {
-      if (document.visibilityState !== "visible" || stage !== "app" || editingSessionId || sessionStartedAt) return;
+    const refreshScheduledDate = () => {
+      const completed = data.sessions.some(session => !session.deletedAt && session.date === activeDate && session.dayId === dayId && sessionCountsAsCompletedDay(session, data));
+      if (stage !== "app" || !canRefreshTrainingDate({ visible: document.visibilityState === "visible", editing: Boolean(editingSessionId), makeup: Boolean(makeupScheduledDate), started: Boolean(sessionStartedAt), completed })) return;
       const currentDate = today();
       if (activeDate === currentDate) return;
       setActiveDate(currentDate);
@@ -1998,15 +2013,22 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, currentDate, data);
       setNotice("A new day started — today’s scheduled workout is ready");
     };
-    window.addEventListener("focus", refreshDateAfterResume);
-    document.addEventListener("visibilitychange", refreshDateAfterResume);
+    // Browser focus events are not guaranteed when a PWA remains open across midnight.
+    // Keep the displayed session date fresh while the app is visible as well.
+    const interval = window.setInterval(refreshScheduledDate, 30_000);
+    window.addEventListener("focus", refreshScheduledDate);
+    document.addEventListener("visibilitychange", refreshScheduledDate);
     return () => {
-      window.removeEventListener("focus", refreshDateAfterResume);
-      document.removeEventListener("visibilitychange", refreshDateAfterResume);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshScheduledDate);
+      document.removeEventListener("visibilitychange", refreshScheduledDate);
     };
-  }, [activeDate, data, editingSessionId, sessionStartedAt, stage]);
+  }, [activeDate, data, dayId, editingSessionId, makeupScheduledDate, sessionStartedAt, stage]);
 
   const persist = async (next: TrainingData, successMessage?: string, mode: RestoreMode = "merge", optimistic = true) => {
+    if (!syncGate.current.beginWrite()) { setNotice("Your previous change is still saving. Please try again in a moment."); return false; }
+    setSavingChanges(true);
+    try {
     const previousUnit = data.profile?.unit;
     const nextUnit = next.profile?.unit;
     if (previousUnit && nextUnit && previousUnit !== nextUnit) {
@@ -2044,6 +2066,15 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setSyncState(result.pending ? "pending" : result.synced ? "synced" : "local");
     setNotice(result.saved ? result.pending ? `${successMessage ?? "Changes saved"} · queued for cloud sync` : successMessage ?? "Changes saved" : "Could not save. Keep this page open and try again.");
     return result.saved;
+    } catch (error) {
+      setSyncState("pending");
+      setSyncIssue(syncIssueFromError(error));
+      setNotice("Could not confirm the save. Keep this page open and retry; your entries are still here.");
+      return false;
+    } finally {
+      syncGate.current.endWrite();
+      setSavingChanges(false);
+    }
   };
 
   const finishProfile = async (profile: Profile, frequency: TrainingFrequency, preferredWeekdays: number[]) => {
@@ -2141,7 +2172,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         editingSession?.planSnapshot?.equipment ?? profile?.equipment ?? "full",
       );
   const exposurePlans = !savedSession && !lockedDraftPlan ? baseActiveDays.map((programDay) => buildExposurePlan(data, programDay, activeDate,
-    (exercise) => resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name),
+    (exercise) => resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole === "main" ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name),
     Boolean(noveltyOverrides[`${workingProgramId}:${workingWeek}:${activeDate}:${requestedScheduledDate}:${programDay.id}`]),
   )) : [];
   const activeDays = selectedSnapshot ? baseActiveDays.map((programDay) => programDay.id === selectedSnapshot.dayId ? trainingDayFromSnapshot(selectedSnapshot) : programDay) : exposurePlans.map((plan) => plan.day);
@@ -2152,14 +2183,14 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (selectedSnapshot?.exercises[snapshotIndex]?.key) return selectedSnapshot.exercises[snapshotIndex].key;
     const savedKey = selectedSnapshot?.exercises.find((item) => item.id === exercise.id)?.key;
     if (savedKey) return savedKey;
-    if (workingProgramId === "phase2" && exercise.sbsRole) return exercise.id;
+    if (workingProgramId === "phase2" && exercise.sbsRole === "main") return exercise.id;
     return exerciseKey(exercise, data.swaps);
   };
   const resolvedForExercise = (exercise: Exercise, index?: number) => {
     const saved = selectedSnapshot?.exercises.find((item) => item.key === keyForExercise(exercise, index));
     if (saved) return { ...saved, alternatives: [], sets: exercise.sets };
     const resolved = exerciseFromKey(keyForExercise(exercise, index))
-      ?? resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name);
+      ?? resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole === "main" ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name);
     return { ...resolved, sets: exercise.sets };
   };
 
@@ -2228,6 +2259,12 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     setNotice(`Make-up workout selected — this report will be filed under ${prettyDate(scheduledDate)}`);
   };
   const currentSession = savedSession;
+  const weekStatus = phaseTwoWeekStatus(data);
+  const previouslyCompleted = dayId ? weekStatus.byDay.get(dayId) : undefined;
+  const hasExistingDraft = Object.values(drafts[selectedDraftKey] ?? {}).some(sets => sets.some(entry => entry.w !== "" || entry.r !== "" || entry.rir !== ""));
+  const completedSelection = !editingSession && !makeupScheduledDate && !currentSession && !hasExistingDraft && Boolean(previouslyCompleted);
+  const weekClosedForEntry = !editingSession && !makeupScheduledDate && weekStatus.complete && !currentSession && !hasExistingDraft;
+  const showCompletedState = completedSelection || weekClosedForEntry;
   const draftKey = day ? `${workingProgramId}:${workingWeek}:${activeDate}:${requestedScheduledDate}:${day.id}` : null;
   const skippedExerciseKeys = (draftKey ? skippedDrafts[draftKey] : undefined) ?? currentSession?.skippedExerciseKeys ?? [];
 
@@ -2321,7 +2358,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const calibration = calibrationFor(exercise);
     const last = calibration.latest?.session;
     if (!last) return;
-    if ((status === "recovered" || status === "mild") && recoveryClock - Date.parse(last.completedAt ?? last.createdAt) < 48 * 3_600_000) {
+    if ((status === "recovered" || status === "mild") && !recoveryWait(last.completedAt ?? last.createdAt, recoveryClock).ready) {
       setNotice("Confirm normal or mild recovery after at least 48 hours.");
       return;
     }
@@ -2451,11 +2488,13 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
   };
 
   const setField = (key: string, index: number, field: keyof SetEntry, value: string) => {
+    if (savingChanges) return;
     if (!editingSession && returnContext.due) { openReturnCheckIn(); return; }
     if (field === "r" && value !== "" && !/^\d{0,3}$/.test(value)) return;
     if (field === "rir" && value !== "" && (!/^\d{0,2}(?:\.\d)?$/.test(value) || Number(value) > 10)) return;
     if (field === "w" && value !== "" && !/^\d{0,4}(?:\.\d{0,2})?$/.test(value)) return;
     if (!day || !draftKey) return;
+    syncGate.current.invalidateRead();
     if (!savedSession && !lockedDraftPlan && exposurePlan && value !== "") {
       const snapshot = buildSessionPlanSnapshot(data, day, workingProgramId, workingWeek, workingFrequency);
       const exposures = Object.fromEntries(snapshot.exercises.map((item) => {
@@ -2526,8 +2565,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const applySwap = async (exercise: Exercise, alternative: string | null) => {
     if (!day || !draftKey) return;
-    if (workingProgramId === "phase2" && exercise.sbsRole) {
-      setNotice("Phase 2 programmed lifts keep their own planning number. You can skip an unsuitable lift instead.");
+    if (workingProgramId === "phase2" && exercise.sbsRole === "main") {
+      setNotice("Phase 2 main lifts keep their own planning number. You can skip an unsuitable lift instead.");
       return;
     }
     if (alternative && (!isDirectSwap(exercise.name, alternative) || !exerciseSwapOptions(exercise.name, exercise.alternatives, profile?.equipment).includes(alternative))) {
@@ -2543,6 +2582,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       setNotice("This exercise already has entries. Keep its recorded variation or clear those fields before swapping.");
       return;
     }
+    if (workingProgramId === "phase2" && exercise.sbsRole === "auxiliary" && alternative && !window.confirm("Use this equipment substitute? It will use its own weight history and comfortable rep-range sets, without the original lift’s training max or final effort set. Saved workouts stay unchanged.")) return;
     const nextSwaps = { ...data.swaps };
     if (alternative || exercise.defaultVariant) nextSwaps[exercise.id] = alternative ?? exercise.name;
     else delete nextSwaps[exercise.id];
@@ -2555,8 +2595,9 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       const sets = Math.min(previousSets, calibrationSetCount(exercise.sets, calibration));
       const revised = { ...resolved, sets, key: nextKey };
       const exposures = { ...lockedDraftPlan.exposures };
+      const originalSets = exposures[previousKey]?.originalSets ?? exercise.sets;
       delete exposures[previousKey];
-      exposures[nextKey] = { policyVersion: 1, identity: calibration.identity, stateAtStart: calibration.state, noveltyRisk: calibration.risk, prescribedSets: sets, originalSets: lockedDraftPlan.exposures[previousKey]?.originalSets ?? exercise.sets, targetRir: Math.max(calibration.targetRir, data.program.returnPlan?.targetRir ?? 0), relatedHistory: calibration.relatedHistory, startingLoadSource: "guided", progressionEligible: calibration.state === "calibrated" && !calibration.recoveryPending && !data.program.calibrationRequired && !data.program.returnPlan };
+      exposures[nextKey] = { policyVersion: 1, identity: calibration.identity, stateAtStart: calibration.state, noveltyRisk: calibration.risk, prescribedSets: sets, originalSets, targetRir: Math.max(calibration.targetRir, data.program.returnPlan?.targetRir ?? 0), relatedHistory: calibration.relatedHistory, startingLoadSource: "guided", progressionEligible: calibration.state === "calibrated" && !calibration.recoveryPending && !data.program.calibrationRequired && !data.program.returnPlan };
       setDraftPlans((current) => ({ ...current, [draftKey]: { ...lockedDraftPlan, snapshot: { ...lockedDraftPlan.snapshot, exercises: lockedDraftPlan.snapshot.exercises.map((item) => item.key === previousKey ? revised : item) }, exposures } }));
     }
     setDrafts((previous) => {
@@ -2570,8 +2611,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       return {
         ...previous,
         [draftKey]: {
-          ...dayLog,
-          [nextKey]: dayLog[nextKey] ?? Array.from({ length: exercise.sets }, emptySet),
+          ...Object.fromEntries(Object.entries(dayLog).filter(([key]) => key !== previousKey)),
+          [nextKey]: Array.from({ length: lockedDraftPlan ? Math.min(lockedDraftPlan.snapshot.exercises.find(item => item.key === previousKey)?.sets ?? exercise.sets, calibrationSetCount(exercise.sets, calibration)) : calibrationSetCount(exercise.sets, calibration) }, emptySet),
         },
       };
     });
@@ -2583,6 +2624,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const saveSession = async () => {
     if (!day || !profile) return;
+    if (showCompletedState) { setNotice("This workout is already complete. Review the saved session or start the next week."); return; }
     if (!editingSession && returnContext.due) { openReturnCheckIn(); return; }
     if (readiness === "pain" || readiness === "severe-soreness") {
       setNotice(readiness === "severe-soreness" ? "Training is paused because you reported soreness that limits normal movement." : "Saving is paused because you reported pain or an unsafe condition.");
@@ -2702,8 +2744,19 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       currentSession ? "Session updated — previous version kept in history" : calibrationCompleted && nextReturnPlan ? `Return workout saved — ${nextReturnPlan.sessionsRemaining} easier workout${nextReturnPlan.sessionsRemaining === 1 ? "" : "s"} remaining` : calibrationCompleted ? "Starting-level workout saved — recovery checks still apply to each exercise" : calibrationSession ? "Partial return workout saved — complete it before increases resume" : "Session saved — strong work",
     );
     if (saved) {
-      if (sessionStartStorageKey) window.localStorage.removeItem(sessionStartStorageKey);
-      setNotice(currentSession ? "Session updated — previous version kept in history" : "Session saved — complete the week when you are ready");
+      if (sessionCountsAsCompletedDay(session, next)) {
+        if (sessionStartStorageKey) window.localStorage.removeItem(sessionStartStorageKey);
+        setSessionStartedAt(null);
+      }
+      // Saved entries now come from the durable session. Keep only edits made while awaiting the save.
+      if (draftKey) {
+        setDrafts(current => {
+          if (JSON.stringify(current[draftKey]) !== JSON.stringify(drafts[draftKey])) return current;
+          const remaining = { ...current }; delete remaining[draftKey]; return remaining;
+        });
+        setDraftPlans(current => { const remaining = { ...current }; delete remaining[draftKey]; return remaining; });
+        setSkippedDrafts(current => { const remaining = { ...current }; delete remaining[draftKey]; return remaining; });
+      }
       if (makeupScheduledDate) {
         setMakeupScheduledDate(null);
         selectScheduledDay(next.program.activeId, next.program.frequency, next.program.preferredWeekdays, next.profile, today(), next);
@@ -2749,7 +2802,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const saved = await persist(next, status === "extended" ? `Week ${data.program.week} extended` : finalWeek ? "Phase 2 completed" : `Week ${data.program.week} closed — week ${nextWeek} is ready`);
     if (saved && advances) {
       setActiveDate(today());
-      setDayId(null);
+      selectScheduledDay(next.program.activeId, next.program.frequency, next.program.preferredWeekdays, next.profile, today(), next);
       setReadiness(null);
       setSessionRpe(null);
       setSessionStartedAt(null);
@@ -2833,10 +2886,11 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     const exposure = exposureFor(exercise, key);
     const equipmentProfileKey = loadProfileId(exercise);
     const availableLoads = loadProfileValues(data.loadProfiles[equipmentProfileKey] ?? data.loadProfiles[key], profile.unit);
+
     return <section className="notice-section">
       <h3 className="text-base font-semibold">{exercise.name}</h3>
                           {exposure && exposure.stateAtStart !== "calibrated" && <div className="mt-3 rounded-xl bg-amber-300/[0.05] p-3 text-sm leading-5 text-stone-300"><p>{exposure.targetRir === undefined ? "The original effort target was not saved." : `Stop with at least ${exposure.targetRir} good reps left.`} Do {exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"}; warm-up sets do not count.</p>{exposure.relatedHistory && <p className="mt-2 text-stone-400">Experience with a similar exercise helps, but choose a fresh weight for this exact equipment.</p>}{!currentSession && <Button type="button" variant="ghost" className="mt-2 h-auto min-h-11 whitespace-normal px-0 text-amber-200" disabled={Boolean(knownLoadOverrides[`${draftKey}:${key}`])} onClick={() => { if (window.confirm("Use a starting weight you already know is comfortable on this exact exercise? The reduced sets and recovery checks still apply.")) setKnownLoadOverrides((value) => ({ ...value, [`${draftKey}:${key}`]: true })); }}>{knownLoadOverrides[`${draftKey}:${key}`] ? "Starting weight confirmed — close notices and enter it in the exercise fields" : "I know a comfortable starting weight"}</Button>}</div>}
-                          {!savedSession && calibration.latest && <details open={calibration.recoveryPending} className="mt-3 rounded-xl border border-white/10 p-3 text-sm leading-5"><summary className="cursor-pointer font-semibold">Recovery from {prettyDate(calibration.latest.session.date)}{calibration.recoveryPending ? " · needed before increases" : " · review"}</summary><p className="mt-2 text-stone-400">Over the following days, how did this exercise affect you? Confirm normal or mild recovery after at least 48 hours. Missing feedback holds increases.</p><div className="mt-3 grid grid-cols-2 gap-2">{([{ id: "recovered", label: "Normal movement" }, { id: "mild", label: "Mild and improving" }, { id: "limiting", label: "Limited daily movement" }, { id: "severe", label: "Severe / unusual symptoms" }] as const).map((option) => <Button key={option.id} type="button" variant="outline" data-selected={calibration.latestRecovery?.status === option.id} disabled={syncState === "saving" || ((option.id === "recovered" || option.id === "mild") && recoveryClock - Date.parse(calibration.latest!.session.completedAt ?? calibration.latest!.session.createdAt) < 48 * 3_600_000)} className="selection-button h-auto min-h-11 whitespace-normal rounded-lg px-2 py-2 text-xs" onClick={() => void recordRecovery(exercise, option.id)}>{option.label}</Button>)}</div>{(calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p className="mt-3 text-red-200">Wait until normal movement returns. Dark urine, marked swelling, unusual weakness or severe pain needs urgent medical assessment.</p>}</details>}
+                          {!savedSession && calibration.latest && <details open={calibration.recoveryPending} className="mt-3 rounded-xl border border-white/10 p-3 text-sm leading-5"><summary className="cursor-pointer font-semibold">Recovery from {prettyDate(calibration.latest.session.date)}{calibration.recoveryPending ? " · needed before increases" : " · review"}</summary><RecoveryCheck completedAt={calibration.latest.session.completedAt ?? calibration.latest.session.createdAt} now={recoveryClock} selected={calibration.latestRecovery?.status} busy={savingChanges} onSelect={(status) => void recordRecovery(exercise, status)} /></details>}
       {exerciseNeedsLoad(exercise) && <div className="mt-4">
         {!availableLoads.length ? <details className="rounded-xl border border-white/10 p-3"><summary className="min-h-11 cursor-pointer text-sm font-semibold">Tell RepArc your equipment’s weight choices</summary><LoadProfileEditor key={`${equipmentProfileKey}:${profile.unit}`} name={exercise.name} unit={profile.unit} values={availableLoads} hint={loadEntryHint(exercise)} onSave={(values) => saveLoadProfile(equipmentProfileKey, values)} /></details>
           : <p className="flex items-center gap-2 text-sm text-stone-400"><Check className="size-4" />{availableLoads.length} equipment weights saved · edit in Setup → Equipment weights</p>}
@@ -2846,7 +2900,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const formattedToday = prettyDate(activeDate, { weekday: "long", day: "numeric", month: "long" });
   const currentProgramDays = programDays(data.program.activeId, data.program.frequency, profile?.programTrack ?? "current", profile?.goal ?? "balanced", profile?.equipment ?? "full");
-  const weekCompletedDays = data.program.activeId === "phase2" ? currentProgramDays.filter((programDay) => activeSessions(data).some((session) => session.programId === "phase2" && session.programWeek === data.program.week && (session.programFrequency ?? 5) === data.program.frequency && session.dayId === programDay.id && sessionCountsAsCompletedDay(session, data))).length : 0;
+  const weekCompletedDays = weekStatus.byDay.size;
 
   return (
     <main id="main-content" className={`min-h-dvh bg-[#0b0d0c] text-stone-100 ${view === "train" && day ? "pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pb-12" : "pb-12"}`}>
@@ -2928,10 +2982,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           <div className="mt-3 flex items-end justify-between gap-4">
             <div>
               <p className="hidden text-sm text-stone-500 lg:block">Training as {name}</p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-[-0.05em]">{day?.name ?? "Rest day"}</h1>
-              <p className="mt-1 text-sm text-stone-400">{day?.focus ?? "Recovery is part of the program."}</p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-[-0.05em]">{weekClosedForEntry ? `Week ${data.program.week} complete` : day?.name ?? "Rest day"}</h1>
+              <p className="mt-1 text-sm text-stone-400">{weekClosedForEntry ? "Your workouts are saved. Choose when to start the next week." : completedSelection ? `Saved on ${prettyDate(previouslyCompleted!.date)}` : day?.focus ?? "Recovery is part of the program."}</p>
             </div>
-            {day && (
+            {day && !showCompletedState && (
               <div
                 className="progress-ring grid size-[4.6rem] shrink-0 place-items-center rounded-full"
                 style={{ "--progress": `${completion * 3.6}deg` } as React.CSSProperties}
@@ -2949,6 +3003,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
               <Button
                 key={item.id}
                 variant="outline"
+                disabled={savingChanges}
                 onClick={() => {
                   setDayId(item.id);
                   setReadiness(null);
@@ -2968,24 +3023,24 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                 data-selected={dayId === item.id}
                 className="selection-button h-11 rounded-xl px-0 text-xs font-bold"
               >
-                D{index + 1}
+                {weekStatus.byDay.has(item.id) && <Check className="size-3.5" />}D{index + 1}
               </Button>
             ))}
           </div>
 
           {data.program.activeId === "phase2" && !editingSession && (
-            <details className="mt-5 rounded-2xl border border-white/10 bg-white/[0.035] p-4 lg:block lg:[&>summary]:cursor-default">
+            <details key={`${data.program.week}:${weekStatus.complete}`} open={weekStatus.complete} className="mt-5 rounded-2xl border border-white/10 bg-white/[0.035] p-4 lg:block lg:[&>summary]:cursor-default">
               <summary className="flex cursor-pointer list-none items-center justify-between"><span className="eyebrow">Week progress</span><span className="font-mono text-sm text-stone-300">{weekCompletedDays} / {currentProgramDays.length}</span></summary>
               <Progress value={(weekCompletedDays / currentProgramDays.length) * 100} className="mt-3 h-1.5 bg-white/10 [&_[data-slot=progress-indicator]]:bg-amber-300" />
               <div className="mt-4 grid gap-2">
-                <Button type="button" onClick={() => void finishWeek(weekCompletedDays === currentProgramDays.length ? "completed" : "skipped")} className="h-10 rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><CalendarCheck className="size-4" />{weekCompletedDays === currentProgramDays.length ? "Complete week & advance" : "Skip missing & advance"}</Button>
+                <Button type="button" disabled={savingChanges} onClick={() => void finishWeek(weekStatus.complete ? "completed" : "skipped")} className="min-h-11 h-auto whitespace-normal rounded-xl bg-amber-300 text-xs font-bold text-[#0b0d0c] hover:bg-amber-200"><CalendarCheck className="size-4" />{weekStatus.complete ? data.program.week >= 21 ? "Finish Phase 2" : `Start week ${data.program.week + 1}` : "Skip missing & advance"}</Button>
                 <Button type="button" variant="ghost" onClick={() => void finishWeek("extended")} className="h-9 rounded-xl text-xs text-stone-400 hover:bg-white/10 hover:text-white">Extend this week</Button>
               </div>
               <p className="mt-3 text-[10px] leading-4 text-stone-600">Weeks never advance automatically. You decide when to stay, extend, skip, or progress.</p>
             </details>
           )}
 
-          {day && (
+          {day && !showCompletedState && (
             <div className="mt-5 hidden rounded-2xl border border-white/10 bg-white/[0.035] p-4 lg:block">
               <div className="flex items-center justify-between">
                 <span className="eyebrow">Sets logged</span>
@@ -3003,7 +3058,20 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
           {editingSession && <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-sky-300/20 bg-sky-300/[0.06] p-4"><div><p className="font-semibold text-sky-200">Editing {prettyDate(editingSession.date)}{workingScheduledDate !== editingSession.date ? ` · scheduled ${prettyDate(workingScheduledDate)}` : ""}</p><p className="mt-1 text-xs text-stone-400">This uses the saved historical plan and cannot change your current program, week, schedule, or training status.</p></div><Button type="button" variant="ghost" onClick={cancelHistoricalEdit} className="h-9 shrink-0 rounded-xl text-xs text-sky-200 hover:bg-white/10">Cancel</Button></div>}
           {!editingSession && workingScheduledDate < activeDate && <MakeupWorkoutNotice scheduledDate={prettyDate(workingScheduledDate)} performedDate={prettyDate(activeDate)} onTrainToday={() => { setMakeupScheduledDate(null); selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, activeDate, data); }} />}
           {data.program.status === "paused" && <div className="mb-4 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><p className="font-semibold text-amber-200">Training is paused</p><p className="mt-1 text-xs text-stone-400">Use the return check-in above when you are ready to resume.</p></div>}
-          {!day ? (
+          {!editingSession && !currentSession && hasExistingDraft && previouslyCompleted && <p role="status" className="mb-3 rounded-xl border border-amber-300/25 p-3 text-sm text-amber-200">This program day is already complete. These are additional unsaved entries from this device; review them before saving another session.</p>}
+          {showCompletedState ? (
+            <section className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-5" aria-label="Saved workout status">
+              <CalendarCheck className="size-7 text-amber-300" />
+              <h2 className="mt-3 text-xl font-semibold">{previouslyCompleted ? `${day?.name ?? "Workout"} is already saved` : `All ${weekStatus.total} workouts are saved`}</h2>
+              <p className="mt-2 text-sm leading-6 text-stone-400">{previouslyCompleted ? `Completed on ${prettyDate(previouslyCompleted.date)}. An empty form today does not mean that record was lost.` : "You have finished this program week. You do not need to repeat Day 1."}</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {previouslyCompleted && <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => editSession(previouslyCompleted)}>Review saved workout</Button>}
+                <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => setView("progress")}>View progress</Button>
+                {!weekStatus.complete && <Button className="min-h-11 rounded-xl" onClick={() => selectScheduledDay(data.program.activeId, data.program.frequency, data.program.preferredWeekdays, data.profile, today(), data)}>Next unfinished workout</Button>}
+              </div>
+              {weekStatus.complete && <p className="mt-3 text-sm text-stone-400">Use “{data.program.week >= 21 ? "Finish Phase 2" : `Start week ${data.program.week + 1}`}” in Week progress when ready. Your saved workouts keep their original dates.</p>}
+            </section>
+          ) : !day ? (
             <div className="grid min-h-[28rem] place-items-center rounded-[2rem] border border-dashed border-white/15 bg-white/[0.025] px-6 text-center">
               <div>
                 <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-white/[0.06] text-stone-400"><Dumbbell className="size-6" /></div>
@@ -3065,8 +3133,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                       <div className="grid gap-5 p-4 sm:p-5">
                         <div className="min-w-0">
                           <ExerciseSwap id={exercise.id} name={displayName} baseName={swapBaseExercise.name} options={[swapBaseExercise.name, ...exerciseSwapOptions(swapBaseExercise.name, swapBaseExercise.alternatives, profile.equipment)]}
-                            open={openSwap === exercise.id} disabled={Boolean(savedSession) || (workingProgramId === "phase2" && Boolean(exercise.sbsRole))}
-                            lockedLabel={workingProgramId === "phase2" && exercise.sbsRole ? "Fixed lift" : undefined}
+                            open={openSwap === exercise.id} disabled={Boolean(savedSession) || (workingProgramId === "phase2" && exercise.sbsRole === "main")}
+                            lockedLabel={workingProgramId === "phase2" && exercise.sbsRole === "main" ? "Main lift" : undefined}
                             onToggle={() => setOpenSwap(openSwap === exercise.id ? null : exercise.id)}
                             onSelect={(option) => { if (option === displayName) setOpenSwap(null); else void applySwap(swapBaseExercise, option === swapBaseExercise.name ? null : option); }}
                           />
@@ -3079,6 +3147,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                                 {exercise.perSide ? " · each side" : ""} · {formatTimer(exercise.restSeconds)} rest{prescription?.calibration ? " · finding your starting level" : prescription?.deload ? " · easier recovery week" : exercise.note ? ` · ${exercise.note}` : ""}
                               </p>
 
+                          {workingProgramId === "phase2" && exercise.sbsRole === "main" && <p className="mt-2 text-xs leading-5 text-stone-400">This main lift has its own Phase 2 training max. If equipment is unavailable, use “Skip / stop exercise”; do not log a different movement under this name.</p>}
                           {exposure && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{CALIBRATION_LABELS[exposure.stateAtStart]}</span><span className="text-stone-300">{exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} · {prescription && !prescription.deload ? "final effort set" : exposure.targetRir === undefined ? "original effort target not saved" : `leave at least ${exposure.targetRir} good reps`}</span></div>}
                           {!savedSession && (calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p role="alert" className="mt-3 rounded-xl border border-red-300/30 p-3 text-sm leading-6 text-red-200">Recovery check: normal movement was affected. Wait until it returns; seek urgent care for dark urine, marked swelling, unusual weakness or severe pain.</p>}
                           {!savedSession && calibration.recoveryPending && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-amber-200"><BellRing className="size-4 shrink-0" />Recovery check needed before increases</Button>}
@@ -3095,6 +3164,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               </span>,
                               <Input
                                 key={`weight-${setIndex}`}
+                                disabled={savingChanges}
                                 inputMode="decimal"
                                 value={entry.w}
                                 onChange={(event) => setField(key, setIndex, "w", event.target.value)}
@@ -3106,6 +3176,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               />,
                               <Input
                                 key={`reps-${setIndex}`}
+                                disabled={savingChanges}
                                 inputMode="numeric"
                                 value={entry.r}
                                 onChange={(event) => setField(key, setIndex, "r", event.target.value)}
@@ -3117,6 +3188,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                               />,
                               <Input
                                 key={`rir-${setIndex}`}
+                                disabled={savingChanges}
                                 inputMode="decimal"
                                 value={entry.rir}
                                 onChange={(event) => setField(key, setIndex, "rir", event.target.value)}
@@ -3222,7 +3294,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         />
       )}
 
-      {view === "train" && day && (
+      {view === "train" && day && !showCompletedState && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0b0d0c]/95 px-4 pb-[calc(.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl lg:hidden">
           {notice && <p className={`motion-notice mb-2 text-center text-xs ${notice.includes("Could not") || notice.includes("at least") ? "text-red-300" : "text-amber-300"}`} role="status">{notice}</p>}
           <Button onClick={() => void saveSession()} disabled={syncState === "saving" || data.program.status === "paused" || readiness === "pain" || readiness === "severe-soreness"} className="h-[3.25rem] w-full rounded-xl bg-amber-300 font-bold text-[#0b0d0c] hover:bg-amber-200">

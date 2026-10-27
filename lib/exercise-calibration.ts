@@ -21,7 +21,7 @@ const families: Array<[string, string, ExerciseNoveltyRisk, string[]]> = [
   ["overhead-press", "shoulders", "moderate", ["Dumbbell overhead press", "Seated dumbbell press", "Seated dumbbell shoulder press", "Standing dumbbell press", "Machine shoulder press", "Barbell overhead press", "Pike push-up"]],
   ["row", "back", "moderate", ["Chest-supported row", "Chest-supported dumbbell row", "Seated cable row", "Cable row", "One-arm dumbbell row", "Dumbbell row", "Machine row", "T-bar row", "Barbell row", "Band row"]],
   ["vertical-pull", "back", "moderate", ["Lat pulldown", "Neutral-grip pulldown", "Single-arm pulldown", "Pull-up", "Assisted pull-up", "Chin-up", "Band pulldown"]],
-  ["knee-dominant", "quads", "moderate", ["Barbell squat", "High-bar squat", "Front squat", "Safety-bar squat", "Goblet squat", "Hack squat", "Pendulum squat", "Leg press", "Smith machine squat"]],
+  ["knee-dominant", "quads", "moderate", ["Barbell squat", "High-bar squat", "Front squat", "Safety-bar squat", "Goblet squat", "Hack squat", "Pendulum squat", "Leg press", "Linear leg press", "Smith machine squat"]],
   ["unilateral-knee", "quads", "high", ["Bulgarian split squat", "Split squat", "Dumbbell split squat", "Walking lunge", "Reverse lunge", "Step-up"]],
   ["hinge", "hamstrings", "high", ["Romanian deadlift", "Dumbbell RDL", "Kickstand RDL", "Good morning", "Deadlift", "Trap-bar deadlift", "Block pull", "Rack pull"]],
   ["knee-flexion", "hamstrings", "moderate", ["Seated leg curl", "Lying leg curl", "Leg curl", "Slider leg curl"]],

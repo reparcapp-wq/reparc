@@ -473,7 +473,7 @@ export async function loadTrainingData(identity: string, legacyName?: string): P
   const merged = reconciliation?.data ?? remote.data ?? local!.data;
   const remoteSnapshot = remote.data ? JSON.stringify(remote.data) : "";
   const needsUpload = Boolean(local!.dirty || !remote.data || JSON.stringify(merged) !== remoteSnapshot);
-  const record = await storeMergedRecord(identity, merged, { dirty: needsUpload, lastSyncedAt: local!.lastSyncedAt, serverRevision: remote.revision, baseData: remote.data ?? undefined, conflictBackup: reconciliation?.conflicts.length ? local!.data : undefined, expectedRevision: local!.revision, observedData: local!.data });
+  const record = await storeMergedRecord(identity, merged, { dirty: needsUpload, lastSyncedAt: needsUpload ? local!.lastSyncedAt : new Date().toISOString(), serverRevision: remote.revision, baseData: remote.data ?? undefined, conflictBackup: reconciliation?.conflicts.length ? local!.data : undefined, expectedRevision: local!.revision, observedData: local!.data });
   if (!record.dirty) return { data: record.data, cloudAvailable: true, pending: false, lastSyncedAt: record.lastSyncedAt };
   const result = await syncTrainingData(identity);
   return { data: result.data, cloudAvailable: result.synced, pending: result.pending, lastSyncedAt: result.lastSyncedAt, issue: result.issue };

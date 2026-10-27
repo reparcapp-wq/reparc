@@ -44,7 +44,7 @@ group(["Pull-up","Chin-up"], "vertical-pull", "upper", ["back"], ["biceps"], hom
 group(["Assisted pull-up"], "vertical-pull", "upper", ["back"], ["biceps"], full, { loadingType: "assisted-bodyweight" });
 group(["Band pulldown"], "vertical-pull", "upper", ["back"], ["biceps"], home, { loadingType: "unloaded", estimatedMax: false });
 group(["Barbell squat","Front squat","High-bar squat","Safety-bar squat"], "knee-dominant", "lower", ["quads","glutes"], [], gym, { homeAlternative: "Goblet squat" });
-group(["Hack squat","Pendulum squat","Smith squat","Smith machine squat","Leg press"], "knee-dominant", "lower", ["quads","glutes"], [], full, { homeAlternative: "Goblet squat" });
+group(["Hack squat","Pendulum squat","Smith squat","Smith machine squat","Leg press","Linear leg press"], "knee-dominant", "lower", ["quads","glutes"], [], full, { homeAlternative: "Goblet squat" });
 group(["Goblet squat"], "knee-dominant", "lower", ["quads","glutes"], [], home);
 group(["Bulgarian split squat","Split squat","Dumbbell split squat","Walking lunge","Reverse lunge","Step-up"], "unilateral-knee", "lower", ["quads","glutes"], [], home, { perSide: true });
 group(["Romanian deadlift","Good morning","Trap-bar deadlift","Deadlift","Block pull","Rack pull"], "hinge", "lower", ["hamstrings","glutes"], ["back"], gym, { homeAlternative: "Dumbbell RDL" });
