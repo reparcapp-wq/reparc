@@ -1,5 +1,5 @@
 export type CloudSyncIssue = {
-  kind: "network" | "auth" | "blocked" | "validation" | "rate-limit" | "update" | "server" | "archive" | "conflict";
+  kind: "background" | "network" | "auth" | "blocked" | "validation" | "rate-limit" | "update" | "server" | "archive" | "conflict";
   message: string;
   status?: number;
   retryAfterSeconds?: number;
@@ -44,4 +44,15 @@ export async function cloudResponseError(response: Response): Promise<CloudSyncE
   if (status === 400 || status === 422) return new CloudSyncError({ kind: "validation", status, message: `The cloud could not accept this record (${status}).${detail ? ` ${detail}` : " Report this sync error so the record can be checked."}` });
   if (status === 413) return new CloudSyncError({ kind: "archive", status, message: "The cloud rejected the history size. Report sync error 413; do not delete workout records." });
   return new CloudSyncError({ kind: "server", status, message: `Cloud sync is temporarily unavailable (${status}). Retry in a moment.` });
+}
+
+/** Upload queued records during a workout without fetching an unrelated plan. */
+export function cloudSyncAction({ visible, announce, activeForm, pending, issue }: {
+  visible: boolean; announce: boolean; activeForm: boolean; pending: boolean; issue?: CloudSyncIssue;
+}): "none" | "upload" | "refresh" {
+  if (!visible) return "none";
+  if (!announce && pending && issue && !["background", "network", "server", "conflict"].includes(issue.kind)) return "none";
+  if (activeForm && pending) return "upload";
+  if (activeForm && !announce) return "none";
+  return "refresh";
 }

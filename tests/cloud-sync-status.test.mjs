@@ -283,3 +283,85 @@ test("the queued Session 2 completion-label rejection retries successfully witho
     assert.equal(training.sessionCountsAsCompletedDay(retried.data.sessions[1], retried.data), false);
   }
 });
+
+// Mobile lifecycle regressions: use the real storage queue with a controllable
+// document and fetch. These tests never contact a live account.
+test("a save in a hidden app stays durable and resumes once visible", async () => {
+  const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const doc = new EventTarget(); doc.visibilityState = "hidden";
+  Object.defineProperty(globalThis, "document", {configurable:true,value:doc});
+  try {
+    let calls = 0;
+    globalThis.fetch = async (_url, init) => { calls++; return json({data:JSON.parse(init.body).data,revision:1}); };
+    const identity = id(), saved = await storage.saveTrainingData(identity, data());
+    assert.equal(saved.saved,true);assert.equal(saved.issue.kind,"background");assert.equal(saved.pending,true);assert.equal(calls,0);
+    assert.equal(local(identity).data.weighIns[0].weight,72.3);
+    doc.visibilityState="visible";
+    const synced=await storage.syncTrainingData(identity);
+    assert.equal(synced.synced,true);assert.equal(synced.pending,false);assert.equal(calls,1);
+  } finally { if(oldDocument)Object.defineProperty(globalThis,"document",oldDocument);else delete globalThis.document; }
+});
+
+test("screen lock during a write keeps the queue, including an unacknowledged server commit", async () => {
+  const oldDocument=Object.getOwnPropertyDescriptor(globalThis,"document");
+  const doc=new EventTarget();doc.visibilityState="visible";
+  Object.defineProperty(globalThis,"document",{configurable:true,value:doc});
+  try {
+    let committed, started;
+    const ready=new Promise(resolve=>{started=resolve;});
+    globalThis.fetch=async (_url,init)=>{
+      committed=JSON.parse(init.body).data;started();
+      return await new Promise((resolve,reject)=>init.signal.addEventListener("abort",()=>reject(new DOMException("suspended","AbortError")),{once:true}));
+    };
+    const identity=id(),writing=storage.saveTrainingData(identity,data());
+    await ready;doc.visibilityState="hidden";doc.dispatchEvent(new Event("visibilitychange"));
+    const interrupted=await writing;
+    assert.equal(interrupted.issue.kind,"background");assert.equal(interrupted.pending,true);assert.equal(local(identity).dirty,true);
+    doc.visibilityState="visible";
+    let requests=0;
+    globalThis.fetch=async (_url,init)=>{
+      requests++;const payload=JSON.parse(init.body);
+      if(requests===1){assert.equal(payload.baseRevision,0);return json({data:committed,revision:1},409);}
+      assert.equal(payload.baseRevision,1);return json({data:payload.data,revision:2});
+    };
+    const retried=await storage.syncTrainingData(identity);
+    assert.equal(retried.synced,true);assert.equal(retried.data.weighIns.length,1);assert.equal(local(identity).serverRevision,2);
+  } finally {if(oldDocument)Object.defineProperty(globalThis,"document",oldDocument);else delete globalThis.document;}
+});
+
+test("screen lock after headers does not acknowledge an unread response body",async()=>{
+  const oldDocument=Object.getOwnPropertyDescriptor(globalThis,"document");
+  const doc=new EventTarget();doc.visibilityState="visible";
+  Object.defineProperty(globalThis,"document",{configurable:true,value:doc});
+  try {
+    let started;const ready=new Promise(resolve=>{started=resolve;});
+    globalThis.fetch=async (_url,init)=>({status:200,headers:new Headers(),text:async()=>{started();return await new Promise((resolve,reject)=>init.signal.addEventListener("abort",()=>reject(new DOMException("body suspended","AbortError")),{once:true}));}});
+    const identity=id(),writing=storage.saveTrainingData(identity,data());
+    await ready;doc.visibilityState="hidden";doc.dispatchEvent(new Event("visibilitychange"));
+    const result=await writing;assert.equal(result.issue.kind,"background");assert.equal(result.pending,true);assert.equal(local(identity).dirty,true);
+  }finally{if(oldDocument)Object.defineProperty(globalThis,"document",oldDocument);else delete globalThis.document;}
+});
+
+test("foreground retries upload an active workout queue without refreshing its plan",()=>{
+  const base={visible:true,announce:false,activeForm:true,pending:true,issue:{kind:"background",message:"paused"}};
+  assert.equal(status.cloudSyncAction(base),"upload");
+  assert.equal(status.cloudSyncAction({...base,visible:false}),"none");
+  assert.equal(status.cloudSyncAction({...base,pending:false}),"none");
+  assert.equal(status.cloudSyncAction({...base,activeForm:false}),"refresh");
+  for(const kind of ["auth","blocked","validation","rate-limit","update","archive"]){
+    assert.equal(status.cloudSyncAction({...base,issue:{kind,message:"requires attention"}}),"none");
+    assert.equal(status.cloudSyncAction({...base,announce:true,issue:{kind,message:"requires attention"}}),"upload");
+  }
+  for(const kind of ["network","server","conflict"])assert.equal(status.cloudSyncAction({...base,issue:{kind,message:"retry"}}),"upload");
+});
+
+test("an active workout defers a conflicting remote program change while retaining its queued record",async()=>{
+  const identity=id();globalThis.fetch=async()=>json({},502);
+  await storage.saveTrainingData(identity,data());
+  const original=local(identity).data, remote=structuredClone(original);remote.program.week=2;
+  let calls=0;globalThis.fetch=async()=>{calls++;return json({data:remote,revision:3},409);};
+  const result=await storage.syncTrainingData(identity,true);
+  assert.equal(calls,1);assert.equal(result.pending,true);assert.equal(result.issue.kind,"conflict");
+  assert.equal(result.data.program.week,original.program.week);assert.equal(local(identity).dirty,true);
+  assert.deepEqual(local(identity).data,original);
+});

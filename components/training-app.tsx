@@ -150,6 +150,7 @@ import {
 import {
   loadDrafts,
   loadTrainingData,
+  syncTrainingData,
   rememberName,
   saveTrainingData,
   replaceTrainingData,
@@ -159,7 +160,7 @@ import {
 import { downloadTrainingBackup, type RestoreMode } from "@/lib/backup";
 import type { Account } from "@/lib/account-client";
 import type { PwaLifecycle } from "@/hooks/use-pwa";
-import { syncIssueFromError, type CloudSyncIssue } from "@/lib/cloud-sync-status";
+import { cloudSyncAction, syncIssueFromError, type CloudSyncIssue } from "@/lib/cloud-sync-status";
 import { MakeupWorkoutNotice } from "@/components/makeup-workout-notice";
 
 type Stage = "loading" | "name" | "profile" | "consent" | "improvement" | "app";
@@ -1957,15 +1958,17 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     triggerRestAlert(restExerciseName ?? "Exercise", `rest-${restEndsAt}`);
   }, [restEndsAt, restExerciseId, restExerciseName, restRemaining, triggerRestAlert]);
 
+  const syncIssueKind = syncIssue?.kind;
   const attemptCloudSync = useCallback(async (announce = false) => {
     if (!name || stage !== "app") return;
-    // Keep an unfinished form on its current plan; explicit retry remains available.
-    if (!announce && (sessionStartedAt || editingSessionId)) return;
+    const action = cloudSyncAction({ visible: document.visibilityState === "visible", announce, activeForm: Boolean(sessionStartedAt || editingSessionId), pending: syncState === "pending", issue: syncIssueKind ? { kind: syncIssueKind, message: "" } : undefined });
+    if (action === "none") return;
     const ticket = syncGate.current.beginRead();
     if (ticket === null) return;
     if (announce) setSyncState("saving");
     try {
-      const loaded = await loadTrainingData(account.id, name);
+      const uploaded = action === "upload" ? await syncTrainingData(account.id, true) : null;
+      const loaded = uploaded ? { ...uploaded, cloudAvailable: uploaded.synced } : await loadTrainingData(account.id, name);
       if (!syncGate.current.acceptsRead(ticket)) return;
       if (loaded.data) setData(loaded.data);
       setLastSyncedAt(loaded.lastSyncedAt);
@@ -1981,7 +1984,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     } finally {
       syncGate.current.endRead();
     }
-  }, [account.id, name, stage, sessionStartedAt, editingSessionId]);
+  }, [account.id, name, stage, sessionStartedAt, editingSessionId, syncState, syncIssueKind]);
 
   useEffect(() => {
     const syncWhenOnline = () => void attemptCloudSync(true);
@@ -2001,6 +2004,16 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
       window.clearInterval(interval);
     };
   }, [attemptCloudSync]);
+
+  useEffect(() => {
+    // Covers a foreground event arriving before the interrupted save released
+    // its write lock. Subsequent failures use the regular 60-second retry.
+    if (stage !== "app" || savingChanges || syncState !== "pending") return;
+    const retry = window.setTimeout(() => {
+      if (document.visibilityState === "visible") void attemptCloudSync();
+    }, 1_500);
+    return () => window.clearTimeout(retry);
+  }, [stage, savingChanges, syncState, attemptCloudSync]);
 
   useEffect(() => {
     const refreshScheduledDate = () => {
@@ -2921,7 +2934,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         </div>
         {restTimer && <div className="border-t border-white/[0.07] px-4 py-2 sm:px-7"><div ref={restTimerAnchorRef} className="mx-auto max-w-7xl scroll-mt-2"><RestTimerPanel timer={restTimer} remaining={restRemaining} permission={alertPermission} wakeLockState={wakeLockState} compact onClose={closeRestTimer} onAdd={addRestTime} onEnable={() => void enableRestAlerts()} /></div></div>}
       </header>
-      {syncIssue && <div className="mx-auto max-w-7xl px-4 pt-3 sm:px-7"><details className="rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5"><summary className="min-h-7 cursor-pointer font-semibold text-amber-200">Cloud sync needs attention{syncState === "pending" ? " · changes saved on this device" : ""}</summary><p className="mt-1 break-words text-stone-300" role="status">{syncIssue.message}</p><Button type="button" variant="ghost" disabled={syncState === "saving" || syncState === "loading"} onClick={() => void attemptCloudSync(true)} className="mt-1 min-h-11 rounded-lg px-2 text-xs text-amber-200">{syncState === "saving" ? "Syncing…" : "Retry sync"}</Button></details></div>}
+      {syncIssue && <div className="mx-auto max-w-7xl px-4 pt-3 sm:px-7"><details className="rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5"><summary className="min-h-7 cursor-pointer font-semibold text-amber-200">{syncIssue.kind === "background" ? "Cloud sync queued" : "Cloud sync needs attention"}{syncState === "pending" ? " · changes saved on this device" : ""}</summary><p className="mt-1 break-words text-stone-300" role="status">{syncIssue.message}</p><Button type="button" variant="ghost" disabled={syncState === "saving" || syncState === "loading"} onClick={() => void attemptCloudSync(true)} className="mt-1 min-h-11 rounded-lg px-2 text-xs text-amber-200">{syncState === "saving" ? "Syncing…" : "Retry sync"}</Button></details></div>}
       {returnCheckInOpen && <ReturnCheckInPanel data={data} date={today()} onClose={closeReturnCheckIn} onSave={saveReturnCheckIn} onPause={pauseFromCheckIn} />}
       {view === "train" && !editingSession && !makeupScheduledDate && (returnContext.due || data.program.status === "paused") && <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-7"><div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.06] p-4"><div><p className="text-sm font-semibold">{data.program.status === "paused" ? "Ready to return?" : "Before your next workout"}</p><p className="mt-1 text-xs text-stone-400">Tell RepArc whether you stopped lifting or only stopped logging.</p></div><Button type="button" onClick={openReturnCheckIn} className="min-h-11 shrink-0 rounded-xl bg-amber-300 text-[#0b0d0c]">Check in</Button></div></div>}
       <Sheet open={noticesOpen && view === "train"} onOpenChange={setNoticesOpen}>

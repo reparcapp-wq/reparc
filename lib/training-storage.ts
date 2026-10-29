@@ -334,13 +334,36 @@ export async function saveDrafts(identity: string, drafts: Record<string, unknow
   }
 }
 
+const backgroundSyncIssue: CloudSyncIssue = {
+  kind: "background",
+  message: "Cloud sync paused while RepArc was in the background. Saved changes will retry automatically when you return.",
+};
+
 async function timedFetch(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 8_000) {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") throw new CloudSyncError(backgroundSyncIssue);
   const controller = new AbortController();
+  let backgrounded = false;
+  const pause = () => {
+    if (document.visibilityState !== "hidden") return;
+    backgrounded = true;
+    controller.abort();
+  };
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", pause);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    // Keep cancellation and the timeout active until the body is received too.
+    // A write is not acknowledged merely because its headers arrived.
+    const body = await response.text();
+    return new Response([204, 205, 304].includes(response.status) ? null : body, {
+      status: response.status, statusText: response.statusText, headers: response.headers,
+    });
+  } catch (error) {
+    if (backgrounded) throw new CloudSyncError(backgroundSyncIssue);
+    throw error;
   } finally {
     window.clearTimeout(timeout);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", pause);
   }
 }
 
@@ -421,7 +444,7 @@ async function uploadProfile(data: TrainingData, mode: SyncMode, baseRevision = 
   };
 }
 
-async function runSync(identity: string): Promise<TrainingSyncResult> {
+async function runSync(identity: string, deferPlanChanges = false): Promise<TrainingSyncResult> {
   let latest = await readLocalRecord(identity);
   if (!latest) throw new Error("No local profile to sync");
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -429,6 +452,9 @@ async function runSync(identity: string): Promise<TrainingSyncResult> {
     try {
       const remote = await uploadProfile(latest.data, latest.syncMode ?? "merge", latest.serverRevision ?? 0);
       if (remote.conflict) {
+        if (deferPlanChanges && ["program", "profile", "swaps"].some(field => JSON.stringify(latest!.data[field as "program" | "profile" | "swaps"]) !== JSON.stringify(remote.data[field as "program" | "profile" | "swaps"]))) {
+          return { data: latest.data, saved: true, synced: false, pending: true, lastSyncedAt: latest.lastSyncedAt, issue: { kind: "conflict", message: "Another device changed your training setup. Your changes are saved here. Finish or close this workout before refreshing the cloud plan." } };
+        }
         const merged = reconcileTrainingData(latest.data, remote.data, latest.baseData);
         latest = await storeMergedRecord(identity, merged.data, { dirty: true, lastSyncedAt: latest.lastSyncedAt, serverRevision: remote.revision, baseData: remote.data, conflictBackup: merged.conflicts.length ? latest.data : undefined, expectedRevision: latest.revision, observedData: latest.data });
         continue;
@@ -442,7 +468,7 @@ async function runSync(identity: string): Promise<TrainingSyncResult> {
   return { data: latest.data, saved: true, synced: !latest.dirty, pending: latest.dirty, lastSyncedAt: latest.lastSyncedAt, issue: latest.dirty ? { kind: "conflict", message: "Another device is updating this record. Your changes are queued; retry sync." } : undefined };
 }
 
-export async function syncTrainingData(identity: string): Promise<TrainingSyncResult> {
+export async function syncTrainingData(identity: string, deferPlanChanges = false): Promise<TrainingSyncResult> {
   const key = profileKey(identity);
   const active = activeSyncs.get(key);
   if (active) {
@@ -450,11 +476,11 @@ export async function syncTrainingData(identity: string): Promise<TrainingSyncRe
     const latest = await readLocalRecord(identity);
     // Share a failed attempt instead of immediately repeating it for every waiter.
     // A later explicit/foreground retry still uploads the newest durable record.
-    if (latest?.dirty && !completed.issue) return syncTrainingData(identity);
+    if (latest?.dirty && !completed.issue) return syncTrainingData(identity, deferPlanChanges);
     if (latest) return { ...completed, data: latest.data, pending: latest.dirty, synced: !latest.dirty && completed.synced };
     return completed;
   }
-  const sync = runSync(identity).finally(() => activeSyncs.delete(key));
+  const sync = runSync(identity, deferPlanChanges).finally(() => activeSyncs.delete(key));
   activeSyncs.set(key, sync);
   return sync;
 }
