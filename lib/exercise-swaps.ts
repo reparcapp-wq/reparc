@@ -10,7 +10,7 @@ for (const [role, names] of Object.entries({
   "hip-abduction": ["Hip abduction", "Machine hip abduction", "Cable abduction", "Band hip abduction", "Side-lying leg raise"],
   "hip-kickback": ["Cable kickback", "Band kickback", "Quadruped hip extension"],
   "hip-hinge": ["Cable pull-through", "Reverse hyperextension", "Reverse hyper"],
-  "trunk-flexion": ["Cable crunch", "Machine crunch", "Reverse crunch", "Hanging leg raise", "Hanging knee raise", "Captain's chair raise", "Captain's chair leg raise"],
+  "trunk-flexion": ["Decline sit-up", "Cable crunch", "Machine crunch", "Reverse crunch", "Hanging leg raise", "Hanging knee raise", "Captain's chair raise", "Captain's chair leg raise"],
   "trunk-stability": ["Dead bug"],
   "isometric-knee": ["Wall sit"],
 })) for (const name of names) roles[name.toLowerCase()] = role;

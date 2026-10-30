@@ -81,6 +81,7 @@ group(["Reverse pec deck","Face pull"], "shoulder-isolation", "upper", ["shoulde
 group(["Band pull-apart","Band lateral raise"], "shoulder-isolation", "upper", ["shoulders"], [], home, { loadingType: "unloaded", identityLoadingType: "unloaded", estimatedMax: false });
 group(["Cable crunch","Machine crunch"], "trunk", "trunk", ["trunk"], [], full, { homeAlternative: "Reverse crunch", estimatedMax: false });
 group(["Hanging leg raise","Hanging knee raise","Captain's chair raise","Captain's chair leg raise","Reverse crunch"], "trunk", "trunk", ["trunk"], [], home, { loadingType: "bodyweight", estimatedMax: false });
+group(["Decline sit-up"], "trunk", "trunk", ["trunk"], [], gym, { loadingType: "bodyweight", estimatedMax: false });
 group(["Dead bug"], "trunk", "trunk", ["trunk"], [], home, { loadingType: "unloaded", estimatedMax: false });
 
 // Old resolver omissions affected only unit/volume labels. Keep their history keys

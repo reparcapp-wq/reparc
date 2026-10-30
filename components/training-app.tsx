@@ -51,6 +51,7 @@ import { createTrainingSyncGate } from "@/lib/training-sync-gate";
 import { canRefreshTrainingDate, phaseTwoWeekStatus } from "@/lib/training-session-status";
 import { loadEntryHint } from "@/lib/load-profile-editor";
 import { RECOMMENDATION_VERSION } from "@/lib/improvement";
+import { exerciseSwapScope, swapUnloggedSavedExercise } from "@/lib/exercise-swap-state";
 import { exerciseSwapOptions, isDirectSwap } from "@/lib/exercise-swaps";
 import { lastAccessibleExercise, normalizeSkippedExercises } from "@/lib/training-navigation";
 import { FirstSetupOverview } from "@/components/reparc-overview";
@@ -2185,7 +2186,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         editingSession?.planSnapshot?.equipment ?? profile?.equipment ?? "full",
       );
   const exposurePlans = !savedSession && !lockedDraftPlan ? baseActiveDays.map((programDay) => buildExposurePlan(data, programDay, activeDate,
-    (exercise) => resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole === "main" ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name),
+    (exercise) => resolveExerciseVariant(exercise, data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name),
     Boolean(noveltyOverrides[`${workingProgramId}:${workingWeek}:${activeDate}:${requestedScheduledDate}:${programDay.id}`]),
   )) : [];
   const activeDays = selectedSnapshot ? baseActiveDays.map((programDay) => programDay.id === selectedSnapshot.dayId ? trainingDayFromSnapshot(selectedSnapshot) : programDay) : exposurePlans.map((plan) => plan.day);
@@ -2196,14 +2197,13 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
     if (selectedSnapshot?.exercises[snapshotIndex]?.key) return selectedSnapshot.exercises[snapshotIndex].key;
     const savedKey = selectedSnapshot?.exercises.find((item) => item.id === exercise.id)?.key;
     if (savedKey) return savedKey;
-    if (workingProgramId === "phase2" && exercise.sbsRole === "main") return exercise.id;
     return exerciseKey(exercise, data.swaps);
   };
   const resolvedForExercise = (exercise: Exercise, index?: number) => {
     const saved = selectedSnapshot?.exercises.find((item) => item.key === keyForExercise(exercise, index));
     if (saved) return { ...saved, alternatives: [], sets: exercise.sets };
     const resolved = exerciseFromKey(keyForExercise(exercise, index))
-      ?? resolveExerciseVariant(exercise, workingProgramId === "phase2" && exercise.sbsRole === "main" ? exercise.name : data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name);
+      ?? resolveExerciseVariant(exercise, data.swaps[exercise.id] ?? exercise.defaultVariant ?? exercise.name);
     return { ...resolved, sets: exercise.sets };
   };
 
@@ -2578,41 +2578,44 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
 
   const applySwap = async (exercise: Exercise, alternative: string | null) => {
     if (!day || !draftKey) return;
-    if (workingProgramId === "phase2" && exercise.sbsRole === "main") {
-      setNotice("Phase 2 main lifts keep their own planning number. You can skip an unsuitable lift instead.");
-      return;
-    }
     if (alternative && (!isDirectSwap(exercise.name, alternative) || !exerciseSwapOptions(exercise.name, exercise.alternatives, profile?.equipment).includes(alternative))) {
       setNotice("This is not a reviewed replacement for the exercise's training role. Choose a listed alternative or skip it.");
       return;
     }
-    if (savedSession) {
-      setNotice("Saved workouts keep their exercise variations. Choose a variation in a new workout instead.");
-      return;
-    }
+    if (savingChanges) return;
     const previousKey = keyForExercise(exercise);
-    if ((log[previousKey] ?? []).some((entry) => entry.w !== "" || entry.r !== "" || entry.rir !== "")) {
-      setNotice("This exercise already has entries. Keep its recorded variation or clear those fields before swapping.");
-      return;
-    }
-    if (workingProgramId === "phase2" && exercise.sbsRole === "auxiliary" && alternative && !window.confirm("Use this equipment substitute? It will use its own weight history and comfortable rep-range sets, without the original lift’s training max or final effort set. Saved workouts stay unchanged.")) return;
+    const scope = exerciseSwapScope(savedSession, log[previousKey] ?? [], Boolean(editingSessionId) || activeDate < today());
     const nextSwaps = { ...data.swaps };
     if (alternative || exercise.defaultVariant) nextSwaps[exercise.id] = alternative ?? exercise.name;
     else delete nextSwaps[exercise.id];
+    if (workingProgramId === "phase2" && exercise.sbsRole && alternative && !window.confirm("Use this equipment substitute? It uses its own weight history and comfortable rep-range sets. It will not use or update the original lift’s training max, and has no final effort set. This is a modified Phase 2 workout.")) return;
+    if (scope === "next") {
+      const saved = await persist({ ...data, swaps: nextSwaps, updatedAt: new Date().toISOString() }, `Next time: ${alternative ?? exercise.name}. This workout is unchanged.`, "merge", false);
+      if (saved) setOpenSwap(null);
+      return;
+    }
     const nextKey = exerciseKey(exercise, nextSwaps);
     const resolved = resolveExerciseVariant(exercise, alternative ?? exercise.name);
     const calibration = calibrationFor(resolved);
-    if (lockedDraftPlan) {
+    const sourcePlan = savedSession?.planSnapshot ?? lockedDraftPlan?.snapshot;
+    const sourceExposures = savedSession?.exerciseExposures ?? lockedDraftPlan?.exposures ?? {};
+    let next = { ...data, swaps: nextSwaps, updatedAt: new Date().toISOString() };
+    let updatedDraftPlan = lockedDraftPlan;
+    if (sourcePlan) {
       if (calibration.state !== "calibrated" && !window.confirm("This swap needs a fresh, comfortable load and reduced sets. Include this unfamiliar exercise in today's workout?")) return;
-      const previousSets = lockedDraftPlan.snapshot.exercises.find((item) => item.key === previousKey)?.sets ?? exercise.sets;
+      const previousSets = sourcePlan.exercises.find((item) => item.key === previousKey)?.sets ?? exercise.sets;
       const sets = Math.min(previousSets, calibrationSetCount(exercise.sets, calibration));
       const revised = { ...resolved, sets, key: nextKey };
-      const exposures = { ...lockedDraftPlan.exposures };
+      const exposures = { ...sourceExposures };
       const originalSets = exposures[previousKey]?.originalSets ?? exercise.sets;
       delete exposures[previousKey];
-      exposures[nextKey] = { policyVersion: 1, identity: calibration.identity, stateAtStart: calibration.state, noveltyRisk: calibration.risk, prescribedSets: sets, originalSets, targetRir: Math.max(calibration.targetRir, data.program.returnPlan?.targetRir ?? 0), relatedHistory: calibration.relatedHistory, startingLoadSource: "guided", progressionEligible: calibration.state === "calibrated" && !calibration.recoveryPending && !data.program.calibrationRequired && !data.program.returnPlan };
-      setDraftPlans((current) => ({ ...current, [draftKey]: { ...lockedDraftPlan, snapshot: { ...lockedDraftPlan.snapshot, exercises: lockedDraftPlan.snapshot.exercises.map((item) => item.key === previousKey ? revised : item) }, exposures } }));
+      exposures[nextKey] = { policyVersion: 1, identity: calibration.identity, stateAtStart: calibration.state, noveltyRisk: calibration.risk, prescribedSets: sets, originalSets, targetRir: Math.max(calibration.targetRir, sourceExposures[previousKey]?.targetRir ?? 0, data.program.returnPlan?.targetRir ?? 0), relatedHistory: calibration.relatedHistory, startingLoadSource: "guided", progressionEligible: calibration.state === "calibrated" && !calibration.recoveryPending && !data.program.calibrationRequired && !data.program.returnPlan };
+      if (savedSession) next = swapUnloggedSavedExercise(next, savedSession.id, previousKey, revised, exposures[nextKey], next.updatedAt);
+      else if (lockedDraftPlan) updatedDraftPlan = { ...lockedDraftPlan, snapshot: { ...sourcePlan, exercises: sourcePlan.exercises.map(item => item.key === previousKey ? revised : item) }, exposures };
     }
+    const saved = await persist(next, "Exercise changed for this workout and next time", "merge", false);
+    if (!saved) return;
+    if (updatedDraftPlan) setDraftPlans(current => ({ ...current, [draftKey]: updatedDraftPlan! }));
     setDrafts((previous) => {
       const dayLog = previous[draftKey] ?? sessionEntriesForDay(
         day,
@@ -2625,14 +2628,12 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
         ...previous,
         [draftKey]: {
           ...Object.fromEntries(Object.entries(dayLog).filter(([key]) => key !== previousKey)),
-          [nextKey]: Array.from({ length: lockedDraftPlan ? Math.min(lockedDraftPlan.snapshot.exercises.find(item => item.key === previousKey)?.sets ?? exercise.sets, calibrationSetCount(exercise.sets, calibration)) : calibrationSetCount(exercise.sets, calibration) }, emptySet),
+          [nextKey]: Array.from({ length: sourcePlan ? Math.min(sourcePlan.exercises.find(item => item.key === previousKey)?.sets ?? exercise.sets, calibrationSetCount(exercise.sets, calibration)) : calibrationSetCount(exercise.sets, calibration) }, emptySet),
         },
       };
     });
     setOpenSwap(null);
     setSkippedDrafts((current) => ({ ...current, [draftKey]: skippedExerciseKeys.filter(key => key !== previousKey && key !== nextKey) }));
-    const next = { ...data, swaps: nextSwaps, updatedAt: new Date().toISOString() };
-    await persist(next, "Exercise variation saved");
   };
 
   const saveSession = async () => {
@@ -3128,6 +3129,8 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                   const last = lastHistory?.session;
                   const lastEntries = lastHistory?.entries;
                   const displayName = exercise.name;
+                  const nextTimeSwap = exerciseSwapScope(savedSession, sets, Boolean(editingSessionId) || activeDate < today()) === "next";
+                  const swapSelection = nextTimeSwap ? data.swaps[exercise.id] ?? swapBaseExercise.defaultVariant ?? swapBaseExercise.name : displayName;
                   const guidance = exerciseGuidance(displayName);
                   const prescription = prescriptionFor(exercise);
                   const protectedSets = exposure?.progressionEligible === false || calibration.state !== "calibrated" || calibration.recoveryPending || Boolean(data.program.returnPlan);
@@ -3146,10 +3149,10 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                       <div className="grid gap-5 p-4 sm:p-5">
                         <div className="min-w-0">
                           <ExerciseSwap id={exercise.id} name={displayName} baseName={swapBaseExercise.name} options={[swapBaseExercise.name, ...exerciseSwapOptions(swapBaseExercise.name, swapBaseExercise.alternatives, profile.equipment)]}
-                            open={openSwap === exercise.id} disabled={Boolean(savedSession) || (workingProgramId === "phase2" && exercise.sbsRole === "main")}
-                            lockedLabel={workingProgramId === "phase2" && exercise.sbsRole === "main" ? "Main lift" : undefined}
+                            open={openSwap === exercise.id} disabled={savingChanges}
+                            nextTime={nextTimeSwap} selectionName={swapSelection}
                             onToggle={() => setOpenSwap(openSwap === exercise.id ? null : exercise.id)}
-                            onSelect={(option) => { if (option === displayName) setOpenSwap(null); else void applySwap(swapBaseExercise, option === swapBaseExercise.name ? null : option); }}
+                            onSelect={(option) => { if (option === swapSelection) setOpenSwap(null); else void applySwap(swapBaseExercise, option === swapBaseExercise.name ? null : option); }}
                           />
                               <p className="mt-1 font-mono text-sm text-stone-500">
                                 {prescription
@@ -3160,7 +3163,7 @@ export function TrainingApp({ account, onSignOut, onDeleteAccount, pwa }: { acco
                                 {exercise.perSide ? " · each side" : ""} · {formatTimer(exercise.restSeconds)} rest{prescription?.calibration ? " · finding your starting level" : prescription?.deload ? " · easier recovery week" : exercise.note ? ` · ${exercise.note}` : ""}
                               </p>
 
-                          {workingProgramId === "phase2" && exercise.sbsRole === "main" && <p className="mt-2 text-xs leading-5 text-stone-400">This main lift has its own Phase 2 training max. If equipment is unavailable, use “Skip / stop exercise”; do not log a different movement under this name.</p>}
+                          {workingProgramId === "phase2" && exercise.sbsRole === "main" && <p className="mt-2 text-xs leading-5 text-stone-400">This lift uses its own Phase 2 training max. An equipment substitute uses separate weights and rep-range sets; it does not update this lift’s training max.</p>}
                           {exposure && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{CALIBRATION_LABELS[exposure.stateAtStart]}</span><span className="text-stone-300">{exposure.prescribedSets} working set{exposure.prescribedSets === 1 ? "" : "s"} · {prescription && !prescription.deload ? "final effort set" : exposure.targetRir === undefined ? "original effort target not saved" : `leave at least ${exposure.targetRir} good reps`}</span></div>}
                           {!savedSession && (calibration.latestRecovery?.status === "severe" || calibration.latestRecovery?.status === "limiting") && <p role="alert" className="mt-3 rounded-xl border border-red-300/30 p-3 text-sm leading-6 text-red-200">Recovery check: normal movement was affected. Wait until it returns; seek urgent care for dark urine, marked swelling, unusual weakness or severe pain.</p>}
                           {!savedSession && calibration.recoveryPending && <Button type="button" variant="ghost" onClick={(event) => { noticeOpenerRef.current = event.currentTarget; setNoticesOpen(true); }} className="mt-1 h-auto min-h-11 whitespace-normal px-0 text-left text-sm text-amber-200"><BellRing className="size-4 shrink-0" />Recovery check needed before increases</Button>}

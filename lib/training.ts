@@ -355,7 +355,7 @@ export const PHASE_ONE_PROGRAM: TrainingDay[] = [
       { id: "lb3", name: "Leg extension", sets: 3, repLow: 12, repHigh: 15, restSeconds: 90, ratio: 0.8, alternatives: ["Sissy squat", "Goblet squat"] },
       { id: "lb4", name: "Lying leg curl", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.55, alternatives: ["Seated leg curl", "Nordic curl"] },
       { id: "lb5", name: "Seated calf raise", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.7, alternatives: ["Standing calf raise", "Leg press calf raise"] },
-      { id: "lb6", name: "Cable crunch", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.5, alternatives: ["Hanging leg raise", "Machine crunch"] },
+      { id: "lb6", name: "Cable crunch", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.5, alternatives: ["Hanging leg raise", "Machine crunch", "Decline sit-up"] },
     ],
   },
   {
@@ -422,7 +422,7 @@ const PHASE_TWO_EXERCISE_SOURCE: TrainingDay[] = [
     weekday: 1,
     lower: false,
     exercises: [
-      { id: "p2-squat", name: "Barbell squat", sets: 4, repLow: 10, repHigh: 12, restSeconds: 180, ratio: 1.45, sbsRole: "main", historyIds: ["lb1"], note: "Last set AMRAP", alternatives: ["High-bar squat", "Safety-bar squat"] },
+      { id: "p2-squat", name: "Barbell squat", sets: 4, repLow: 10, repHigh: 12, restSeconds: 180, ratio: 1.45, sbsRole: "main", historyIds: ["lb1"], note: "Last set AMRAP", alternatives: ["High-bar squat", "Safety-bar squat", "Smith squat", "Hack squat"] },
       { id: "p2-db-ohp", name: "Seated dumbbell shoulder press", sets: 4, repLow: 12, repHigh: 15, restSeconds: 180, ratio: 0.24, perSide: true, sbsRole: "auxiliary", historyIds: ["ua3"], note: "Last set AMRAP", alternatives: ["Machine shoulder press", "Standing dumbbell press"] },
       { id: "p2-d1-row", name: "Chest-supported row", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120, ratio: 0.7, historyIds: ["ua2", "ub3", "uc2"], alternatives: ["Seated cable row", "T-bar row"] },
       { id: "p2-d1-lateral", name: "Lateral raise", sets: 3, repLow: 12, repHigh: 20, restSeconds: 90, ratio: 0.13, perSide: true, historyIds: ["ua6", "ub5", "uc3"], alternatives: ["Cable lateral raise", "Machine lateral raise"] },
@@ -468,7 +468,7 @@ const PHASE_TWO_EXERCISE_SOURCE: TrainingDay[] = [
       { id: "p2-hack-squat", name: "Hack squat", sets: 4, repLow: 12, repHigh: 15, restSeconds: 180, ratio: 1.7, sbsRole: "auxiliary", historyIds: ["lb1", "la2"], note: "Last set AMRAP", alternatives: ["Pendulum squat", "Smith squat", "Leg press", "Linear leg press"] },
       { id: "p2-d4-pullup", name: "Pull-up", sets: 3, repLow: 6, repHigh: 10, restSeconds: 120, bodyweight: true, historyIds: ["ub1"], alternatives: ["Lat pulldown", "Assisted pull-up"] },
       { id: "p2-d4-leg-curl", name: "Lying leg curl", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.55, historyIds: ["lb4", "la3"], alternatives: ["Seated leg curl", "Nordic curl"] },
-      { id: "p2-d4-abs", name: "Cable crunch", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.5, historyIds: ["lb6", "la6"], alternatives: ["Hanging leg raise", "Machine crunch"] },
+      { id: "p2-d4-abs", name: "Cable crunch", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.5, historyIds: ["lb6", "la6"], alternatives: ["Hanging leg raise", "Machine crunch", "Decline sit-up"] },
     ],
   },
   {
@@ -558,7 +558,7 @@ const WOMENS_PHASE_ONE_SOURCE: TrainingDay[] = [
     { id: "w1-hip-thrust", name: "Hip thrust", sets: 3, repLow: 8, repHigh: 12, restSeconds: 180, ratio: 1.15, alternatives: ["Glute bridge", "Dumbbell hip thrust", "Cable pull-through"] },
     { id: "w1-leg-curl", name: "Seated leg curl", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.45, alternatives: ["Lying leg curl", "Slider leg curl", "Nordic curl"] },
     { id: "w1-calf", name: "Standing calf raise", sets: 3, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.8, alternatives: ["Single-leg calf raise", "Leg press calf raise", "Seated calf raise"] },
-    { id: "w1-crunch", name: "Cable crunch", sets: 2, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.4, alternatives: ["Reverse crunch", "Dead bug", "Hanging knee raise"] },
+    { id: "w1-crunch", name: "Cable crunch", sets: 2, repLow: 10, repHigh: 15, restSeconds: 90, ratio: 0.4, alternatives: ["Reverse crunch", "Dead bug", "Hanging knee raise", "Decline sit-up"] },
   ] },
   { id: "W1D2", name: "Upper A", focus: "Pull, press and shoulders", weekday: 2, lower: false, exercises: [
     { id: "w1-pulldown", name: "Lat pulldown", sets: 3, repLow: 8, repHigh: 12, restSeconds: 120, ratio: 0.65, alternatives: ["Band pulldown", "Assisted pull-up", "Single-arm pulldown"] },
@@ -688,11 +688,11 @@ export const equipmentForExerciseName = (name: string): Equipment[] => {
 export const resolveExerciseVariant = (exercise: Exercise, variantName = exercise.name): Exercise => {
   const metadata = exerciseMetadata(variantName);
   const loadingType: LoadingType = metadata?.loadingType ?? (variantName === exercise.name ? exercise.loadingType : undefined) ?? "external";
-  const auxiliaryReplacement = exercise.sbsRole === "auxiliary" && variantName !== exercise.name;
+  const sbsReplacement = Boolean(exercise.sbsRole) && variantName !== exercise.name;
   return {
     ...exercise,
     // Substitutes use their own calibrated rep-range progression, never the old lift's max.
-    ...(auxiliaryReplacement ? { sbsRole: undefined, note: "Equipment substitute · separate weight history" } : {}),
+    ...(sbsReplacement ? { sbsRole: undefined, note: "Equipment substitute · separate weight history" } : {}),
     name: variantName,
     ratio: variantName === exercise.name ? exercise.ratio : undefined,
     bodyweight: loadingType === "bodyweight" || loadingType === "assisted-bodyweight",

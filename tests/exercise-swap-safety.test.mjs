@@ -71,7 +71,7 @@ test("skipped SBS lifts cannot advance maxes, completion or calibration even wit
   assert.notEqual(calibration.exerciseCalibration(normalized,exercise,"2026-08-12").state,"calibrated");
 });
 
-test("UI wires skip separately from save completion and retains fixed SBS guards", async () => {
+test("UI wires skip separately from save completion and retains SBS substitution confirmation", async () => {
   const app = await readFile(new URL("../components/training-app.tsx", import.meta.url), "utf8");
   assert.match(app, /Skip \/ stop exercise/);
   assert.match(app, /!skippedExerciseKeys.length && completedSetCount >= plannedSets/);

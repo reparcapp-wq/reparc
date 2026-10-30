@@ -68,22 +68,23 @@ export function EquipmentSettings({ data, onUpdate }: { data: TrainingData; onUp
   </article>;
 }
 
-export function ExerciseSwap({ name, options, open, disabled, lockedLabel, onToggle, onSelect, id, baseName = name }: {
+export function ExerciseSwap({ name, options, open, disabled, lockedLabel, onToggle, onSelect, id, baseName = name, nextTime = false, selectionName = name }: {
   name: string; options: string[]; open: boolean; disabled: boolean; lockedLabel?: string;
   onToggle: () => void; onSelect: (name: string) => void; id: string;
-  baseName?: string;
+  baseName?: string; nextTime?: boolean; selectionName?: string;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   return <div className="exercise-heading" onKeyDown={(event) => { if (event.key === "Escape" && open) { event.stopPropagation(); onToggle(); triggerRef.current?.focus(); } }}>
     <div className="flex items-start justify-between gap-2">
       <h3 key={open ? "choosing" : name} className="swap-reveal min-w-0 flex-1 text-lg font-semibold leading-6">{open ? "Choose an exercise" : name}</h3>
-      <Button ref={triggerRef} type="button" variant="ghost" onClick={onToggle} disabled={disabled} aria-label={open ? `Cancel swapping ${name}` : `Swap ${name}`} aria-expanded={open} aria-controls={open ? `swap-options-${id}` : undefined} className="-mt-2 min-h-11 shrink-0 rounded-xl px-3 text-sm text-stone-300">
-        {lockedLabel ?? (open ? "Cancel" : "Swap")}<ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      <Button ref={triggerRef} type="button" variant="ghost" onClick={onToggle} disabled={disabled} aria-label={open ? `Cancel swapping ${name}` : `${nextTime ? "Choose next exercise after" : "Swap"} ${name}`} aria-expanded={open} aria-controls={open ? `swap-options-${id}` : undefined} className="-mt-2 min-h-11 shrink-0 rounded-xl px-3 text-sm text-stone-300">
+        {lockedLabel ?? (open ? "Cancel" : nextTime ? "Next time" : "Swap")}<ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
       </Button>
     </div>
+    {nextTime && <p className="mt-1 text-xs leading-5 text-stone-400">This workout stays unchanged. Next time: {selectionName}.</p>}
     {open && <div id={`swap-options-${id}`} className="swap-reveal mt-2 grid gap-2 sm:grid-cols-2" role="group" aria-label={`Alternatives to ${name}`}>
-      <p className="text-sm leading-5 text-stone-400 sm:col-span-2">Similar training role does not mean identical results or the same weight. If none suits you, skip this exercise.</p>
-      {[...new Set([name, ...options])].map((option) => <Button key={option} type="button" variant="outline" title={swapExplanation(baseName, option)} aria-pressed={option === name} data-selected={option === name} onClick={() => { onSelect(option); triggerRef.current?.focus(); }} className="selection-button h-auto min-h-11 justify-start whitespace-normal rounded-xl px-3 py-3 text-left text-sm leading-5">{option === name && <Check className="size-4 shrink-0" />}{option}</Button>)}
+      <p className="text-sm leading-5 text-stone-400 sm:col-span-2">{nextTime ? "Choose what to use in your next workout. " : "Choose equipment available today. "}Weights do not transfer between different exercises or machines.</p>
+      {[...new Set([name, ...options])].map((option) => <Button key={option} type="button" variant="outline" title={swapExplanation(baseName, option)} aria-pressed={option === selectionName} data-selected={option === selectionName} onClick={() => { onSelect(option); triggerRef.current?.focus(); }} className="selection-button h-auto min-h-11 justify-start whitespace-normal rounded-xl px-3 py-3 text-left text-sm leading-5">{option === selectionName && <Check className="size-4 shrink-0" />}{option}</Button>)}
       {name !== baseName && <p className="text-sm leading-5 text-stone-400 sm:col-span-2">{swapExplanation(baseName, name)}</p>}
     </div>}
   </div>;
